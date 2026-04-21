@@ -1,0 +1,46 @@
+/* ── CSS 변수 & 테마 토큰 ─────────────────────────────────── */
+:root {
+  --bg:#0f0f0f;--bg2:#1a1a1a;--bg3:#2a2a2a;
+  --sidebar-bg:#141414;
+  --border:#2a2a2a;--border2:#3a3a3a;
+  --text:#e8e0d4;--text2:#ddd6cc;--text3:#a89880;--text4:#908070;
+  --accent:#a89880;--accent-bg:#2a2218;--accent-border:#a89880;
+  --strong:#e8d8b8;--em:#b8a898;
+  --scroll-thumb:#3a3228;--scroll-track:#1a1a1a;
+  --danger-key:#2d1414;--danger-val:#201010;--warn-bg:#231a08;
+  --danger-text:#c97070;--warn-text:#c49030;
+  --page-l:#141210;--page-r:#111210;--spine-bg:#0a0908;
+  --page-line:rgba(168,152,128,.07);--page-num:rgba(168,152,128,.25);
+  --spine-line:rgba(168,152,128,.35);
+  --tag-hard-bg:#2a1212;--tag-hard-border:#7a3838;--tag-hard-text:#c07070;
+}
+[data-theme="light"]{
+  --bg:#f5f0ea;--bg2:#faf7f3;--bg3:#ede5d8;
+  --sidebar-bg:#ede8e0;
+  --border:#d8cfc4;--border2:#c8bfb4;
+  --text:#2a2218;--text2:#3a3228;--text3:#7a6248;--text4:#8a7868;
+  --accent:#7a6248;--accent-bg:#ede5d8;--accent-border:#7a6248;
+  --strong:#4a3228;--em:#6a5848;
+  --scroll-thumb:#c8b8a8;--scroll-track:#e8e0d8;
+  --danger-key:#ead8d8;--danger-val:#f2e8e8;--warn-bg:#fdf3dc;
+  --danger-text:#8a3535;--warn-text:#8a5a00;
+  --page-l:#f0ebe3;--page-r:#f5f0e8;--spine-bg:#c8b89a;
+  --page-line:rgba(90,70,50,.06);--page-num:rgba(90,70,50,.3);
+  --spine-line:rgba(90,70,50,.4);
+  --tag-hard-bg:#ead8d8;--tag-hard-border:#b08080;--tag-hard-text:#7a3030;
+}
+[data-theme="blue"]{
+  --bg:#0d1117;--bg2:#161b22;--bg3:#21262d;
+  --sidebar-bg:#0e1420;
+  --border:#21262d;--border2:#30363d;
+  --text:#cdd9e5;--text2:#adbac7;--text3:#6e9ab8;--text4:#7a8a98;
+  --accent:#6e9ab8;--accent-bg:#0d2137;--accent-border:#6e9ab8;
+  --strong:#e3eef9;--em:#96b4cc;
+  --scroll-thumb:#2a4a6a;--scroll-track:#161b22;
+  --danger-key:#2a1520;--danger-val:#1e0f18;--warn-bg:#1e1a0a;
+  --danger-text:#c97080;--warn-text:#b89040;
+  --page-l:#0e1420;--page-r:#0d1219;--spine-bg:#080d14;
+  --page-line:rgba(110,154,184,.07);--page-num:rgba(110,154,184,.25);
+  --spine-line:rgba(110,154,184,.35);
+  --tag-hard-bg:#2a1520;--tag-hard-border:#7a3050;--tag-hard-text:#c07090;
+}

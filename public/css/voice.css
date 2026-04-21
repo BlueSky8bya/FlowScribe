@@ -1,0 +1,306 @@
+/* ═══════════════════════════════════════════════════════════
+   Voice Archive — FlowScribe TTS 시스템 스타일
+   SOP §15, §16 기반
+═══════════════════════════════════════════════════════════ */
+
+/* ── 오버레이 ─────────────────────────────────────────────── */
+.voice-overlay{
+  position:fixed;inset:0;z-index:2500;
+  background:rgba(0,0,0,.72);backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .25s;
+}
+.voice-overlay.open{opacity:1;pointer-events:all;}
+
+.voice-panel{
+  width:min(840px,96vw);height:min(680px,90vh);
+  background:var(--bg2);border:1px solid var(--border2);border-radius:20px;
+  display:flex;flex-direction:column;overflow:hidden;
+  box-shadow:0 40px 120px rgba(0,0,0,.6);
+  transform:translateY(12px) scale(.97);transition:transform .25s;
+}
+.voice-overlay.open .voice-panel{transform:translateY(0) scale(1);}
+
+/* ── 패널 헤더 ───────────────────────────────────────────── */
+.voice-panel-header{
+  display:flex;align-items:center;gap:1rem;
+  padding:1.4rem 1.8rem 0;flex-shrink:0;
+}
+.voice-panel-title{font-size:1.1rem;color:var(--text2);letter-spacing:.06em;}
+.voice-panel-sub{font-size:.82rem;color:var(--text4);margin-left:.4rem;font-style:italic;}
+.voice-panel-close{
+  margin-left:auto;background:none;border:none;
+  color:var(--text4);font-size:1.3rem;cursor:pointer;padding:.2rem .5rem;
+  border-radius:6px;transition:color .15s;line-height:1;
+}
+.voice-panel-close:hover{color:var(--text2);}
+
+/* ── 탭 ──────────────────────────────────────────────────── */
+.voice-tabs{
+  display:flex;gap:0;border-bottom:1px solid var(--border);
+  padding:0 1.8rem;margin-top:1.1rem;flex-shrink:0;
+}
+.voice-tab{
+  background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--text4);font-family:inherit;font-size:.9rem;
+  padding:.6rem 1.2rem;cursor:pointer;transition:all .18s;
+  margin-bottom:-1px;white-space:nowrap;
+}
+.voice-tab:hover{color:var(--text2);}
+.voice-tab.active{color:var(--accent);border-bottom-color:var(--accent);}
+
+/* ── 탭 콘텐츠 ───────────────────────────────────────────── */
+.voice-tab-content{flex:1;overflow-y:auto;padding:1.5rem 1.8rem 1.8rem;}
+.voice-tab-pane{display:none;}
+.voice-tab-pane.active{display:block;}
+
+/* ── 보이스 카드 그리드 ──────────────────────────────────── */
+.voice-grid{display:flex;flex-direction:column;gap:.75rem;}
+
+.voice-card{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:13px;
+  padding:1.1rem 1.3rem;display:flex;align-items:flex-start;gap:1.1rem;
+  transition:border-color .18s;position:relative;
+}
+.voice-card:hover{border-color:var(--accent);}
+.voice-card.inactive{opacity:.5;}
+.voice-card.deleted{opacity:.35;pointer-events:none;}
+
+.voice-card-avatar{
+  width:48px;height:48px;border-radius:50%;flex-shrink:0;
+  background:var(--accent-bg);border:1px solid var(--accent-border);
+  color:var(--accent);font-size:1.2rem;
+  display:flex;align-items:center;justify-content:center;
+}
+
+.voice-card-body{flex:1;min-width:0;}
+.voice-card-name{font-size:1rem;color:var(--text2);margin-bottom:.28rem;}
+.voice-card-desc{font-size:.84rem;color:var(--text4);line-height:1.55;margin-bottom:.55rem;}
+
+.voice-card-tags{display:flex;flex-wrap:wrap;gap:.3rem;margin-bottom:.55rem;}
+.voice-tag{
+  font-size:.74rem;padding:.1rem .5rem;border-radius:8px;
+  background:var(--bg2);border:1px solid var(--border2);color:var(--text4);
+}
+.voice-tag.style{border-color:rgba(168,152,128,.3);color:var(--text3);}
+.voice-tag.char{border-color:rgba(110,154,184,.3);color:#6e9ab8;}
+
+.voice-card-meta{display:flex;align-items:center;gap:.65rem;flex-wrap:wrap;}
+.voice-scope-badge{
+  font-size:.74rem;padding:.12rem .6rem;border-radius:8px;
+  font-weight:bold;letter-spacing:.05em;
+}
+.voice-scope-badge.private{background:rgba(144,128,112,.1);color:var(--text4);border:1px solid var(--border2);}
+.voice-scope-badge.shared{background:rgba(168,152,128,.12);color:var(--accent);border:1px solid var(--accent-border);}
+.voice-scope-badge.public{background:rgba(80,180,100,.1);color:#4ab870;border:1px solid rgba(80,180,100,.4);}
+
+.voice-consent-badge{
+  font-size:.72rem;padding:.1rem .5rem;border-radius:6px;
+}
+.voice-consent-badge.confirmed{color:#4ab870;}
+.voice-consent-badge.pending{color:var(--warn-text);}
+.voice-consent-badge.revoked{color:var(--danger-text);}
+
+.voice-card-actions{display:flex;gap:.4rem;flex-shrink:0;align-items:flex-start;}
+.voice-action-btn{
+  background:none;border:1px solid var(--border2);border-radius:8px;
+  color:var(--text4);font-family:inherit;font-size:.8rem;
+  padding:.3rem .72rem;cursor:pointer;transition:all .18s;white-space:nowrap;
+}
+.voice-action-btn:hover{border-color:var(--accent);color:var(--accent);}
+.voice-action-btn.danger:hover{border-color:var(--danger-text);color:var(--danger-text);}
+.voice-action-btn.primary{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);}
+
+/* 재생 미니 바 */
+.voice-rate-row{
+  display:flex;align-items:center;gap:.7rem;margin-top:.55rem;
+}
+.voice-rate-label{font-size:.78rem;color:var(--text4);white-space:nowrap;}
+.voice-rate-slider{width:80px;accent-color:var(--accent);}
+.voice-rate-val{font-size:.78rem;color:var(--text3);min-width:2rem;}
+
+/* ── 등록 탭 — 단계 흐름 ─────────────────────────────────── */
+.va-reg-step{display:none;}
+.va-reg-step.active{display:block;}
+
+.va-consent-box{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:13px;
+  padding:1.4rem 1.6rem;margin-bottom:1.2rem;
+}
+.va-consent-title{font-size:1rem;color:var(--text2);margin-bottom:.9rem;font-weight:normal;}
+.va-consent-items{display:flex;flex-direction:column;gap:.7rem;}
+.va-consent-item{display:flex;align-items:flex-start;gap:.85rem;cursor:pointer;}
+.va-consent-check{
+  width:18px;height:18px;border:2px solid var(--border2);border-radius:5px;
+  flex-shrink:0;margin-top:.12rem;display:flex;align-items:center;justify-content:center;
+  transition:all .18s;cursor:pointer;
+}
+.va-consent-item.checked .va-consent-check{
+  background:var(--accent-bg);border-color:var(--accent);color:var(--accent);
+}
+.va-consent-text{font-size:.88rem;color:var(--text3);line-height:1.65;}
+.va-consent-text em{color:var(--danger-text);font-style:normal;}
+.va-consent-required{font-size:.75rem;color:var(--danger-text);margin-left:.3rem;}
+
+.va-form-group{margin-bottom:1rem;}
+.va-form-label{font-size:.84rem;color:var(--text4);margin-bottom:.4rem;display:block;}
+.va-form-input{
+  width:100%;background:var(--bg3);border:1.5px solid var(--border2);
+  border-radius:9px;color:var(--text);font-family:inherit;font-size:.95rem;
+  padding:.65rem 1rem;outline:none;transition:border-color .2s;
+}
+.va-form-input:focus{border-color:var(--accent);}
+.va-form-textarea{
+  width:100%;background:var(--bg3);border:1.5px solid var(--border2);
+  border-radius:9px;color:var(--text);font-family:inherit;font-size:.9rem;
+  padding:.65rem 1rem;outline:none;transition:border-color .2s;
+  resize:vertical;min-height:70px;
+}
+.va-form-textarea:focus{border-color:var(--accent);}
+
+.va-scope-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:.65rem;}
+.va-scope-card{
+  background:var(--bg3);border:1.5px solid var(--border2);border-radius:10px;
+  padding:.85rem .9rem;cursor:pointer;transition:all .2s;text-align:center;
+}
+.va-scope-card:hover{border-color:var(--accent);}
+.va-scope-card.selected{border-color:var(--accent);background:var(--accent-bg);}
+.va-scope-icon{font-size:1.4rem;margin-bottom:.4rem;}
+.va-scope-name{font-size:.9rem;color:var(--text2);margin-bottom:.2rem;}
+.va-scope-desc{font-size:.75rem;color:var(--text4);line-height:1.5;}
+
+/* 음성 파라미터 슬라이더 */
+.va-param-grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem;}
+.va-param-item{display:flex;flex-direction:column;gap:.3rem;}
+.va-param-label{font-size:.82rem;color:var(--text4);display:flex;justify-content:space-between;}
+.va-param-slider{accent-color:var(--accent);width:100%;}
+
+/* 태그 선택 */
+.va-tag-grid{display:flex;flex-wrap:wrap;gap:.35rem;}
+.va-tag-chip{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:8px;
+  color:var(--text4);font-size:.82rem;padding:.25rem .7rem;cursor:pointer;
+  transition:all .18s;
+}
+.va-tag-chip:hover{border-color:var(--accent);color:var(--accent);}
+.va-tag-chip.selected{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);}
+
+/* 녹음 영역 */
+.va-record-area{
+  background:var(--bg3);border:1.5px dashed var(--border2);border-radius:13px;
+  padding:2rem;text-align:center;
+  display:flex;flex-direction:column;align-items:center;gap:1.1rem;
+}
+.va-record-area.recording{border-color:var(--danger-text);border-style:solid;}
+.va-record-btn{
+  width:64px;height:64px;border-radius:50%;
+  background:var(--accent-bg);border:2px solid var(--accent-border);
+  color:var(--accent);font-size:1.6rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .22s;
+}
+.va-record-btn:hover{filter:brightness(1.2);}
+.va-record-btn.recording{background:rgba(201,112,112,.15);border-color:var(--danger-text);color:var(--danger-text);}
+.va-record-timer{font-size:1.5rem;color:var(--accent);letter-spacing:.15em;font-variant-numeric:tabular-nums;}
+.va-record-hint{font-size:.85rem;color:var(--text4);line-height:1.6;}
+.va-waveform{width:100%;height:48px;background:var(--bg2);border-radius:8px;overflow:hidden;}
+
+/* 등록 네비게이션 */
+.va-reg-nav{display:flex;justify-content:space-between;align-items:center;margin-top:1.5rem;padding-top:1.2rem;border-top:1px solid var(--border);}
+.va-step-indicators{display:flex;gap:.4rem;}
+.va-step-dot{width:8px;height:8px;border-radius:50%;background:var(--border2);transition:all .25s;}
+.va-step-dot.done,.va-step-dot.active{background:var(--accent);}
+
+/* ── 캐릭터 매핑 탭 ──────────────────────────────────────── */
+.char-map-grid{display:flex;flex-direction:column;gap:.7rem;}
+.char-map-item{
+  display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:.85rem;
+  background:var(--bg3);border:1px solid var(--border2);border-radius:10px;
+  padding:.8rem 1.1rem;
+}
+.char-map-name{font-size:.95rem;color:var(--text2);}
+.char-map-role{font-size:.78rem;color:var(--text4);}
+.char-map-select{
+  background:var(--bg2);border:1px solid var(--border2);border-radius:7px;
+  color:var(--text3);font-family:inherit;font-size:.85rem;
+  padding:.35rem .65rem;cursor:pointer;outline:none;
+  transition:border-color .18s;
+}
+.char-map-select:focus{border-color:var(--accent);}
+.char-map-pan{display:flex;flex-direction:column;align-items:center;gap:.15rem;}
+.char-map-pan-label{font-size:.7rem;color:var(--text4);}
+.char-map-pan-slider{width:72px;accent-color:var(--accent);}
+
+/* ── TTS 컨트롤러 바 ─────────────────────────────────────── */
+.tts-bar{
+  width:100%;max-width:760px;
+  background:var(--bg2);border:1px solid var(--border2);border-radius:11px;
+  padding:.75rem 1.2rem;display:flex;align-items:center;gap:.9rem;
+  margin-bottom:1rem;flex-wrap:wrap;
+}
+.tts-bar.hidden{display:none;}
+.tts-voice-select{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:7px;
+  color:var(--text3);font-family:inherit;font-size:.85rem;
+  padding:.32rem .65rem;flex:1;min-width:120px;max-width:200px;
+  outline:none;cursor:pointer;transition:border-color .18s;
+}
+.tts-voice-select:focus{border-color:var(--accent);}
+.tts-ctrl-btn{
+  background:none;border:1px solid var(--border2);border-radius:8px;
+  color:var(--text3);font-size:1rem;padding:.32rem .7rem;
+  cursor:pointer;transition:all .18s;line-height:1;
+}
+.tts-ctrl-btn:hover{border-color:var(--accent);color:var(--accent);}
+.tts-ctrl-btn.active{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);}
+.tts-ctrl-btn.danger:hover{border-color:var(--danger-text);color:var(--danger-text);}
+.tts-rate-wrap{display:flex;align-items:center;gap:.4rem;flex-shrink:0;}
+.tts-rate-label{font-size:.78rem;color:var(--text4);}
+.tts-rate-input{width:72px;accent-color:var(--accent);}
+.tts-rate-display{font-size:.78rem;color:var(--text3);min-width:2rem;}
+.tts-progress{flex:1;height:4px;background:var(--bg3);border-radius:2px;min-width:80px;cursor:pointer;}
+.tts-progress-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s linear;}
+.tts-status{font-size:.78rem;color:var(--text4);white-space:nowrap;}
+
+/* ── 공개 보이스 탐색 ────────────────────────────────────── */
+.browse-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:.7rem;}
+.browse-card{
+  background:var(--bg3);border:1px solid var(--border2);border-radius:12px;
+  padding:1rem 1.1rem;cursor:pointer;transition:all .18s;
+  display:flex;flex-direction:column;gap:.5rem;
+}
+.browse-card:hover{border-color:var(--accent);background:var(--accent-bg);}
+.browse-card-name{font-size:.96rem;color:var(--text2);}
+.browse-card-owner{font-size:.78rem;color:var(--text4);}
+.browse-card-tags{display:flex;flex-wrap:wrap;gap:.28rem;}
+
+/* ── 사이드바 보이스 버튼 ────────────────────────────────── */
+.sidebar-voice-btn{
+  width:100%;background:none;
+  border:1px solid var(--border2);border-radius:9px;
+  color:var(--text4);font-family:inherit;font-size:.92rem;
+  padding:.55rem .9rem;cursor:pointer;text-align:left;
+  transition:all .2s;margin-bottom:.6rem;
+  display:flex;align-items:center;gap:.6rem;
+}
+.sidebar-voice-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg);}
+.sidebar-voice-btn .voice-icon{font-size:1rem;}
+.sidebar-voice-count{
+  margin-left:auto;font-size:.76rem;
+  background:var(--bg3);border:1px solid var(--border2);
+  border-radius:10px;padding:.04rem .45rem;color:var(--text4);
+}
+
+/* ── 빈 상태 ─────────────────────────────────────────────── */
+.voice-empty{
+  text-align:center;padding:3rem 1rem;
+  display:flex;flex-direction:column;align-items:center;gap:1rem;
+}
+.voice-empty-icon{font-size:2.5rem;opacity:.4;}
+.voice-empty-text{font-size:.95rem;color:var(--text4);line-height:1.7;}
+.voice-empty-btn{
+  background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:10px;
+  color:var(--accent);font-family:inherit;font-size:.92rem;
+  padding:.6rem 1.5rem;cursor:pointer;transition:all .2s;
+}
+.voice-empty-btn:hover{filter:brightness(1.15);}

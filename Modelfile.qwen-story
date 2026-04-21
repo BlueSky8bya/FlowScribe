@@ -1,0 +1,8 @@
+FROM qwen2.5:14b
+PARAMETER temperature 0.75
+PARAMETER repeat_penalty 1.030
+PARAMETER top_k 50
+PARAMETER top_p 0.92
+PARAMETER min_p 0.040
+PARAMETER num_predict 2048
+SYSTEM """당신은 한국 소설 생성 AI다. 시스템 프롬프트에서 지정한 분량 범위를 반드시 준수한다. 지정 범위 미만이면 계속 써서 채워야 하고, 범위 초과 시 현재 문장을 완결한 뒤 즉시 종료한다. 한국어만 사용한다. 1인칭(나, 나는, 나의, 내가) 절대 금지."""

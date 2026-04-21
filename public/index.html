@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FlowScribe</title>
+  <link rel="stylesheet" href="/css/tokens.css" />
+  <link rel="stylesheet" href="/css/layout.css" />
+  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/modal.css" />
+  <link rel="stylesheet" href="/css/voice.css" />
+</head>
+<body>
+
+  <!-- ── 로그인 오버레이 ── -->
+  <div id="loginOverlay" style="display:none;">
+    <div class="login-box">
+      <div class="login-logo">✦ &nbsp; F L O W S C R I B E</div>
+      <p class="login-desc">읽을수록 나에게 맞춰지는 문학 플랫폼</p>
+      <div id="loginErrorMsg" style="display:none;color:var(--danger-text);font-size:.85rem;margin-bottom:.8rem;text-align:center;"></div>
+      <a href="/api/auth/google" class="google-login-btn">
+        <svg width="20" height="20" viewBox="0 0 48 48">
+          <path fill="#4285F4" d="M44.5 20H24v8.5h11.8C34.7 33.9 29.8 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 12.4 3 3 12.4 3 24s9.4 21 21 21c10.5 0 20-7.8 20-21 0-1.4-.1-2.7-.5-4z"/>
+          <path fill="#34A853" d="M6.3 14.7l7 5.1C15 16.1 19.2 13 24 13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 5.1 29.6 3 24 3 16.3 3 9.7 7.9 6.3 14.7z"/>
+          <path fill="#FBBC05" d="M24 45c5.5 0 10.5-1.8 14.4-4.9l-6.7-5.5C29.8 36.4 27 37 24 37c-5.8 0-10.7-3.9-12.5-9.3l-7 5.4C8 39.4 15.4 45 24 45z"/>
+          <path fill="#EA4335" d="M44.5 20H24v8.5h11.8c-.8 2.3-2.3 4.3-4.3 5.7l6.7 5.5C42.1 36.2 45 30.5 45 24c0-1.4-.1-2.7-.5-4z"/>
+        </svg>
+        Google 계정으로 로그인
+      </a>
+    </div>
+  </div>
+
+  <!-- ── Voice Archive 오버레이 ── -->
+  <div class="voice-overlay" id="voiceOverlay">
+    <div class="voice-panel">
+      <div class="voice-panel-header">
+        <span class="voice-panel-title">🎙 Voice Archive</span>
+        <span class="voice-panel-sub">음성 자산 · 캐릭터 배역 관리</span>
+        <button class="voice-panel-close" onclick="closeVoiceArchive()">✕</button>
+      </div>
+      <div class="voice-tabs">
+        <button class="voice-tab active" data-tab="mine"     onclick="switchVoiceTab('mine')">내 보이스</button>
+        <button class="voice-tab"        data-tab="register" onclick="switchVoiceTab('register')">+ 등록</button>
+        <button class="voice-tab"        data-tab="browse"   onclick="switchVoiceTab('browse')">공개 탐색</button>
+        <button class="voice-tab"        data-tab="map"      onclick="switchVoiceTab('map')">캐릭터 배역</button>
+      </div>
+      <div class="voice-tab-content">
+        <div class="voice-tab-pane active" data-tab="mine"     id="vTabMine"></div>
+        <div class="voice-tab-pane"        data-tab="register" id="vTabRegister"></div>
+        <div class="voice-tab-pane"        data-tab="browse"   id="vTabBrowse"></div>
+        <div class="voice-tab-pane"        data-tab="map"      id="vTabMap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 캘리브레이션 오버레이 ── -->
+  <div class="calib-overlay" id="calibOverlay">
+    <div class="calib-modal">
+      <div class="calib-progress-bar-wrap">
+        <div class="calib-progress-bar" id="calibProgressBar" style="width:0%"></div>
+      </div>
+      <div class="calib-progress-dots" id="calibProgressDots"></div>
+      <div id="calibBody"></div>
+    </div>
+  </div>
+
+  <!-- ── 커스텀 다이얼로그 ── -->
+  <div class="fs-dialog-overlay" id="fsDialogOverlay" role="dialog" aria-modal="true">
+    <div class="fs-dialog" id="fsDialog">
+      <span class="fs-dialog-icon" id="fsDialogIcon"></span>
+      <div class="fs-dialog-title" id="fsDialogTitle"></div>
+      <div class="fs-dialog-desc" id="fsDialogDesc"></div>
+      <input class="fs-dialog-input" id="fsDialogInput" type="text" style="display:none;" />
+      <div class="fs-dialog-actions" id="fsDialogActions"></div>
+    </div>
+  </div>
+
+  <div class="app-shell">
+
+    <!-- ════ 사이드바 ════ -->
+    <aside class="sidebar">
+      <div class="sidebar-resize-handle" id="sbResizeHandle"></div>
+
+      <!-- 로고 -->
+      <div class="sidebar-logo">✦ &nbsp;F L O W S C R I B E</div>
+
+      <!-- 유저 -->
+      <div class="sidebar-user" id="userBar" style="display:none;">
+        <div class="sidebar-avatar" id="userAvatar">?</div>
+        <div class="sidebar-userinfo">
+          <div class="sidebar-username" id="userDisplayName">—</div>
+          <div class="sidebar-email" id="userEmail"></div>
+          <button class="sidebar-logout" onclick="logout()">로그아웃</button>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- ── 내 서재 ── -->
+      <div class="sidebar-section">
+        <div class="sb-section-label">내 서재</div>
+        <button class="sidebar-new-btn" onclick="createNewBook()">
+          <span class="plus-icon">＋</span>새 책 만들기
+        </button>
+        <div id="bookList" class="book-list"></div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- ── 아크 진행 ── -->
+      <div class="sidebar-section" id="arcSection" style="display:none;">
+        <div class="sb-section-label">이야기 진행</div>
+        <div class="arc-block">
+          <div class="arc-label-row">
+            <span class="arc-name" id="arcName">제1막</span>
+            <span class="arc-range" id="arcRange">1–10화</span>
+            <span class="arc-pct" id="arcPct">0%</span>
+          </div>
+          <div class="arc-track">
+            <div class="arc-fill" id="arcFill" style="width:0%"></div>
+            <div class="arc-ticks" id="arcTicks"></div>
+          </div>
+          <div class="arc-ep-row" id="arcEpRow"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-divider" id="arcDivider" style="display:none;"></div>
+
+      <!-- ── 에피소드 목록 ── -->
+      <div class="sidebar-section">
+        <div class="sb-section-label">에피소드 <span class="sb-count-badge" id="epListCount" style="text-transform:none;letter-spacing:0;font-size:.6rem;"></span></div>
+        <div id="episodeList" class="episode-list"></div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- 복선 보기 버튼 (결말 완성 후에만 표시) -->
+      <button class="foreshadow-reveal-btn" id="foreshadowRevealBtn" style="display:none;" onclick="showForeshadowReveal()">
+        🔍 복선 되돌아보기
+      </button>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- ── 독자 프로필 (Hexagon) ── -->
+      <div class="sidebar-section">
+        <div class="sb-section-row">
+          <div class="sb-section-label" style="margin:0;">독자 프로필</div>
+          <span class="sb-profile-hint" data-tip="화를 읽을수록 AI가&#10;취향을 자동 학습합니다">✦ AI 학습 중</span>
+        </div>
+        <div class="hexagon-wrap">
+          <svg class="hexagon-svg" id="hexagonSvg" viewBox="-10 -10 240 210" width="240" height="210"></svg>
+        </div>
+        <div class="hex-legend-grid" id="hexLegendGrid"></div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- ── 세션 통계 ── -->
+      <div class="sidebar-section">
+        <div class="sb-section-label">독서 통계</div>
+        <div class="session-stats" id="sessionStats">
+          <div class="stat-item">
+            <div class="stat-num" id="statTotalSessions">—</div>
+            <div class="stat-label">총 독서 세션</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-num" id="statAvgCompletion">—</div>
+            <div class="stat-label">평균 완독률</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-num" id="statAvgTime">—</div>
+            <div class="stat-label">평균 체류</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <!-- ── Voice Archive ── -->
+      <div class="sidebar-section">
+        <div class="sb-section-label">음성</div>
+        <button class="sidebar-voice-btn" onclick="openVoiceArchive('mine')">
+          <span class="voice-icon">🎙</span>
+          Voice Archive
+          <span class="sidebar-voice-count" id="voiceCount"></span>
+        </button>
+        <button class="sidebar-voice-btn" onclick="openVoiceArchive('map')" style="font-size:.86rem;color:var(--text4);">
+          <span class="voice-icon">👤</span>
+          캐릭터 배역 설정
+        </button>
+      </div>
+
+      <!-- 테마 -->
+      <div class="sidebar-bottom">
+        <div class="sidebar-divider"></div>
+        <div class="sidebar-theme">
+          <button class="theme-btn" id="t-dark"  onclick="setTheme('dark')">다크</button>
+          <button class="theme-btn" id="t-light" onclick="setTheme('light')">라이트</button>
+          <button class="theme-btn" id="t-blue"  onclick="setTheme('blue')">블루</button>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- ════ 메인 ════ -->
+    <main class="main-content">
+
+      <!-- 상단 고정 바 -->
+      <div class="main-topbar">
+        <div class="read-mode-bar">
+          <button class="read-mode-btn active" id="mode-eye"
+            data-tip="📖 묵독 — 눈으로 조용히 읽기&#10;대사·지문이 시각적으로 구분됩니다&#10;체류 시간·스크롤로 취향을 학습합니다"
+            onclick="setReadMode('eye');onReadModeChange?.('eye')">
+            📖 묵독
+          </button>
+          <button class="read-mode-btn" id="mode-aloud"
+            data-tip="🎤 낭독 — 내가 소리내어 읽기&#10;문단 클릭 → 현재 위치 강조 표시&#10;↑ ↓ 방향키로 문단 이동 가능"
+            onclick="setReadMode('aloud');onReadModeChange?.('aloud')">
+            🎤 낭독
+          </button>
+          <button class="read-mode-btn" id="mode-tts"
+            data-tip="🔊 청독 — AI가 읽어주기&#10;읽는 중인 문장이 자동으로 강조됩니다&#10;지나간 문장은 흐리게 처리됩니다"
+            onclick="setReadMode('tts');onReadModeChange?.('tts')">
+            🔊 청독
+          </button>
+        </div>
+        <!-- 폰트 크기 조절 -->
+        <div class="font-size-ctrl" id="fontSizeCtrl">
+          <button class="font-size-toggle-btn" onclick="toggleFontPanel()">
+            <span class="font-toggle-aa">Aa</span>
+            <span class="font-toggle-label">글자 크기</span>
+          </button>
+          <div class="font-panel" id="fontPanel" style="display:none;">
+            <div class="font-panel-title">글자 크기 조절</div>
+            <div class="font-panel-row">
+              <span>사이드바</span>
+              <input type="range" min="0.4" max="1.4" step="0.05" id="sbFontSlider"
+                oninput="setSbFont(this.value)" />
+              <span id="sbFontVal">1.0×</span>
+            </div>
+            <div class="font-panel-row">
+              <span>본문</span>
+              <input type="range" min="0.8" max="1.8" step="0.05" id="mainFontSlider"
+                oninput="setMainFont(this.value)" />
+              <span id="mainFontVal">1.0×</span>
+            </div>
+          </div>
+        </div>
+        <button class="icon-btn" id="settingsBtn" onclick="openModal()">세계관 설정</button>
+      </div>
+
+      <!-- 에피소드 제목 헤더 (스크롤 영역 밖 고정) -->
+      <div class="output-header" id="outputHeader" style="display:none;">
+        <span class="output-ep-label" id="outputEpLabel"></span>
+        <span class="output-ep-title" id="outputEpTitle"></span>
+      </div>
+
+      <!-- 출력 스크롤 영역 -->
+      <div class="output-scroll-area">
+        <div id="output"></div>
+        <!-- TTS 컨트롤러 바 (소리내어 읽기 모드에서만 표시) -->
+        <div class="tts-bar hidden" id="ttsBar"></div>
+      </div>
+
+      <!-- 하단 고정 컨트롤 영역 -->
+      <div class="bottom-controls">
+        <div class="episode-controls">
+          <button class="btn-prev"     id="prevBtn" onclick="viewPrev()" disabled>이전화 보기</button>
+          <div class="ep-regen-group">
+            <span class="ep-info" id="epInfo"></span>
+            <button class="btn-regen" id="regenBtn" onclick="regenerate()" style="display:none">↺ 재생성</button>
+          </div>
+          <button class="btn-generate" id="sendBtn" onclick="generate()">1화 생성</button>
+        </div>
+
+        <!-- 작가 개입 -->
+        <div class="director-panel" id="directorPanel">
+          <div class="director-header">
+            <span class="director-title">✍ 작가 개입</span>
+            <span class="director-badge" id="directorBadge" style="display:none;"></span>
+            <span class="director-hint">다음 화 생성 시 반영됩니다</span>
+            <button class="director-clear-btn" id="directorClearBtn" onclick="clearOverrides()" style="display:none;">초기화</button>
+          </div>
+          <div class="director-input-row">
+            <input type="text" class="director-input" id="directorInput"
+              placeholder="예: 분위기를 더 어둡게, 주인공이 망설이는 장면 추가, 갈등을 절정으로..." />
+            <button class="director-apply-btn" onclick="addOverride()">적용</button>
+          </div>
+          <div id="overrideList" class="override-list"></div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <div id="toast-container"></div>
+
+  <!-- 모달 -->
+  <div class="modal-overlay" id="modalOverlay" onclick="closeModalOutside(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="bible-cover">
+        <button class="spread-nav-btn" id="spreadPrev" onclick="goSpread(-1)" disabled>‹</button>
+        <div class="bible-cover-center">
+          <div class="bible-title-main" id="spreadTitle">✦ &nbsp; W O R L D &nbsp; B I B L E &nbsp; ✦</div>
+          <div class="spread-dots">
+            <span class="spread-dot active" data-spread="0" onclick="goSpread(0,true)"></span>
+            <span class="spread-dot" data-spread="1" onclick="goSpread(1,true)"></span>
+          </div>
+        </div>
+        <button class="spread-nav-btn" id="spreadNext" onclick="goSpread(1)">›</button>
+      </div>
+      <div class="spread-viewport"><div class="spread-track">
+        <div class="bible-spread" id="spread-0">
+          <div class="bible-pages">
+            <div class="bible-page-left">
+              <div class="field" id="sectionFieldI">
+                <div class="section-header" id="sectionHeaderI"><span class="bible-section-num">I</span><div class="section-label">배경 · 세계관<span class="section-label-sub">(최대 3개)</span></div><span class="section-lock-hint" id="lockHintI">1화 생성 후 수정 불가</span><span class="section-lock-badge" id="lockBadgeI">🔒 고정됨</span></div>
+                <div class="chip-group" id="settingGrid"></div>
+                <div class="custom-inline-wrap" id="settingCustomWrap"><input class="custom-inline-input" id="settingCustomInput" type="text" placeholder="예: 고려 시대, 우주 정거장" /><button class="custom-inline-btn" onclick="confirmCustomChip('setting')">확정 ↵</button></div>
+              </div>
+              <div class="field" id="sectionFieldII">
+                <div class="section-header" id="sectionHeaderII"><span class="bible-section-num">II</span><div class="section-label">장르 · 분위기<span class="section-label-sub">(최대 3개)</span></div><span class="section-lock-hint" id="lockHintII">1화 생성 후 수정 불가</span><span class="section-lock-badge" id="lockBadgeII">🔒 고정됨</span></div>
+                <div class="chip-group" id="moodGrid"></div>
+                <div class="custom-inline-wrap" id="moodCustomWrap"><input class="custom-inline-input" id="moodCustomInput" type="text" placeholder="예: 다크 판타지, 궁중 암투" /><button class="custom-inline-btn" onclick="confirmCustomChip('mood')">확정 ↵</button></div>
+              </div>
+              <div class="field">
+                <div class="section-header"><span class="bible-section-num">III</span><div class="section-label">세계관 규칙 <span style="font-size:.75rem;opacity:.55;font-weight:400;letter-spacing:0">(최대 20개)</span></div><button class="card-ai-btn" id="rulesAiBtn" onclick="suggestRules()">✦ AI 추천</button></div>
+                <div class="tag-input-wrap" id="rulesWrap"><input class="tag-input-field" id="rulesInput" type="text" placeholder="규칙 입력 후 Enter" style="padding-left:.5rem;" /></div>
+                <div class="rules-guide" style="margin-top:.6rem;">
+                  <div class="rules-guide-row"><span class="rg-key">🔓 일반규칙</span><span class="rg-val" style="font-size:.82rem;">AI가 맥락으로 참고, 창의적 해석 가능 · 🔓 클릭해 전환</span></div>
+                  <div class="rules-guide-row rules-guide-hard"><span class="rg-key" style="color:var(--danger-text)">🔒 절대금지</span><span class="rg-val" style="font-size:.82rem;color:var(--danger-text);">작가 개입보다 높은 우선순위로 AI가 절대적으로 따르는 규칙 · 🔒 클릭해 전환</span></div>
+                  <div class="rules-guide-tip"><strong>작가 개입이란?</strong> 이야기 진행 중 분위기, 말투 등을 직접 바꾸는 기능입니다.</div>
+                </div>
+              </div>
+            </div>
+            <div class="bible-spine"></div>
+            <div class="bible-page-right">
+              <div class="field" style="margin-bottom:0;">
+                <div class="section-header"><span class="bible-section-num">IV</span><div class="section-label">주요 인물</div><span style="font-size:.75rem;color:var(--text4);">(최대 10명)</span></div>
+                <div class="char-counter"><button class="counter-btn" onclick="changeCharCount(-1)">−</button><span class="counter-num" id="charCountNum">1</span><span style="font-size:.9rem;color:var(--text2)">명</span><button class="counter-btn" onclick="changeCharCount(1)">+</button><button class="card-ai-btn" id="allCharAiBtn" onclick="suggestAllCharacters()" style="margin-left:.6rem;">✦ 전체 AI 추천</button></div>
+                <div id="charCards"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="bible-spread" id="spread-1">
+          <div class="bible-pages">
+            <div class="bible-page-left">
+              <div class="field" id="sectionFieldV"><div class="section-header" id="sectionHeaderV"><span class="bible-section-num">V</span><div class="section-label">서술 시점</div><span class="section-lock-hint" id="lockHintV">1화 생성 후 수정 불가</span><span class="section-lock-badge" id="lockBadgeV">🔒 고정됨</span></div><div class="radio-chip-group" id="povGrid"></div></div>
+              <div class="field"><div class="section-header"><span class="bible-section-num">VI</span><div class="section-label">문체</div></div><div class="radio-chip-group" id="styleGrid"></div></div>
+              <div class="field">
+                <div class="section-header"><span class="bible-section-num">VII</span><div class="section-label">분량 설정</div></div>
+                <div class="volume-row"><span class="vol-label">회당</span><input class="vol-input" id="epLenInput" type="number" value="800" min="300" max="2000" step="100" /><span class="vol-label">자 ±</span><input class="vol-input" id="epVarInput" type="number" value="200" min="0" max="500" step="50" /><span class="vol-label">자</span></div>
+                <div class="volume-row" style="margin-top:.5rem;"><span class="vol-label">전체</span><input class="vol-input" id="totalEpInput" type="number" value="20" min="1" max="200" /><span class="vol-label">화 ±</span><input class="vol-input" id="totalEpVarInput" type="number" value="5" min="0" max="50" /><span class="vol-label">화</span></div>
+              </div>
+            </div>
+            <div class="bible-spine"></div>
+            <div class="bible-page-right">
+              <div class="field" style="margin-bottom:0;">
+                <div class="section-header" style="margin-bottom:1.2rem;"><span class="bible-section-num">VIII</span><div class="section-label">연출 조율</div></div>
+                <div class="slider-grid-vertical">
+                  <div class="slider-item"><div class="slider-label-row"><span class="slider-name">갈등 강도</span><span class="slider-val" id="conflictVal">5</span></div><input class="story-slider" id="conflictSlider" type="range" min="1" max="10" value="5" /><div class="slider-hint"><span>잔잔</span><span>격렬</span></div></div>
+                  <div class="slider-item"><div class="slider-label-row"><span class="slider-name">복선 빈도</span><span class="slider-val" id="foreshadowVal">5</span></div><input class="story-slider" id="foreshadowSlider" type="range" min="1" max="10" value="5" /><div class="slider-hint"><span>직선적</span><span>복잡</span></div></div>
+                  <div class="slider-item"><div class="slider-label-row"><span class="slider-name">감정 묘사</span><span class="slider-val" id="emotionVal">5</span></div><input class="story-slider" id="emotionSlider" type="range" min="1" max="10" value="5" /><div class="slider-hint"><span>간결</span><span>세밀</span></div></div>
+                  <div class="slider-item"><div class="slider-label-row"><span class="slider-name">대사 비중</span><span class="slider-val" id="dialogueVal">5</span></div><input class="story-slider" id="dialogueSlider" type="range" min="1" max="10" value="5" /><div class="slider-hint"><span>서술 위주</span><span>대사 위주</span></div></div>
+                  <div class="slider-item"><div class="slider-label-row"><span class="slider-name">연출 강도</span><span class="slider-val" id="directionVal">5</span></div><input class="story-slider" id="directionSlider" type="range" min="1" max="10" value="5" /><div class="slider-hint"><span>담백</span><span>강렬</span></div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div></div>
+      <div class="bible-footer">
+        <span class="bible-page-hint" id="spreadPageHint">1 / 2 &nbsp;·&nbsp; WORLD BIBLE &nbsp;·&nbsp; FlowScribe</span>
+        <div style="display:flex;gap:.5rem;"><button onclick="closeModal()">취소</button><button class="btn-save" onclick="saveContext()">저장 후 닫기</button></div>
+      </div>
+      <div id="rulesLoadingBar" class="page-loading-overlay left-overlay"></div>
+      <div id="charLoadingBar"  class="page-loading-overlay right-overlay"></div>
+    </div>
+  </div>
+
+  <!-- 플로팅 툴팁 -->
+  <div id="hexFloatTip" class="hex-float-tip" style="display:none;"></div>
+
+  <script src="/marked.min.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/calibration.js"></script>
+  <script src="/js/auth.js"></script>
+  <script src="/js/ui.js?v=5"></script>
+  <script src="/js/chips.js"></script>
+  <script src="/js/rules.js"></script>
+  <script src="/js/chars.js"></script>
+  <script src="/js/suggest.js"></script>
+  <script src="/js/generate.js?v=13"></script>
+  <script src="/js/story-config.js"></script>
+  <script src="/js/modal.js"></script>
+  <script src="/js/director.js"></script>
+  <script src="/js/voice.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>
