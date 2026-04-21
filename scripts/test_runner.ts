@@ -37,6 +37,7 @@ import type {
   TestCase, TestResult, RunReport, Difficulty, Verdict,
   EffectiveContext, GenConfig, PrevEpisodeState, EpisodeTask,
 } from "../src/types/canonical.js";
+import { resolveCharacterPolicy } from "../src/lib/character_policy_resolver.js";
 
 // ══════════════════════════════════════════════════════════════
 // 생성기: TestCase → EffectiveContext 변환
@@ -100,11 +101,22 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
       ? `잔여 자원: ${Object.entries(prevState.remaining_resources).map(([k,v])=>`${k}=${v}`).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
-  const povRule = cfg.pov.includes("1인칭 주인공") ? "1인칭('나', '나는') 시점으로 서술"
-    : cfg.pov.includes("1인칭 관찰자") ? "1인칭 관찰자('나는 보았다', '나는 들었다') 시점"
-    : cfg.pov.includes("전지적") ? "전지적 작가 시점 — 인물 내면 묘사 허용"
-    : cfg.pov === "교차 시점" ? "교차 시점 — 각 장면 전환 시 시점 인물을 명시"
-    : `${cfg.pov} 시점 — 1인칭 표현 서술부 사용 금지 (대사 안은 허용)`;
+  // POV별 규칙 — 1인칭 관찰자는 타인 내면 직접 서술 금지 명시
+  const povRule = cfg.pov.includes("1인칭 주인공")
+    ? "1인칭('나', '나는') 시점으로 서술한다. 서술부에서 '그가/그녀가'로 시작하는 3인칭 전환 금지."
+    : cfg.pov.includes("1인칭 관찰자")
+    ? `1인칭 관찰자('나는 보았다', '나는 들었다') 시점으로 서술한다.
+금지: 타인의 감정·생각을 서술부에서 직접 서술하는 것 ('그는 두려웠다', '그녀는 기쁨을 느꼈다').
+허용: 외면 묘사만 ('그의 눈이 흔들렸다', '그녀의 손이 떨렸다').`
+    : cfg.pov.includes("전지적")
+    ? "전지적 작가 시점 — 모든 인물의 내면·감정·생각을 직접 서술할 수 있다."
+    : cfg.pov === "3인칭 관찰자"
+    ? `3인칭 관찰자 시점 — 한 명의 시점 인물 외부에서 관찰하듯 서술한다.
+금지: 어떤 인물의 감정·생각·내면 목표를 서술부에서 직접 단언하는 것 ('그는 두려웠다', '그녀의 목표는 ~이었다', '믿지 않았다').
+허용: 외면 관찰 ('그의 눈이 흔들렸다', '그녀가 멈칫했다'), 대사를 통한 내면 암시.`
+    : cfg.pov === "교차 시점"
+    ? "교차 시점 — 각 장면 전환 시 현재 시점 인물을 소제목 또는 서술로 명시한다. 해당 인물의 시점 안에서 타인 내면 직접 서술 금지."
+    : `${cfg.pov} 시점 — 서술부에서 1인칭 표현 금지 (대사 안은 허용).`;
 
   const styleRule = cfg.style === "간결/담백" ? "짧고 명확한 문장, 불필요한 수식 배제"
     : cfg.style === "서정/감성" ? "감성적 묘사와 내면 정서를 풍부하게"
@@ -127,69 +139,131 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
 
   const charNames = ctx.characters.map(c => c.name).join(", ");
 
+  // 인물 등장 정책 리졸브 (GenConfig.character_policy 우선, 없으면 장르 기반 기본값)
+  const charPolicy = resolveCharacterPolicy(
+    cfg.character_policy,
+    ctx.world_config
+  );
+
+  // 이름 혼동 vs 신규 인물 도입 분리 규칙 블록
+  const aliasNote = charPolicy.alias_policy === "strict"
+    ? "별칭·성씨 단독 지칭 금지. 반드시 등록된 이름 그대로만 사용."
+    : "성씨 단독('박', '김'), 호칭 접미('씨', '님', '선배', '팀장'), 역할 지칭은 허용.";
+
+  const newCharNote = charPolicy.new_character_policy === "closed_cast"
+    ? "신규 인물(이름 있음/없음 모두) 등장 금지. 위 목록 인물만 등장."
+    : charPolicy.new_character_policy === "extras_only"
+    ? "이름 없는 배경 단역(행인, 점원, 경비 등)만 허용. 이름 있는 신규 인물 금지."
+    : charPolicy.new_character_policy === "named_with_gate"
+    ? `이름 있는 신규 인물: 꼭 필요할 때만 도입 가능. 첫 등장 시 역할·장면 기능·기존 인물과의 관계를 한 문장 이상 명시. 기존 핵심 인물을 가리거나 대체하는 방식 금지.
+이름 없는 배경 단역(행인, 점원 등): ${charPolicy.background_extras_allowed ? "허용" : "금지"}.`
+    : `이름 있는 신규 인물: 생성기 재량으로 추가 가능. 기존 핵심 인물 설정과 충돌 금지.
+이름 없는 배경 단역: ${charPolicy.background_extras_allowed ? "허용" : "금지"}.`;
+
+  // 인물 이름별 젠더 대명사 매핑 (이름 혼동 및 대명사 불일치 방지)
+  const genderPronounList = ctx.characters.map(c => {
+    const pronoun = c.gender === "여성" ? "그녀/그녀의" : c.gender === "남성" ? "그/그의" : "중립 표현";
+    return `${c.name}(${c.gender}) → ${pronoun}`;
+  }).join(", ");
+
+  // 부상 제약 — 금지 동작 구체 명시
+  const injuredChars = ctx.character_dynamic_states.filter(s =>
+    s.physical_state && (s.physical_state.includes("부상") || s.physical_state.includes("중상") || s.physical_state.includes("경상"))
+  );
+  const injuryBlock = injuredChars.length > 0
+    ? injuredChars.map(s => {
+        const p = s.physical_state ?? "";
+        const forbidden = p.includes("팔") || p.includes("손") || p.includes("어깨") || p.includes("손목")
+          ? "집기·쥐기·들기·던지기·밀기 (해당 팔) 금지 — 반대 팔 또는 고통/제한 묘사 필수"
+          : p.includes("다리") || p.includes("발") || p.includes("무릎") || p.includes("발목")
+          ? "달리기·도약·차기 금지 — 절뚝임 또는 지지대 사용 필수"
+          : "해당 부위 정상 사용 금지 — 대체 동작 또는 고통 묘사 필수";
+        return `${s.character_name}(${p}): ${forbidden}`;
+      }).join("\n")
+    : "없음";
+
+  // 정상 상태 인물 목록 — 임의 부상 금지
+  const normalChars = ctx.character_dynamic_states
+    .filter(s => !s.physical_state || s.physical_state === "정상" || s.physical_state === "없음" || s.physical_state === "양호")
+    .map(s => s.character_name);
+
+  // 엔딩 훅 — 구체적 지시
+  const endingHookInstruction = ctx.task.ending_hook_direction
+    ? `[엔딩 훅 필수] 마지막 [CLIFF] 이후 2~4문장에서 아래 중 하나를 명확하게 남겨야 한다:
+(1) 즉각적 위협이나 위기 상황 (인물이 피할 수 없는 상황)
+(2) 예상치 못한 발견이나 반전 정보
+(3) 행동의 결과로 생긴 새로운 심각한 문제
+(4) 독자가 "다음 화에서 무슨 일이?" 하고 묻게 만드는 미해결 상황
+방향: ${ctx.task.ending_hook_direction}`
+    : "";
+
   const system = `당신은 한국 소설 생성 AI다.
 
-[최우선 규칙]
+[시점 — 최우선 규칙]
 ${povRule}
-출력은 100% 한국어만 허용한다.
-대화 따옴표는 반드시 " "(곡선 큰따옴표)를 사용한다. 모든 대사는 반드시 "로 열고 "로 닫는다. 여는 따옴표와 닫는 따옴표가 쌍을 이뤄야 하며, 열린 따옴표를 닫지 않으면 심각한 오류다.
-본문은 ${cfg.episodeLength}~${cfg.episodeLength + cfg.episodeLengthVar}자 범위 안에서 완성한다.
 
-[시점] ${povRule}
-[문체] ${styleRule}
-[연출] ${sliders || "기본"}
-
-[등장인물 — 아래 이름만 사용, 절대 변형·합성·오기 금지]
+[등장인물 — 허용 이름 목록]
 ${charList}
-허용 이름 목록: ${charNames}
-위 목록에 없는 이름을 만들거나 두 이름을 합치는 것은 심각한 오류다.
+허용 이름: ${charNames}
+이름 표기 규칙:
+- 위 이름을 정확히 유지한다. 오기·합성·변형은 심각한 오류다.
+- 조사를 붙일 때 이름 자체를 변형하지 않는다 (민서과 → 민서와).
+- 이름을 인물 간에 교차 혼용하지 않는다.
+별칭/호칭: ${aliasNote}
+신규 인물 도입: ${newCharNote}
 
-[이번 화 시작 위치 — 각 인물은 반드시 아래 위치에서 이번 화를 시작한다]
-${ctx.character_dynamic_states.map(s => `${s.character_name}: ${s.location ?? "미정"}`).join("\n") || "없음"}
-첫 장면에서 인물이 이 위치 외의 장소에 있으면 심각한 오류다.
+[인물 젠더 대명사 — 설정 기준 사용]
+${genderPronounList}
 
-[인물 현재 상태 — 이 상태에서 이어서 전개, 설명 없이 초기화 금지]
+[이번 화 시작 상태 — 첫 단락에서 반드시 반영]
+각 인물의 현재 위치와 신체 상태:
 ${dynStates || "없음"}
+규칙:
+- 이번 화는 위 위치와 상태에서 시작한다. 첫 단락 안에서 시작 위치를 자연스럽게 드러낸다.
+- 신체 상태가 '정상'인 인물에게 임의로 부상이나 이상 상태를 추가하지 않는다.
+- 위치가 바뀐 경우에는 반드시 이동 경위나 시간 경과를 한 문장 이상 서술한다.
 
-[부상 제약 — 아래 제약을 어기는 행동 묘사 금지]
-${ctx.character_dynamic_states.filter(s => s.physical_state && (s.physical_state.includes("부상") || s.physical_state.includes("중상") || s.physical_state.includes("경상"))).map(s => `${s.character_name}: ${s.physical_state} → 해당 부위 정상 사용 불가. 다른 부위로 대체하거나 행동을 제한해야 함`).join("\n") || "없음"}
+[부상 제약]
+${injuryBlock}
 
-[직전 화 연속성 — 반드시 이어받아야 할 사항]
+[직전 화 연속성]
 ${continuityBlock || "없음"}
+
+[대화 따옴표]
+모든 대사는 반드시 "로 열고 "로 닫는다. 열린 따옴표를 닫지 않으면 심각한 오류다.
+
+[문체·연출]
+문체: ${styleRule}
+연출: ${sliders || "기본"}
+분량: ${cfg.episodeLength}~${cfg.episodeLength + cfg.episodeLengthVar}자
 
 [세계관 규칙]
 ${genRules}
 
-[절대금지 규칙 — 어떤 경우에도 위반 불가]
+[절대금지 — 어떤 경우에도 위반 불가]
 ${absForbid}
 
-[작가 개입 — 이번 화에 즉시 반영]
+[작가 개입 — 즉시 반영]
 ${interventions}
 
 [직전 줄거리]
 ${prevSummary}
 
-[미회수 복선]
+[미회수 복선 — 이번 화에서 하나 이상 사건 변수로 활용]
 ${foreshadows}
 
 [이번 화 목표] ${ctx.task.goal}
 ${ctx.task.required_events?.length ? `[필수 사건] ${ctx.task.required_events.join(", ")}` : ""}
-${ctx.task.ending_hook_direction ? `[엔딩 훅 방향] ${ctx.task.ending_hook_direction}` : ""}
 ${ctx.task.special_constraints?.length ? `[특수 제약] ${ctx.task.special_constraints.join(" | ")}` : ""}
-
-[연속성 규칙 — 반드시 준수]
-- [상태 보존] 인물의 부상·소지품·자원·위치는 설명 없이 초기화하지 않는다. 부상 부위를 사용해야 할 때는 반드시 고통·제한·대체 동작을 묘사한다
-- [장소 이동] 장면이 다른 장소로 바뀔 때 반드시 이동 과정이나 시간 경과를 한 문장 이상 서술한다. 이전 화에서 다른 위치에 있던 인물이 이번 화 시작 시 이미 새 위치에 있다면 반드시 어떻게 이동했는지 서술해야 한다
-- [위치 연속성] 직전 화 마지막 인물 위치에서 이번 화가 시작된다. 위치가 바뀌었다면 반드시 이동 경위를 설명한다
-- [이름 일관성] 인물 이름은 위 허용 목록 그대로만 사용한다. 첫 등장 시 서사 안에서 소개 절차를 거친다
-- [젠더 대명사] 인물 설정의 성별에 맞는 대명사를 사용한다: 여성→"그녀/그녀의", 남성→"그/그의", 해당없음·기타→중립적 표현. 설정된 성별과 반대되는 대명사 사용 금지
+${endingHookInstruction}
 
 [출력 규칙]
-- 화 제목은 반드시 "# ${ep}화 - 제목" 형식으로 첫 줄에
-- 반드시 완결된 문장으로 끝낼 것
+- 화 제목: "# ${ep}화 - 제목" 형식으로 첫 줄에
 - 본문만 출력. 설명·주석·JSON 절대 금지
-- 비최종화: 본문 완성 후 [CLIFF] 단독 줄, 이후 클리프행어 2~4문장, 마지막 [END]
-- 최종화: 완전한 결말, [END]로 끝`;
+- 반드시 완결된 문장으로 끝낼 것
+- 비최종화: 본문 완성 후 [CLIFF] 단독 줄 → 클리프행어 2~4문장 → [END]
+- 최종화: 완전한 결말, [END]로 끝
+- 출력은 100% 한국어`;
 
   const user = `${ep}화를 ${cfg.pov} 시점으로 생성해줘.`;
 

@@ -54,6 +54,8 @@ export interface GenConfig {
   totalEpisodesVar: number;
   forbidden_elements?: string[];  // 이번 화 추가 금지요소
   required_elements?: string[];   // 이번 화 필수요소
+  /** 인물 등장 정책 — 미입력 시 resolveCharacterPolicy()가 장르 기반 기본값 채움 */
+  character_policy?: import("./character_policy.js").CharacterPolicyConfig;
 }
 
 // ══════════════════════════════════════════════════════════════
