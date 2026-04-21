@@ -15,7 +15,14 @@ import type {
   TestCase, GenConfig, WorldConfig, WorldRule, CanonicalCharacter,
   CharacterDynamicState, PrevEpisodeState, EpisodeTask, AuthorIntervention, Difficulty,
 } from "../src/types/canonical.js";
+import { ACTIVE_POV_POLICY } from "../src/types/pov_policy.js";
 import { randomUUID } from "crypto";
+
+/**
+ * 현재 모델이 안정적으로 지원하는 POV 목록.
+ * ACTIVE_POV_POLICY에서 파생한다. 모델 정책 변경 시 자동 반영.
+ */
+export const SUPPORTED_POVS: GenConfig["pov"][] = ACTIVE_POV_POLICY.supported_povs;
 
 // ══════════════════════════════════════════════════════════════
 // 랜덤 유틸
@@ -372,6 +379,65 @@ export function generateTestCases(
   }
 
   // 순서 섞기
+  return cases.sort(() => Math.random() - 0.5);
+}
+
+/**
+ * generateSupportedPovTestCases — 현재 모델 지원 POV 기준 케이스 생성.
+ *
+ * ACTIVE_POV_POLICY.supported_povs에 속한 POV만 사용한다.
+ * 미지원 POV(1인칭 관찰자 등)는 케이스에 포함되지 않는다.
+ *
+ * 목적: "현재 모델 지원 범위 기준 benchmark" — 성능 회피가 아니라
+ *       gemma3:12b가 안정적으로 다룰 수 있는 범위를 기준으로 한 평가.
+ *       전체 POV benchmark는 generateTestCases()를 사용한다.
+ */
+export function generateSupportedPovTestCases(
+  count: number,
+  targetDifficulty: Difficulty | "all" = "all",
+): TestCase[] {
+  const supportedSet = new Set(SUPPORTED_POVS);
+  const maxAttempts  = count * 10;
+  const cases: TestCase[] = [];
+  let attempts = 0;
+
+  const targetEasy   = Math.round(count * DIFFICULTY_RATIO.easy);
+  const targetMedium = Math.round(count * DIFFICULTY_RATIO.medium);
+  const targetHard   = count - targetEasy - targetMedium;
+  const targets = { easy: targetEasy, medium: targetMedium, hard: targetHard };
+  const counts  = { easy: 0, medium: 0, hard: 0 };
+
+  while (cases.length < count && attempts < maxAttempts) {
+    attempts++;
+    let difficulty: Difficulty;
+    if (targetDifficulty !== "all") {
+      difficulty = targetDifficulty;
+    } else {
+      // 남은 할당이 있는 난이도 중 랜덤 선택
+      const remaining = (["easy", "medium", "hard"] as Difficulty[]).filter(
+        d => counts[d] < targets[d]
+      );
+      if (remaining.length === 0) break;
+      difficulty = remaining[Math.floor(Math.random() * remaining.length)];
+    }
+
+    const gen = difficulty === "easy" ? generateEasyCase
+      : difficulty === "medium" ? generateMediumCase : generateHardCase;
+    const base = gen();
+
+    if (!supportedSet.has(base.gen_config.pov)) continue;
+
+    cases.push({ id: randomUUID(), difficulty, ...base });
+    if (targetDifficulty === "all") counts[difficulty]++;
+  }
+
+  if (cases.length < count) {
+    console.warn(
+      `[WARN] generateSupportedPovTestCases: ${count}개 요청했으나 ${cases.length}개만 생성됨. ` +
+      `지원 POV(${SUPPORTED_POVS.join(", ")})로 충분한 케이스를 구성하지 못했습니다.`
+    );
+  }
+
   return cases.sort(() => Math.random() - 0.5);
 }
 

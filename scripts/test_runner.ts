@@ -38,6 +38,7 @@ import type {
   EffectiveContext, GenConfig, PrevEpisodeState, EpisodeTask,
 } from "../src/types/canonical.js";
 import { resolveCharacterPolicy } from "../src/lib/character_policy_resolver.js";
+import { ACTIVE_POV_POLICY, isUnsupportedPov } from "../src/types/pov_policy.js";
 
 // ══════════════════════════════════════════════════════════════
 // 생성기: TestCase → EffectiveContext 변환
@@ -71,6 +72,49 @@ function testCaseToEffectiveContext(tc: TestCase, episodeNumber: number = 3): Ef
 }
 
 // ══════════════════════════════════════════════════════════════
+// POV 규칙 블록 — Variant C (rules-only) 채택
+// 진단 근거: pov-capability-diagnostic (2026-04-22)
+// few-shot(B) 교차 시점 붕괴로 채택 금지. C가 avg=67, POV위반=2로 최우수.
+// ══════════════════════════════════════════════════════════════
+function variantCPovRule(pov: GenConfig["pov"]): string {
+  switch (pov) {
+    case "1인칭 주인공":
+      return `시점: 1인칭 주인공
+필수: 모든 서술부는 '나/나는/내가/나의'로 시작하거나 1인칭 관점을 유지한다.
+절대금지: 서술부에서 '그가/그녀가/그는/그녀는'으로 시작하는 3인칭 주어 사용.
+허용: 대사(" " 내부) 안에서 다른 인물이 '나'를 지칭하는 것은 정상.`;
+
+    case "1인칭 관찰자":
+      // 미지원 POV지만 규칙 자체는 유지한다 — 정책 레이어에서 benchmark 분리 처리.
+      // 사용자가 요청하면 규칙을 포함한 채 생성하되, 지원 보장은 하지 않음.
+      return `시점: 1인칭 관찰자
+필수: 서술부에서 화자 '나'의 관찰·행동만 서술한다.
+절대금지: 서술부에서 타인의 감정·생각·의도를 '~했다/~이었다' 형식으로 직접 단언하는 것.
+예시 금지 표현: '그는 두려웠다', '그녀의 목표는 ~이었다', '그는 기뻤다'.
+허용: '~처럼 보였다', '~인 듯했다', '~는 것 같았다' (추측 표현), 외면 관찰.`;
+
+    case "3인칭 관찰자":
+      return `시점: 3인칭 관찰자
+필수: 특정 시점 인물의 외부 시선으로만 서술한다.
+절대금지: 어느 인물의 감정·생각·내면 목표를 서술부에서 직접 단언하는 것.
+  - 금지: '~는 두려웠다', '~의 목표는 ~이었다', '~은 ~라고 믿었다'
+허용: 인물의 외면 행동과 표정 묘사, 대사 안에서 내면 암시.
+서술부에서 내면을 표현하려면 반드시 추측 어미 사용 ('~듯했다', '~처럼 보였다').`;
+
+    case "전지적 작가":
+      return `시점: 전지적 작가
+허용: 등장 모든 인물의 내면·감정·생각·과거·의도를 직접 서술 가능.
+주의: 서술부에서 갑자기 1인칭('나는')으로 전환하지 않는다.`;
+
+    case "교차 시점":
+      return `시점: 교차 시점
+필수: 각 장면 전환 시 현재 시점 인물을 반드시 소제목(## 이름) 또는 명시적 서술로 표시한다.
+절대금지: 표시 없이 시점 인물이 바뀌는 것.
+각 시점 인물의 장면 안에서: 해당 인물 시점에서 자연스러운 내면 서술만 허용. 타인 내면 직접 단언 금지.`;
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
 // 프롬프트 조립 (기존 story.ts buildSystemPrompt와 유사, standalone)
 // ══════════════════════════════════════════════════════════════
 function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string } {
@@ -101,22 +145,9 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
       ? `잔여 자원: ${Object.entries(prevState.remaining_resources).map(([k,v])=>`${k}=${v}`).join(", ")}` : "",
   ].filter(Boolean).join("\n");
 
-  // POV별 규칙 — 1인칭 관찰자는 타인 내면 직접 서술 금지 명시
-  const povRule = cfg.pov.includes("1인칭 주인공")
-    ? "1인칭('나', '나는') 시점으로 서술한다. 서술부에서 '그가/그녀가'로 시작하는 3인칭 전환 금지."
-    : cfg.pov.includes("1인칭 관찰자")
-    ? `1인칭 관찰자('나는 보았다', '나는 들었다') 시점으로 서술한다.
-금지: 타인의 감정·생각을 서술부에서 직접 서술하는 것 ('그는 두려웠다', '그녀는 기쁨을 느꼈다').
-허용: 외면 묘사만 ('그의 눈이 흔들렸다', '그녀의 손이 떨렸다').`
-    : cfg.pov.includes("전지적")
-    ? "전지적 작가 시점 — 모든 인물의 내면·감정·생각을 직접 서술할 수 있다."
-    : cfg.pov === "3인칭 관찰자"
-    ? `3인칭 관찰자 시점 — 한 명의 시점 인물 외부에서 관찰하듯 서술한다.
-금지: 어떤 인물의 감정·생각·내면 목표를 서술부에서 직접 단언하는 것 ('그는 두려웠다', '그녀의 목표는 ~이었다', '믿지 않았다').
-허용: 외면 관찰 ('그의 눈이 흔들렸다', '그녀가 멈칫했다'), 대사를 통한 내면 암시.`
-    : cfg.pov === "교차 시점"
-    ? "교차 시점 — 각 장면 전환 시 현재 시점 인물을 소제목 또는 서술로 명시한다. 해당 인물의 시점 안에서 타인 내면 직접 서술 금지."
-    : `${cfg.pov} 시점 — 서술부에서 1인칭 표현 금지 (대사 안은 허용).`;
+  // POV 규칙 — Variant C (rules-only) 채택 (2026-04-22 진단 결과)
+  // 1인칭 관찰자: 미지원 POV, 규칙은 포함하나 benchmark에서 별도 분리됨
+  const povRule = variantCPovRule(cfg.pov);
 
   const styleRule = cfg.style === "간결/담백" ? "짧고 명확한 문장, 불필요한 수식 배제"
     : cfg.style === "서정/감성" ? "감성적 묘사와 내면 정서를 풍부하게"
@@ -441,9 +472,30 @@ function saveReport(report: RunReport, tag: string): string {
 // ══════════════════════════════════════════════════════════════
 // 실행 모드별 함수
 // ══════════════════════════════════════════════════════════════
-async function runDevSet(count: number): Promise<RunReport> {
-  console.log(`\n🔧 DEV SET 실행 (${count}케이스, 프롬프트 A, 리비전 O)`);
-  const cases  = generateTestCases(count);
+
+/**
+ * supported_pov 케이스 필터 — 미지원 POV를 제외하고 케이스를 보충한다.
+ * 필터 사실은 항상 콘솔에 명시한다 (성능 회피가 아닌 지원 범위 기준 benchmark).
+ */
+function filterToSupportedPov(cases: TestCase[]): TestCase[] {
+  const policy = ACTIVE_POV_POLICY;
+  const unsupportedPovs = new Set(policy.unsupported_povs.map(u => u.pov));
+  const filtered = cases.filter(tc => !unsupportedPovs.has(tc.gen_config.pov));
+  const excluded = cases.length - filtered.length;
+  if (excluded > 0) {
+    console.log(`\n[POV 정책] 현재 모델(${policy.model}) 지원 범위 기준 benchmark`);
+    console.log(`  미지원 POV: ${[...unsupportedPovs].join(", ")} → ${excluded}개 케이스 제외`);
+    console.log(`  사유: ${policy.unsupported_povs.map(u => `${u.pov} — ${u.reason.slice(0, 60)}...`).join("; ")}`);
+    console.log(`  전체 POV benchmark는 [dev|holdout|smoke|full] 명령을 사용하세요.`);
+  }
+  return filtered;
+}
+
+async function runDevSet(count: number, supportedPovOnly = false): Promise<RunReport> {
+  const label = supportedPovOnly ? "DEV SET (지원 POV 기준)" : "DEV SET";
+  console.log(`\n🔧 ${label} 실행 (${count}케이스, 프롬프트 A, 리비전 O)`);
+  let cases = generateTestCases(count);
+  if (supportedPovOnly) cases = filterToSupportedPov(cases);
   const results: TestResult[] = [];
 
   for (let i = 0; i < cases.length; i++) {
@@ -454,15 +506,18 @@ async function runDevSet(count: number): Promise<RunReport> {
     console.log(`${result.final_verdict} (${result.validation.total_score}점, ${result.elapsed_ms}ms)`);
   }
 
+  const tag = supportedPovOnly ? "dev_supported" : "dev";
   const report = generateReport(results, "dev");
   printReport(report);
-  saveReport(report, "dev");
+  saveReport(report, tag);
   return report;
 }
 
-async function runHoldoutSet(count: number): Promise<RunReport> {
-  console.log(`\n🔒 HOLDOUT SET 실행 (${count}케이스, 프롬프트 B, 리비전 X)`);
-  const cases  = generateTestCases(count);
+async function runHoldoutSet(count: number, supportedPovOnly = false): Promise<RunReport> {
+  const label = supportedPovOnly ? "HOLDOUT SET (지원 POV 기준)" : "HOLDOUT SET";
+  console.log(`\n🔒 ${label} 실행 (${count}케이스, 프롬프트 B, 리비전 X)`);
+  let cases = generateTestCases(count);
+  if (supportedPovOnly) cases = filterToSupportedPov(cases);
   const results: TestResult[] = [];
 
   for (let i = 0; i < cases.length; i++) {
@@ -473,9 +528,10 @@ async function runHoldoutSet(count: number): Promise<RunReport> {
     console.log(`${result.final_verdict} (${result.validation.total_score}점)`);
   }
 
+  const tag = supportedPovOnly ? "holdout_supported" : "holdout";
   const report = generateReport(results, "holdout");
   printReport(report);
-  saveReport(report, "holdout");
+  saveReport(report, tag);
   return report;
 }
 
@@ -536,8 +592,32 @@ async function main() {
       }
       break;
     }
+    // ── 지원 POV 기준 benchmark (현재 모델 지원 범위만 집계) ──────────
+    // 1인칭 관찰자 등 미지원 POV를 제외하고 실행한다.
+    // 이는 성능 회피가 아니라 "현재 모델이 지원하는 범위" 기준 benchmark다.
+    // 전체 POV 포함 benchmark는 [dev|holdout|full]을 사용한다.
+    case "dev_supported":
+      await runDevSet(parseInt(arg1), true);
+      break;
+    case "holdout_supported":
+      await runHoldoutSet(parseInt(arg1), true);
+      break;
+    case "full_supported": {
+      const dev = await runDevSet(parseInt(arg1), true);
+      const holdout = await runHoldoutSet(parseInt(arg2), true);
+      console.log("\n🏁 FULL_SUPPORTED 종료 조건 점검 (지원 POV 기준):");
+      console.log(`  DEV PASS율: ${dev.pass_rate}% ${dev.pass_rate >= 90 ? "✅" : "❌"}`);
+      console.log(`  HOLDOUT PASS율: ${holdout.pass_rate}% ${holdout.pass_rate >= 90 ? "✅" : "❌"}`);
+      if (dev.pass_rate >= 90 && holdout.pass_rate >= 90 && dev.fail_rate === 0 && holdout.fail_rate === 0) {
+        console.log("\n✅ 지원 POV 기준 종료 조건 달성.");
+      } else {
+        console.log("\n❌ 아직 종료 조건 미달.");
+      }
+      break;
+    }
     default:
-      console.log("사용법: npx tsx scripts/test_runner.ts [dev|holdout|smoke|full] [count]");
+      console.log("사용법: npx tsx scripts/test_runner.ts [dev|holdout|smoke|full|dev_supported|holdout_supported|full_supported] [count]");
+      console.log("  *_supported: 현재 모델 지원 POV 기준 benchmark (미지원 POV 제외, 명시적 로그 출력)");
   }
 
   await pool.end();
