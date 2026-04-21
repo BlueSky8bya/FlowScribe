@@ -39,6 +39,7 @@ import type {
 } from "../src/types/canonical.js";
 import { resolveCharacterPolicy } from "../src/lib/character_policy_resolver.js";
 import { ACTIVE_POV_POLICY, isUnsupportedPov } from "../src/types/pov_policy.js";
+import { variantCPovRule as _sharedVariantCPovRule } from "../src/lib/pov_rules.js";
 
 // ══════════════════════════════════════════════════════════════
 // 생성기: TestCase → EffectiveContext 변환
@@ -72,46 +73,11 @@ function testCaseToEffectiveContext(tc: TestCase, episodeNumber: number = 3): Ef
 }
 
 // ══════════════════════════════════════════════════════════════
-// POV 규칙 블록 — Variant C (rules-only) 채택
-// 진단 근거: pov-capability-diagnostic (2026-04-22)
-// few-shot(B) 교차 시점 붕괴로 채택 금지. C가 avg=67, POV위반=2로 최우수.
+// POV 규칙 블록 — src/lib/pov_rules.ts 공유 모듈로 위임
+// benchmark와 service가 동일 함수를 사용해 정책 의미 불일치를 방지한다.
 // ══════════════════════════════════════════════════════════════
 function variantCPovRule(pov: GenConfig["pov"]): string {
-  switch (pov) {
-    case "1인칭 주인공":
-      return `시점: 1인칭 주인공
-필수: 모든 서술부는 '나/나는/내가/나의'로 시작하거나 1인칭 관점을 유지한다.
-절대금지: 서술부에서 '그가/그녀가/그는/그녀는'으로 시작하는 3인칭 주어 사용.
-허용: 대사(" " 내부) 안에서 다른 인물이 '나'를 지칭하는 것은 정상.`;
-
-    case "1인칭 관찰자":
-      // 미지원 POV지만 규칙 자체는 유지한다 — 정책 레이어에서 benchmark 분리 처리.
-      // 사용자가 요청하면 규칙을 포함한 채 생성하되, 지원 보장은 하지 않음.
-      return `시점: 1인칭 관찰자
-필수: 서술부에서 화자 '나'의 관찰·행동만 서술한다.
-절대금지: 서술부에서 타인의 감정·생각·의도를 '~했다/~이었다' 형식으로 직접 단언하는 것.
-예시 금지 표현: '그는 두려웠다', '그녀의 목표는 ~이었다', '그는 기뻤다'.
-허용: '~처럼 보였다', '~인 듯했다', '~는 것 같았다' (추측 표현), 외면 관찰.`;
-
-    case "3인칭 관찰자":
-      return `시점: 3인칭 관찰자
-필수: 특정 시점 인물의 외부 시선으로만 서술한다.
-절대금지: 어느 인물의 감정·생각·내면 목표를 서술부에서 직접 단언하는 것.
-  - 금지: '~는 두려웠다', '~의 목표는 ~이었다', '~은 ~라고 믿었다'
-허용: 인물의 외면 행동과 표정 묘사, 대사 안에서 내면 암시.
-서술부에서 내면을 표현하려면 반드시 추측 어미 사용 ('~듯했다', '~처럼 보였다').`;
-
-    case "전지적 작가":
-      return `시점: 전지적 작가
-허용: 등장 모든 인물의 내면·감정·생각·과거·의도를 직접 서술 가능.
-주의: 서술부에서 갑자기 1인칭('나는')으로 전환하지 않는다.`;
-
-    case "교차 시점":
-      return `시점: 교차 시점
-필수: 각 장면 전환 시 현재 시점 인물을 반드시 소제목(## 이름) 또는 명시적 서술로 표시한다.
-절대금지: 표시 없이 시점 인물이 바뀌는 것.
-각 시점 인물의 장면 안에서: 해당 인물 시점에서 자연스러운 내면 서술만 허용. 타인 내면 직접 단언 금지.`;
-  }
+  return _sharedVariantCPovRule(pov);
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -379,7 +345,9 @@ async function runSingleCase(
 // ══════════════════════════════════════════════════════════════
 function generateReport(
   results: TestResult[],
-  setType: "dev" | "holdout" | "smoke"
+  setType: "dev" | "holdout" | "smoke",
+  /** case_id → pov 맵 — by_pov 집계에 사용 */
+  caseIdToPov: Record<string, string> = {},
 ): RunReport {
   const total    = results.length;
   const passed   = results.filter(r => r.final_verdict === "PASS" || r.final_verdict === "PASS_STRONG").length;
@@ -395,6 +363,15 @@ function generateReport(
   for (const r of results) {
     byDifficulty[r.difficulty].total++;
     if (r.final_verdict === "PASS" || r.final_verdict === "PASS_STRONG") byDifficulty[r.difficulty].pass++;
+  }
+
+  // POV별 집계 — caseIdToPov 맵 기반
+  const byPov: Record<string, { pass: number; total: number }> = {};
+  for (const r of results) {
+    const pov = caseIdToPov[r.case_id] ?? "unknown";
+    if (!byPov[pov]) byPov[pov] = { pass: 0, total: 0 };
+    byPov[pov].total++;
+    if (r.final_verdict === "PASS" || r.final_verdict === "PASS_STRONG") byPov[pov].pass++;
   }
 
   // 위반/경고 빈도
@@ -425,7 +402,7 @@ function generateReport(
     fail_rate: failRate,
     avg_score: avgScore,
     by_difficulty: byDifficulty,
-    by_pov: {}, // TODO: TestResult에 pov 필드 추가 후 집계
+    by_pov: byPov,
     by_style: {},
     hard_violation_freq: hardViolationFreq,
     soft_warning_freq: softWarningFreq,
@@ -452,6 +429,12 @@ function printReport(report: RunReport): void {
     console.log("\n소프트 경고 빈도 (상위 5):");
     for (const [rule, cnt] of Object.entries(report.soft_warning_freq).sort(([,a],[,b]) => b - a).slice(0, 5)) {
       console.log(`  ${rule}: ${cnt}회`);
+    }
+  }
+  if (Object.keys(report.by_pov).length) {
+    console.log("\nPOV별:");
+    for (const [pov, s] of Object.entries(report.by_pov)) {
+      if (s.total > 0) console.log(`  ${pov}: ${s.pass}/${s.total} (${Math.round(s.pass/s.total*100)}%)`);
     }
   }
   console.log(`\n종료 조건 달성: ${report.termination_condition_met ? "✅ YES" : "❌ NO"}`);
@@ -496,6 +479,7 @@ async function runDevSet(count: number, supportedPovOnly = false): Promise<RunRe
   console.log(`\n🔧 ${label} 실행 (${count}케이스, 프롬프트 A, 리비전 O)`);
   let cases = generateTestCases(count);
   if (supportedPovOnly) cases = filterToSupportedPov(cases);
+  const caseIdToPov = Object.fromEntries(cases.map(tc => [tc.id, tc.gen_config.pov]));
   const results: TestResult[] = [];
 
   for (let i = 0; i < cases.length; i++) {
@@ -507,7 +491,7 @@ async function runDevSet(count: number, supportedPovOnly = false): Promise<RunRe
   }
 
   const tag = supportedPovOnly ? "dev_supported" : "dev";
-  const report = generateReport(results, "dev");
+  const report = generateReport(results, "dev", caseIdToPov);
   printReport(report);
   saveReport(report, tag);
   return report;
@@ -518,6 +502,7 @@ async function runHoldoutSet(count: number, supportedPovOnly = false): Promise<R
   console.log(`\n🔒 ${label} 실행 (${count}케이스, 프롬프트 B, 리비전 X)`);
   let cases = generateTestCases(count);
   if (supportedPovOnly) cases = filterToSupportedPov(cases);
+  const caseIdToPov = Object.fromEntries(cases.map(tc => [tc.id, tc.gen_config.pov]));
   const results: TestResult[] = [];
 
   for (let i = 0; i < cases.length; i++) {
@@ -529,7 +514,7 @@ async function runHoldoutSet(count: number, supportedPovOnly = false): Promise<R
   }
 
   const tag = supportedPovOnly ? "holdout_supported" : "holdout";
-  const report = generateReport(results, "holdout");
+  const report = generateReport(results, "holdout", caseIdToPov);
   printReport(report);
   saveReport(report, tag);
   return report;
@@ -538,6 +523,7 @@ async function runHoldoutSet(count: number, supportedPovOnly = false): Promise<R
 async function runSmokeTest(count: number): Promise<RunReport> {
   console.log(`\n💨 SMOKE TEST 실행 (${count}케이스 — 연속 PASS 확인)`);
   const cases  = generateTestCases(count);
+  const caseIdToPov = Object.fromEntries(cases.map(tc => [tc.id, tc.gen_config.pov]));
   const results: TestResult[] = [];
   let consecutivePass = 0;
 
@@ -551,7 +537,7 @@ async function runSmokeTest(count: number): Promise<RunReport> {
     console.log(`${result.final_verdict} | 연속PASS: ${consecutivePass}`);
   }
 
-  const report = generateReport(results, "smoke");
+  const report = generateReport(results, "smoke", caseIdToPov);
   printReport(report);
   saveReport(report, "smoke");
   return report;

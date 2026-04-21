@@ -1,5 +1,6 @@
 import { getLLMClient, getStoryModel } from "../lib/llm.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
+import { variantCPovRule, checkPovForService } from "../lib/pov_rules.js";
 import type { Response } from "express";
 import type { ArcSummary, CharacterArc } from "./arc_memory.js";
 
@@ -118,12 +119,10 @@ function buildSystemPrompt(ctx: StoryContext, isFinale: boolean): string {
       return null;
     }).filter(Boolean).join(", ");
 
-  // ── 시점 규칙 ─────────────────────────────────────────
-  const povRule = !cfg.pov
-    ? `3인칭 전지적 시점으로 서술한다.`
-    : cfg.pov.includes("1인칭")
-    ? `반드시 1인칭('나', '나는') 시점으로 서술한다.`
-    : `반드시 ${cfg.pov} 시점으로 서술한다. '나', '나는', '나의', '내가' 등 1인칭 표현 절대 금지.`;
+  // ── 시점 규칙 — Variant C (2026-04-22 진단 채택) ─────
+  // src/lib/pov_rules.ts 공유 모듈 사용: benchmark와 service 정책 일치.
+  // 1인칭 관찰자: 미지원 POV. 규칙은 포함하되, 생성 차단은 streamEpisode()에서 처리.
+  const povRule = variantCPovRule(cfg.pov || "전지적 작가");
 
   // ── Director Overrides (L0 최상위) ───────────────────
   const directorBlock = directorOverrides.length
@@ -247,6 +246,28 @@ function buildPovCorrector(worldBible: WorldBible, pov: string): ((s: string) =>
 export async function streamEpisode(ctx: StoryContext, res: Response): Promise<string> {
   const cfg          = { ...DEFAULT_CONFIG, ...(ctx.worldBible.story_config ?? {}) };
   const epNum        = ctx.episodeNumber;
+
+  // ── POV 지원 여부 확인 (자동 변환 금지) ─────────────────
+  // 현재 모델(gemma3:12b) 기준 미지원 POV는 생성 없이 오류 이벤트를 전송한다.
+  // 사용자가 요청한 POV를 다른 POV로 몰래 바꾸지 않는다.
+  const povCheck = checkPovForService(cfg.pov);
+  if (!povCheck.supported && povCheck.strategy === "disabled_for_current_model") {
+    logWarn("story:generate", `미지원 POV 요청 — 생성 차단`, {
+      pov: cfg.pov,
+      strategy: povCheck.strategy,
+      reason: povCheck.reason?.slice(0, 100),
+    });
+    res.write(`data: ${JSON.stringify({
+      error: "unsupported_pov",
+      pov: cfg.pov,
+      message: `현재 모델(${cfg.pov} 시점)은 지원되지 않습니다. 지원 POV: 1인칭 주인공, 3인칭 관찰자, 전지적 작가, 교차 시점.`,
+      strategy: povCheck.strategy,
+    })}\n\n`);
+    res.write("data: [DONE]\n\n");
+    res.end();
+    return "";
+  }
+
   const isFinale     = epNum >= cfg.totalEpisodes + cfg.totalEpisodesVar;
   const systemPrompt = buildSystemPrompt(ctx, isFinale);
   const hasOverrides = ctx.directorOverrides.length > 0;
