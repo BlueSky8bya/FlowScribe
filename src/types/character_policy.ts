@@ -87,3 +87,32 @@ export interface NameAnalysisResult {
   has_background_extra: boolean;
   policy_violations: NameEvent[];
 }
+
+// ══════════════════════════════════════════════════════════════
+// 3. Validator 이름 후처리 결과
+// ══════════════════════════════════════════════════════════════
+
+/** 개별 위반 재분류 기록 */
+export interface NameReclassifiedItem {
+  original_rule: string;
+  original_description: string;
+  new_kind: NameEventKind;
+  action: "kept_hard" | "demoted_soft" | "removed";
+  reason: string;
+}
+
+/**
+ * NamePostprocessResult — validator 이름 관련 hard_violation 후처리 결과
+ * ValidationResult.name_analysis 에 보조 필드로 붙는다.
+ * verdict 재계산은 postprocessNameViolations() 내부에서 수행.
+ */
+export interface NamePostprocessResult {
+  /** 후처리 전 이름 혼동 hard_violation 개수 */
+  original_name_violations: number;
+  /** 각 violation의 재분류 기록 */
+  reclassified: NameReclassifiedItem[];
+  /** 후처리 후 이름 관련 hard_violation 개수 (실제 혼동만) */
+  final_name_violations: number;
+  /** 정책 위반으로 hard 유지된 신규 인물 도입 설명 목록 */
+  policy_violations: string[];
+}

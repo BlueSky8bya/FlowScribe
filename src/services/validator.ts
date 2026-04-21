@@ -15,6 +15,8 @@ import { getLLMClient, getSummaryModel } from "../lib/llm.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { pool } from "../lib/db.js";
 import type { EffectiveContext, ValidationResult, Verdict, QualityScores } from "../types/canonical.js";
+import type { NamePostprocessResult, NameReclassifiedItem } from "../types/character_policy.js";
+import { resolveCharacterPolicy } from "../lib/character_policy_resolver.js";
 
 const MAX_TOKENS = 3500;
 
@@ -364,6 +366,128 @@ function computeVerdict(
 }
 
 // ══════════════════════════════════════════════════════════════
+// 이름 관련 hard_violation 후처리 레이어
+// ── R7-FREEZE 본체를 건드리지 않고 판정 해석력만 보강 ──────────
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * postprocessNameViolations
+ *
+ * validator LLM이 반환한 hard_violations 중 "인물 이름 혼동"을 4종으로 재분류:
+ *   canonical_name_confusion       → hard 유지
+ *   alias_or_reference_usage       → soft 강등 (validator 예외 항목 오탐)
+ *   named_new_character_introduction → policy에 따라 hard 유지 또는 soft 강등
+ *   gender_pronoun_mismatch        → soft 강등 (이름 혼동이 아님)
+ *
+ * verdict / total_score는 변경된 violations 기준으로 재계산.
+ */
+function postprocessNameViolations(
+  result: ValidationResult,
+  ctx: EffectiveContext
+): ValidationResult {
+  const nameViolations = result.hard_violations.filter(v => v.rule === "인물 이름 혼동");
+  if (nameViolations.length === 0) return result;
+
+  const policy = resolveCharacterPolicy(ctx.gen_config.character_policy, ctx.world_config);
+
+  const reclassified: NameReclassifiedItem[] = [];
+  const hardToKeep: ValidationResult["hard_violations"] = [];
+  const newSoftWarnings: ValidationResult["soft_warnings"] = [...result.soft_warnings];
+
+  for (const v of result.hard_violations) {
+    if (v.rule !== "인물 이름 혼동") { hardToKeep.push(v); continue; }
+
+    const desc = v.description;
+
+    // ① 젠더 대명사 오기 — "그녀"/"그" 대명사 + 성별 설정 불일치
+    //   이름 자체가 틀린 게 아니므로 soft 강등
+    const isGenderPronoun =
+      /남성.*설정.*그녀|여성.*설정.*그[^녀]|대명사.*(그녀|그[^녀])/.test(desc) ||
+      /성별.*설정.*(남성|여성).*(대명사|그녀|그[^녀])/.test(desc) ||
+      (desc.includes("그녀") && (desc.includes("남성") || desc.includes("성별 설정")));
+
+    if (isGenderPronoun) {
+      reclassified.push({ original_rule: "인물 이름 혼동", original_description: desc,
+        new_kind: "alias_or_reference_usage", action: "demoted_soft",
+        reason: "젠더 대명사 불일치 — 이름 혼동이 아닌 대명사 오기" });
+      newSoftWarnings.push({ rule: "젠더 대명사 불일치", description: desc,
+        severity: "medium", suggestion: "설정 성별에 맞는 대명사를 사용하세요." });
+      continue;
+    }
+
+    // ② alias / 호칭 / 성씨 오탐 — 프롬프트 예외 항목인데 LLM이 잘못 hard로 판정한 경우
+    const isAlias = /성씨|호칭|별명|역할어|씨\)|님\)|선배|선생님|형\)|언니|오빠|아저씨/.test(desc);
+    if (isAlias) {
+      reclassified.push({ original_rule: "인물 이름 혼동", original_description: desc,
+        new_kind: "alias_or_reference_usage", action: "demoted_soft",
+        reason: "validator 예외 항목(성씨/호칭/별명)에 해당 — soft 강등" });
+      newSoftWarnings.push({ rule: "별칭/호칭 사용 (참고)", description: desc,
+        severity: "low", suggestion: "성씨·호칭·별명은 이름 혼동으로 판정하지 않습니다." });
+      continue;
+    }
+
+    // ③ 신규 인물 도입 — 설정에 없는 이름 등장
+    const isNewChar = /설정에 없는|등장하지 않는|새로운 인물|등록되지 않은|인물 목록에/.test(desc);
+    if (isNewChar) {
+      const policyAllows = policy.new_character_policy === "named_with_gate"
+        || policy.new_character_policy === "open_cast";
+      if (policyAllows) {
+        reclassified.push({ original_rule: "인물 이름 혼동", original_description: desc,
+          new_kind: "named_new_character_introduction", action: "demoted_soft",
+          reason: `신규 인물 도입 — policy(${policy.new_character_policy}) 상 허용, soft 강등` });
+        newSoftWarnings.push({ rule: "신규 인물 도입", description: desc,
+          severity: "medium", suggestion: "첫 등장 시 역할·기존 인물과의 관계를 명시하세요." });
+      } else {
+        reclassified.push({ original_rule: "인물 이름 혼동", original_description: desc,
+          new_kind: "named_new_character_introduction", action: "kept_hard",
+          reason: `신규 인물 도입 — policy(${policy.new_character_policy}) 위반` });
+        hardToKeep.push({ ...v, rule: "신규 인물 도입 (정책 위반)" });
+      }
+      continue;
+    }
+
+    // ④ 그 외 — 실제 인물 이름 교차 혼동 또는 오기 → hard 유지
+    reclassified.push({ original_rule: "인물 이름 혼동", original_description: desc,
+      new_kind: "canonical_name_confusion", action: "kept_hard",
+      reason: "실제 인물 이름 교차 혼동 또는 오기" });
+    hardToKeep.push(v);
+  }
+
+  const name_analysis: NamePostprocessResult = {
+    original_name_violations: nameViolations.length,
+    reclassified,
+    final_name_violations: hardToKeep.filter(
+      v => v.rule === "인물 이름 혼동" || v.rule === "신규 인물 도입 (정책 위반)"
+    ).length,
+    policy_violations: reclassified
+      .filter(r => r.action === "kept_hard" && r.new_kind === "named_new_character_introduction")
+      .map(r => r.original_description),
+  };
+
+  // violations 변경이 있으면 score/verdict 재계산
+  const demoted = reclassified.some(r => r.action === "demoted_soft");
+  if (!demoted) return { ...result, hard_violations: hardToKeep, name_analysis };
+
+  const newTotal  = computeTotalScore(result.quality_scores, hardToKeep, newSoftWarnings);
+  const newVerdict = computeVerdict(hardToKeep, newSoftWarnings, newTotal);
+
+  logInfo("service:validator", "이름 판정 후처리 완료", {
+    original_name_violations: name_analysis.original_name_violations,
+    demoted: reclassified.filter(r => r.action === "demoted_soft").length,
+    verdict_before: result.verdict, verdict_after: newVerdict,
+  });
+
+  return {
+    ...result,
+    hard_violations: hardToKeep,
+    soft_warnings: newSoftWarnings,
+    total_score: newTotal,
+    verdict: newVerdict,
+    name_analysis,
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
 // 공개 API
 // ══════════════════════════════════════════════════════════════
 
@@ -410,7 +534,7 @@ export async function validate(
     };
   }
 
-  const result = parseValidationResult(raw);
+  const result = postprocessNameViolations(parseValidationResult(raw), ctx);
 
   logInfo("service:validator", "검증 완료", {
     book_id: opts.bookId, episode: opts.episodeNumber,

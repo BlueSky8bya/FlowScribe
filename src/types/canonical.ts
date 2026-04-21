@@ -200,6 +200,8 @@ export interface ValidationResult {
   total_score: number;           // 0~100 weighted
   summary: string;
   revision_hints?: string[];     // 리비전 시 사용할 힌트
+  /** 이름 관련 hard_violation 후처리 결과 (postprocessNameViolations 생성) */
+  name_analysis?: import("./character_policy.js").NamePostprocessResult;
 }
 
 // ══════════════════════════════════════════════════════════════
