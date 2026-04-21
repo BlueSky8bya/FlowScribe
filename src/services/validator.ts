@@ -16,11 +16,12 @@ import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { pool } from "../lib/db.js";
 import type { EffectiveContext, ValidationResult, Verdict, QualityScores } from "../types/canonical.js";
 
-const MAX_TOKENS = 2000;
+const MAX_TOKENS = 3500;
 
 // ══════════════════════════════════════════════════════════════
 // 검증 프롬프트 A — 주요 사용 버전
 // ══════════════════════════════════════════════════════════════
+// ── R7-FREEZE (2026-04-21) — 이 함수는 validator freeze 버전이다. 튜닝 금지. ──
 function buildValidationSystemPromptA(): string {
   return `당신은 한국어 소설 품질 검증 전문가다.
 아래 JSON 형식만 출력한다. 다른 텍스트 없이.
@@ -33,47 +34,66 @@ function buildValidationSystemPromptA(): string {
     {"rule": "규칙명", "description": "내용", "severity": "medium|low", "suggestion": "제안(선택)"}
   ],
   "quality_scores": {
-    "pov_consistency": 75,
-    "scene_clarity": 75,
-    "character_consistency": 75,
-    "plot_momentum": 75,
-    "world_rule_usage": 75,
-    "exposition_control": 75,
-    "prose_density": 75,
-    "ending_hook": 75,
-    "style_adherence": 75,
-    "intervention_adherence": 75
+    "pov_consistency": 점수,
+    "scene_clarity": 점수,
+    "character_consistency": 점수,
+    "plot_momentum": 점수,
+    "world_rule_usage": 점수,
+    "exposition_control": 점수,
+    "prose_density": 점수,
+    "ending_hook": 점수,
+    "style_adherence": 점수,
+    "intervention_adherence": 점수
   },
   "summary": "요약",
   "revision_hints": []
 }
 
-[HARD VIOLATIONS — 아래 4가지만, 다른 것은 절대 hard_violations에 넣지 않음]
+각 점수(점수 자리)는 0~100 사이 정수로 실제 평가 결과를 채운다. 템플릿 값을 그대로 반환하지 말 것.
 
-H1. 따옴표 무결성 (severity: major)
-판정: 대사가 곡선 따옴표 "로 시작했으나 "로 닫히지 않은 경우
-예외: 한국어 조사·동사가 대사 안에 있는 것은 정상
+[하드 위반 — 아래 6가지만 hard_violations에 넣는다. 다른 것은 절대 hard_violations에 넣지 않는다]
 
-H2. 인물 이름 혼동 (severity: major)
-판정: 설정에 없는 이름 사용, 또는 인물 A 이름 자리에 인물 B 이름 사용
-예외: 성씨(이 씨), 호칭(형·선생님·오빠), 별명은 정상
+1. 절대금지 위반 (severity: critical)
+   판정: 입력에서 제공된 절대금지(absolute_forbidden) 항목을 본문이 직접 위반한 경우
 
-H3. 시점 위반 (severity: major)
-판정:
-  - 1인칭 시점: 서술부에서 갑자기 "그가/그녀가" 등 3인칭으로 바뀌는 경우
-  - 1인칭 관찰자: 서술부에서 타인의 감정/생각을 직접 서술 ("그는 두려웠다" 형식)
-  - 3인칭 시점: 서술부에 "나는/나의/내가" 등장
-예외: 대사(" " 내부) 안에 있는 1인칭 표현은 위반 아님
+2. 따옴표 미닫힘 (severity: major)
+   판정: 대사를 여는 " 따옴표가 닫는 "로 닫히지 않은 경우
+   예외: 한국어 조사·어미가 대사 안에 있는 것은 정상
 
-H4. 절대금지 위반 (severity: critical)
-판정: 입력에서 제공된 절대금지(absolute_forbidden) 항목을 본문이 직접 위반
+3. 인물 이름 혼동 (severity: major)
+   판정: 설정에 없는 이름 사용, 인물 A 자리에 인물 B 이름 사용
+   예외: 성씨(이 씨, 김 씨), 호칭(형·언니·선생님·오빠·아저씨), 별명, 역할어는 정상
 
-[SOFT WARNINGS — 위 H1~H4 이외의 모든 문제는 soft_warnings로만]
+4. 시점 위반 (severity: major)
+   판정:
+   - 1인칭 주인공: 서술부에서 갑자기 "그가/그녀가" 등 3인칭 전환
+   - 1인칭 관찰자: 서술부에서 타인의 감정·생각을 직접 서술 ("그는 두려웠다" 형식)
+   - 3인칭 시점: 서술부에 "나는/나의/내가" 등장
+   예외: 대사(" " 내부) 안의 1인칭 표현은 위반 아님
+         화자 자신의 내면(감정·생각) 서술은 1인칭 시점에서 정상
+         교차 시점은 장면 전환마다 시점 인물이 바뀌므로 전환 자체는 위반 아님
 
-- 상태보존: 부상 팔/다리를 그 부위가 필요한 동작에 직접 사용 → medium
-  (달리기/걷기 등 부상 부위 무관 동작은 경고도 아님; 위치 불일치도 medium)
-- 시공간 연결성: 이동 표현/시간 표현이 전혀 없는 장면 전환 → low
-- 세계관 규칙 미준수 → medium
+5. 상태 보존 직접 모순 (severity: major)
+   판정: 이전 상태와 직접적으로 모순되는 경우만
+   - 이미 죽은 인물이 살아서 등장
+   - 부상당한 특정 팔/다리를 그 부위가 반드시 필요한 동작에 정상적으로 사용 (오른팔 부상인데 오른팔로 물건 집기, 다리 부상인데 달리기)
+   - 설정에 없는 소지품을 갑자기 꺼내 사용
+   예외:
+   - 부상 부위와 무관한 동작은 위반 아님 (오른팔 부상 시 왼팔 사용)
+   - 부상/소지품을 언급하지 않은 것만으로는 위반 아님
+   - 인물이 예상과 다른 위치에서 시작하는 것은 soft_warnings medium으로만
+
+6. 시공간 연결성 (severity: major)
+   판정: 장면 전환이 있는데 이동 동사(갔다/향했다/이동했다/돌아왔다/나왔다 등)도 없고
+         시간 표현(후/뒤/밤에/며칠 후/다음 날/그 사이/잠시 뒤 등)도 전혀 없는 경우만
+   예외: 같은 장소에서 계속 이야기가 진행되면 판정 불필요
+         이동 또는 시간 표현이 한 문장이라도 있으면 통과
+
+[소프트 경고 — 위 6가지 이외의 모든 문제는 soft_warnings로만]
+
+- 위치 불일치: 인물이 예상 위치가 아닌 곳에서 시작 → medium
+- 부상 제약 미반영: 부상 부위 사용 시 고통/제한 묘사 없음 → medium
+- 세계관 일반 규칙 미준수 → medium
 - 설정 자산 미활용 → medium
 - 엔딩 훅 약함 → medium
 - 문체 불일치 → medium
@@ -81,10 +101,12 @@ H4. 절대금지 위반 (severity: critical)
 - 젠더 대명사 불일치 → low
 
 [절대 하지 말 것]
-- H1~H4 이외를 hard_violations에 추가하지 않는다
-- 상태보존 문제를 hard_violations에 넣지 않는다
-- 언급 안 한 것을 모순으로 판정하지 않는다
+- 위 6가지 이외를 hard_violations에 추가하지 않는다
+- 언급하지 않은 것을 모순으로 판정하지 않는다
 - 입력에 없는 내용을 상상해서 판정하지 않는다
+- 세계관 general 규칙 미준수를 hard_violations에 넣지 않는다
+- 위치 불일치를 hard_violations에 넣지 않는다
+- 시점 교차 전환 자체를 시점 위반으로 판정하지 않는다
 
 JSON만 출력.`;
 }
@@ -234,11 +256,29 @@ async function callLLMValidator(
 // ══════════════════════════════════════════════════════════════
 function parseValidationResult(raw: string): ValidationResult {
   let parsed: any = {};
+  let parseError = false;
   try {
     const jsonMatch = raw.match(/\{[\s\S]*\}/);
     if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+    else parseError = true;
   } catch {
-    logWarn("service:validator", "JSON 파싱 실패 — 기본값 반환", { raw: raw.slice(0, 200) });
+    logWarn("service:validator", "JSON 파싱 실패 — WARN 기본값 반환", { raw: raw.slice(0, 200) });
+    parseError = true;
+  }
+
+  // JSON 파싱 실패 시 PASS가 아닌 WARN 반환
+  if (parseError) {
+    const defScores: QualityScores = {
+      pov_consistency:70, scene_clarity:70, character_consistency:70, plot_momentum:70,
+      world_rule_usage:70, exposition_control:70, prose_density:70, ending_hook:55,
+      style_adherence:70, intervention_adherence:70,
+    };
+    return {
+      verdict: "WARN", hard_violations: [],
+      soft_warnings: [{ rule: "검증기 파싱 오류", description: "LLM 응답을 JSON으로 파싱 실패", severity: "medium" }],
+      quality_scores: defScores, total_score: 55,
+      summary: "JSON 파싱 실패로 인한 기본값", revision_hints: [],
+    };
   }
 
   const hard_violations = (parsed.hard_violations ?? []) as ValidationResult["hard_violations"];
@@ -272,7 +312,10 @@ function parseValidationResult(raw: string): ValidationResult {
   };
 }
 
-function clamp(v: number): number { return Math.max(0, Math.min(100, Math.round(v))); }
+function clamp(v: unknown, fallback = 70): number {
+  const n = Number(v);
+  return isNaN(n) ? fallback : Math.max(0, Math.min(100, Math.round(n)));
+}
 
 function computeTotalScore(
   scores: QualityScores,
