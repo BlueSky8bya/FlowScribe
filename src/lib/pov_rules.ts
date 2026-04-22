@@ -5,6 +5,10 @@
  * - Variant C (rules-only): avg=67, POV위반=2, FAIL=0 → 최우수
  * - Variant B (few-shot): 교차 시점 위반 0→5 → 채택 금지 (영구)
  *
+ * 1인칭 주인공 오프닝 앵커 추가 (2026-04-22): protagonist-pov-diagnostic
+ * - Variant C(앵커): POV위반 7→5, avg 57→61 → 최우수
+ * - 주의: revision이 1인칭 주인공 케이스를 오히려 악화시킴 (FAIL 3→4)
+ *
  * 이 모듈을 benchmark(test_runner.ts)와 서비스(story.ts) 양쪽에서 임포트한다.
  * 두 경로가 같은 함수를 사용함으로써 POV 정책 의미 불일치를 방지한다.
  */
@@ -28,6 +32,7 @@ export { isUnsupportedPov, getUnsupportedPovEntry, ACTIVE_POV_POLICY };
 export function variantCPovRule(pov: string): string {
   if (pov.includes("1인칭 주인공") || pov === "1인칭주인공") {
     return `시점: 1인칭 주인공
+오프닝 앵커: 화의 첫 2~3문장은 반드시 '나'의 감각·행동·시선으로 시작한다. 첫 문장을 타인·'그'·'그녀'로 시작하지 않는다.
 필수: 모든 서술부는 '나/나는/내가/나의'로 시작하거나 1인칭 관점을 유지한다.
 절대금지: 서술부에서 '그가/그녀가/그는/그녀는'으로 시작하는 3인칭 주어 사용.
 허용: 대사(" " 내부) 안에서 다른 인물이 '나'를 지칭하는 것은 정상.`;

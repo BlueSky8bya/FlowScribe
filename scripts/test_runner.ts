@@ -115,10 +115,13 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
   // 1인칭 관찰자: 미지원 POV, 규칙은 포함하나 benchmark에서 별도 분리됨
   const povRule = variantCPovRule(cfg.pov);
 
-  const styleRule = cfg.style === "간결/담백" ? "짧고 명확한 문장, 불필요한 수식 배제"
-    : cfg.style === "서정/감성" ? "감성적 묘사와 내면 정서를 풍부하게"
-    : cfg.style === "묘사풍부" ? "장면과 감각을 세밀하게 묘사"
-    : "균형 잡힌 묘사와 전개";
+  const styleRule = cfg.style === "간결/담백"
+    ? "짧고 명확한 문장. '마치 ~처럼', '~인 양', '~하듯' 과도한 비유 금지. 행동과 사실 위주 서술."
+    : cfg.style === "서정/감성"
+    ? "감성적 묘사와 내면 정서를 풍부하게. 감각 이미지로 감정 전달."
+    : cfg.style === "묘사풍부"
+    ? "장면·감각·인물 내면을 구체적으로 묘사. 추상적 수식보다 구체적 감각 세부 묘사."
+    : "묘사와 사건 전개의 균형 유지.";
 
   const sliders = [
     cfg.conflict   >= 8 ? "갈등을 격렬하게" : cfg.conflict   <= 3 ? "잔잔하게" : "",
@@ -159,7 +162,7 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
 
   // 인물 이름별 젠더 대명사 매핑 (이름 혼동 및 대명사 불일치 방지)
   const genderPronounList = ctx.characters.map(c => {
-    const pronoun = c.gender === "여성" ? "그녀/그녀의" : c.gender === "남성" ? "그/그의" : "중립 표현";
+    const pronoun = c.gender === "여성" ? "그녀/그녀의" : c.gender === "남성" ? "그/그의" : "이름/역할로만 지칭";
     return `${c.name}(${c.gender}) → ${pronoun}`;
   }).join(", ");
 
@@ -194,6 +197,12 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
 방향: ${ctx.task.ending_hook_direction}`
     : "";
 
+  // 위치 목록 — 인물별 현재 위치를 명확히 열거
+  const locationList = ctx.character_dynamic_states
+    .filter(s => s.location)
+    .map(s => `${s.character_name}: ${s.location}`)
+    .join(" / ");
+
   const system = `당신은 한국 소설 생성 AI다.
 
 [시점 — 최우선 규칙]
@@ -203,22 +212,24 @@ ${povRule}
 ${charList}
 허용 이름: ${charNames}
 이름 표기 규칙:
-- 위 이름을 정확히 유지한다. 오기·합성·변형은 심각한 오류다.
+- 위 이름을 정확히 유지한다. 오기·합성·변형·로마자 표기는 심각한 오류다.
 - 조사를 붙일 때 이름 자체를 변형하지 않는다 (민서과 → 민서와).
 - 이름을 인물 간에 교차 혼용하지 않는다.
 별칭/호칭: ${aliasNote}
 신규 인물 도입: ${newCharNote}
 
-[인물 젠더 대명사 — 설정 기준 사용]
+[인물 젠더 대명사 — 설정 기준 사용, 위반 금지]
 ${genderPronounList}
+절대금지: 설정 성별과 다른 대명사 사용. 성별이 '해당없음'인 인물에게 '그'나 '그녀' 단독 사용 금지 — 이름 또는 역할로 대체.
 
 [이번 화 시작 상태 — 첫 단락에서 반드시 반영]
-각 인물의 현재 위치와 신체 상태:
+인물별 현재 위치: ${locationList || "없음"}
+상세 상태:
 ${dynStates || "없음"}
 규칙:
 - 이번 화는 위 위치와 상태에서 시작한다. 첫 단락 안에서 시작 위치를 자연스럽게 드러낸다.
+- 인물을 그 인물의 설정 위치가 아닌 다른 위치에 등장시키지 않는다. 이동이 필요하면 반드시 이동 경위나 시간 경과를 한 문장 이상 서술한다.
 - 신체 상태가 '정상'인 인물에게 임의로 부상이나 이상 상태를 추가하지 않는다.
-- 위치가 바뀐 경우에는 반드시 이동 경위나 시간 경과를 한 문장 이상 서술한다.
 
 [부상 제약]
 ${injuryBlock}
@@ -234,8 +245,9 @@ ${continuityBlock || "없음"}
 연출: ${sliders || "기본"}
 분량: ${cfg.episodeLength}~${cfg.episodeLength + cfg.episodeLengthVar}자
 
-[세계관 규칙]
+[세계관 규칙 — 이번 화에서 최소 1개를 사건 동인으로 활용]
 ${genRules}
+활용 지시: 위 규칙 중 최소 1개가 이번 화의 행동 제약, 갈등 원인, 또는 결과에 직접 영향을 미쳐야 한다. 규칙을 나열만 하고 서사에서 무시하지 않는다.
 
 [절대금지 — 어떤 경우에도 위반 불가]
 ${absForbid}
@@ -259,6 +271,7 @@ ${endingHookInstruction}
 - 본문만 출력. 설명·주석·JSON 절대 금지
 - 반드시 완결된 문장으로 끝낼 것
 - 비최종화: 본문 완성 후 [CLIFF] 단독 줄 → 클리프행어 2~4문장 → [END]
+  클리프행어는 반드시 다음 중 하나를 구체적 사건으로 서술한다: ①즉각적 위협/위기, ②예상 밖 발견·반전 정보, ③행동 결과로 생긴 새 심각한 문제, ④독자가 "다음 화에서 무슨 일이?" 묻게 만드는 미해결 상황. 막연한 분위기 묘사(예: "어둠이 깔렸다", "그 목소리가 울려 퍼졌다")로만 끝내지 않는다.
 - 최종화: 완전한 결말, [END]로 끝
 - 출력은 100% 한국어`;
 
@@ -497,6 +510,31 @@ async function runDevSet(count: number, supportedPovOnly = false): Promise<RunRe
   return report;
 }
 
+// 실험용: 1인칭 주인공만 revision skip, 나머지 supported POV는 revision 유지.
+// revision이 1인칭 주인공 케이스를 악화시키는지 분리 검증하기 위한 함수.
+// 정책 결정 전 임시 실험 분기 — revision.ts/story.ts 수정 없음.
+async function runDevSupportedProtagSkip(count: number): Promise<RunReport> {
+  console.log(`\n🔧 DEV SET (지원 POV, 1인칭주인공 revision-skip) 실행 (${count}케이스)`);
+  const cases = filterToSupportedPov(generateTestCases(count));
+  const caseIdToPov = Object.fromEntries(cases.map(tc => [tc.id, tc.gen_config.pov]));
+  const results: TestResult[] = [];
+
+  for (let i = 0; i < cases.length; i++) {
+    const tc = cases[i];
+    const isProtag = tc.gen_config.pov === "1인칭 주인공";
+    const skipLabel = isProtag ? "[revision-skip]" : "";
+    process.stdout.write(`  [${i+1}/${cases.length}] ${tc.description.slice(0, 45)}...${skipLabel} `);
+    const result = await runSingleCase(tc, { promptVersion: "A", doRevise: !isProtag });
+    results.push(result);
+    console.log(`${result.final_verdict} (${result.validation.total_score}점, ${result.elapsed_ms}ms)`);
+  }
+
+  const report = generateReport(results, "dev", caseIdToPov);
+  printReport(report);
+  saveReport(report, "dev_supported_skip");
+  return report;
+}
+
 async function runHoldoutSet(count: number, supportedPovOnly = false): Promise<RunReport> {
   const label = supportedPovOnly ? "HOLDOUT SET (지원 POV 기준)" : "HOLDOUT SET";
   console.log(`\n🔒 ${label} 실행 (${count}케이스, 프롬프트 B, 리비전 X)`);
@@ -584,6 +622,12 @@ async function main() {
     // 전체 POV 포함 benchmark는 [dev|holdout|full]을 사용한다.
     case "dev_supported":
       await runDevSet(parseInt(arg1), true);
+      break;
+    // ── 실험용: 1인칭 주인공에 한해 revision skip ──────────────────
+    // revision이 1인칭 주인공 케이스를 악화시키는지 검증하기 위한 분리 실험.
+    // 정책 미확정 — 이 결과를 보고 정책 결정.
+    case "dev_supported_skip":
+      await runDevSupportedProtagSkip(parseInt(arg1));
       break;
     case "holdout_supported":
       await runHoldoutSet(parseInt(arg1), true);
