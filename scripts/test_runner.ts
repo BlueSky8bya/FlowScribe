@@ -40,6 +40,8 @@ import type {
 import { resolveCharacterPolicy } from "../src/lib/character_policy_resolver.js";
 import { ACTIVE_POV_POLICY, isUnsupportedPov } from "../src/types/pov_policy.js";
 import { variantCPovRule as _sharedVariantCPovRule } from "../src/lib/pov_rules.js";
+import { runPlannerPipeline } from "../src/pipeline/index.js";
+import { AB_STATE_PERSISTENCE_CASES } from "./ab_state_persistence_cases.js";
 
 // ══════════════════════════════════════════════════════════════
 // 생성기: TestCase → EffectiveContext 변환
@@ -166,19 +168,19 @@ function buildGenPrompt(ctx: EffectiveContext): { system: string; user: string }
     return `${c.name}(${c.gender}) → ${pronoun}`;
   }).join(", ");
 
-  // 부상 제약 — 금지 동작 구체 명시
+  // 부상 제약 — 금지 나열보다 묘사 유도 방식으로 (prohibition → depiction guidance)
   const injuredChars = ctx.character_dynamic_states.filter(s =>
     s.physical_state && (s.physical_state.includes("부상") || s.physical_state.includes("중상") || s.physical_state.includes("경상"))
   );
   const injuryBlock = injuredChars.length > 0
     ? injuredChars.map(s => {
         const p = s.physical_state ?? "";
-        const forbidden = p.includes("팔") || p.includes("손") || p.includes("어깨") || p.includes("손목")
-          ? "집기·쥐기·들기·던지기·밀기 (해당 팔) 금지 — 반대 팔 또는 고통/제한 묘사 필수"
+        const guidance = p.includes("팔") || p.includes("손") || p.includes("어깨") || p.includes("손목")
+          ? "해당 팔 정상 사용 불가. 행동 묘사 시 고통 반응·반대 팔 사용·동작 회피를 자연스럽게 드러낸다."
           : p.includes("다리") || p.includes("발") || p.includes("무릎") || p.includes("발목")
-          ? "달리기·도약·차기 금지 — 절뚝임 또는 지지대 사용 필수"
-          : "해당 부위 정상 사용 금지 — 대체 동작 또는 고통 묘사 필수";
-        return `${s.character_name}(${p}): ${forbidden}`;
+          ? "해당 다리 정상 사용 불가. 걷기·달리기 묘사 시 절뚝임·지지·통증을 반드시 수반한다."
+          : "해당 부위 정상 사용 불가. 행동 시 부상 부위의 제약 또는 고통이 드러나야 한다.";
+        return `${s.character_name}(${p}): ${guidance}`;
       }).join("\n")
     : "없음";
 
@@ -224,18 +226,20 @@ ${genderPronounList}
 
 [이번 화 시작 상태 — 첫 단락에서 반드시 반영]
 인물별 현재 위치: ${locationList || "없음"}
-상세 상태:
+상세 상태 (소지품·부상·목표 포함):
 ${dynStates || "없음"}
-규칙:
-- 이번 화는 위 위치와 상태에서 시작한다. 첫 단락 안에서 시작 위치를 자연스럽게 드러낸다.
-- 인물을 그 인물의 설정 위치가 아닌 다른 위치에 등장시키지 않는다. 이동이 필요하면 반드시 이동 경위나 시간 경과를 한 문장 이상 서술한다.
-- 신체 상태가 '정상'인 인물에게 임의로 부상이나 이상 상태를 추가하지 않는다.
+시작 규칙:
+- 첫 문장 또는 첫 단락의 행동·환경 묘사가 위 위치에서 비롯되어야 한다. 위 위치와 맞지 않는 장면으로 시작하지 않는다.
+- 위 소지품·자원·목표 상태를 유지한다. 이번 화 시작 시 명시된 소지품을 임의로 분실·소비·초기화하지 않는다.
+- 인물을 설정 위치 외 장소에 등장시킬 경우 이동 경위 또는 시간 경과를 1문장 이상 서술한다.
+- 신체 상태가 정상인 인물에게 임의로 부상이나 이상 상태를 추가하지 않는다.
 
 [부상 제약]
 ${injuryBlock}
 
-[직전 화 연속성]
+[직전 화 연속성 — 이번 화 첫 장면에서 여파 반영]
 ${continuityBlock || "없음"}
+${continuityBlock ? "위 직전 사건의 여파(긴장감·환경·인물 상태 변화)가 이번 화 첫 단락의 행동·감정·환경에서 자연스럽게 이어져야 한다." : ""}
 
 [대화 따옴표]
 모든 대사는 반드시 "로 열고 "로 닫는다. 열린 따옴표를 닫지 않으면 심각한 오류다.
@@ -582,6 +586,126 @@ async function runSmokeTest(count: number): Promise<RunReport> {
 }
 
 // ══════════════════════════════════════════════════════════════
+// Planner→Renderer 배치 모드
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * planner_renderer: Planner→Renderer 파이프라인으로 고정 케이스 실행
+ * planner_only: 렌더링 없이 Plan JSON + PlanValidation만 출력
+ * ab_compare: 동일 케이스에서 legacy vs planner_renderer 양쪽 실행 후 비교
+ */
+async function runPlannerBatch(
+  mode: "planner_renderer" | "planner_only" | "ab_compare",
+  count: number,
+): Promise<void> {
+  const cases = AB_STATE_PERSISTENCE_CASES.slice(0, count);
+  console.log(`\n🧠 ${mode.toUpperCase()} 실행 (${cases.length}케이스)`);
+
+  type PlanRow = {
+    id: string;
+    planVerdict: string;
+    planIssues: number;
+    fallback: boolean;
+    proseVerdict?: string;
+    proseScore?: number;
+    legacyVerdict?: string;
+    legacyScore?: number;
+    elapsed_ms: number;
+  };
+
+  const rows: PlanRow[] = [];
+
+  for (let i = 0; i < cases.length; i++) {
+    const tc  = cases[i];
+    const ctx = testCaseToEffectiveContext(tc, tc.episode_number);
+    process.stdout.write(`  [${i+1}/${cases.length}] ${tc.id} ${tc.description.slice(0, 45)}... `);
+
+    if (mode === "planner_only") {
+      const t0  = Date.now();
+      const res = await runPlannerPipeline(ctx, { doRevise: false, skipRenderOnPlanFail: true });
+      const elapsed = Date.now() - t0;
+      const pv = res.plan_validation;
+      console.log(`plan=${pv.verdict} issues=${pv.issues.length} fallback=${res.plan_fallback_used} (${elapsed}ms)`);
+      rows.push({ id: tc.id, planVerdict: pv.verdict, planIssues: pv.issues.length, fallback: res.plan_fallback_used, elapsed_ms: elapsed });
+    } else {
+      const t0  = Date.now();
+      const res = await runPlannerPipeline(ctx, { doRevise: false, skipRenderOnPlanFail: false });
+      const elapsed = Date.now() - t0;
+
+      let legacyVerdict: string | undefined;
+      let legacyScore: number | undefined;
+
+      if (mode === "ab_compare") {
+        // legacy 생성
+        const llm    = getLLMClient();
+        const model  = getStoryModel();
+        const cfg    = tc.gen_config;
+        const maxTok = Math.ceil((cfg.episodeLength + cfg.episodeLengthVar) * 0.65 * 1.4) + 300;
+        const charList = ctx.characters.map(c => `${c.name}(${c.gender}, ${c.type}): ${c.personality}`).join("\n");
+        const legacySys = `당신은 한국 소설 생성 AI다.\n\n[시점]\n${variantCPovRule(cfg.pov)}\n\n[등장인물]\n${charList}`;
+        try {
+          const lr = await (llm.chat.completions.create as any)({
+            model, temperature: 0.85, max_tokens: maxTok,
+            messages: [{ role: "system", content: legacySys }, { role: "user", content: `${ctx.episode_number}화를 ${cfg.pov} 시점으로 생성해줘.` }],
+          });
+          const legacyText = lr.choices?.[0]?.message?.content ?? "";
+          const lv = await validate(legacyText, ctx, { promptVersion: "A" });
+          legacyVerdict = lv.verdict;
+          legacyScore   = lv.total_score;
+        } catch {}
+      }
+
+      const proseScore   = res.prose_validation.total_score;
+      const proseVerdict = res.prose_validation.verdict;
+      const diff = legacyScore != null ? proseScore - legacyScore : undefined;
+      const diffStr = diff != null ? ` Δ${diff >= 0 ? "+" : ""}${diff}` : "";
+      console.log(`plan=${res.plan_validation.verdict} prose=${proseVerdict}(${proseScore})${legacyScore != null ? ` legacy=${legacyVerdict}(${legacyScore})${diffStr}` : ""} (${elapsed}ms)`);
+      rows.push({
+        id: tc.id, planVerdict: res.plan_validation.verdict, planIssues: res.plan_validation.issues.length,
+        fallback: res.plan_fallback_used, proseVerdict, proseScore, legacyVerdict, legacyScore, elapsed_ms: elapsed,
+      });
+    }
+  }
+
+  // 요약
+  console.log("\n" + "═".repeat(60));
+  console.log(`📊 ${mode.toUpperCase()} 요약`);
+  const planPass = rows.filter(r => r.planVerdict === "PASS").length;
+  const planFail = rows.filter(r => r.planVerdict === "FAIL").length;
+  const planWarn = rows.filter(r => r.planVerdict === "WARN").length;
+  console.log(`  계획 검증: PASS=${planPass} WARN=${planWarn} FAIL=${planFail} / ${rows.length}`);
+  console.log(`  Fallback 사용: ${rows.filter(r => r.fallback).length}/${rows.length}`);
+
+  if (mode !== "planner_only") {
+    const proseRows = rows.filter(r => r.proseScore != null);
+    if (proseRows.length) {
+      const avgProse = Math.round(proseRows.reduce((s, r) => s + (r.proseScore ?? 0), 0) / proseRows.length);
+      const prosePass = proseRows.filter(r => r.proseVerdict === "PASS" || r.proseVerdict === "PASS_STRONG").length;
+      console.log(`  산문 검증: avg=${avgProse} PASS=${prosePass}/${proseRows.length}`);
+    }
+    if (mode === "ab_compare") {
+      const legacyRows = rows.filter(r => r.legacyScore != null);
+      if (legacyRows.length) {
+        const avgLegacy = Math.round(legacyRows.reduce((s, r) => s + (r.legacyScore ?? 0), 0) / legacyRows.length);
+        const legacyPass = legacyRows.filter(r => r.legacyVerdict === "PASS" || r.legacyVerdict === "PASS_STRONG").length;
+        console.log(`  레거시:      avg=${avgLegacy} PASS=${legacyPass}/${legacyRows.length}`);
+        const avgProse = Math.round(rows.filter(r => r.proseScore != null).reduce((s, r) => s + (r.proseScore ?? 0), 0) / rows.filter(r => r.proseScore != null).length);
+        console.log(`  플래너 우위: Δavg=${avgProse - avgLegacy >= 0 ? "+" : ""}${avgProse - avgLegacy}`);
+      }
+    }
+  }
+  console.log("═".repeat(60) + "\n");
+
+  // JSON 저장
+  const dir = join(ROOT, "logs", "test_results");
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  const tag = mode;
+  const filename = join(dir, `${tag}_${Date.now()}.json`);
+  writeFileSync(filename, JSON.stringify({ mode, timestamp: new Date().toISOString(), rows }, null, 2));
+  console.log(`💾 저장: ${filename}`);
+}
+
+// ══════════════════════════════════════════════════════════════
 // CLI 진입점
 // ══════════════════════════════════════════════════════════════
 async function main() {
@@ -645,9 +769,21 @@ async function main() {
       }
       break;
     }
+    // ── Planner→Renderer 파이프라인 모드 ─────────────────────────
+    case "planner_renderer":
+      await runPlannerBatch("planner_renderer", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length);
+      break;
+    case "planner_only":
+      await runPlannerBatch("planner_only", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length);
+      break;
+    case "ab_compare":
+      await runPlannerBatch("ab_compare", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length);
+      break;
     default:
-      console.log("사용법: npx tsx scripts/test_runner.ts [dev|holdout|smoke|full|dev_supported|holdout_supported|full_supported] [count]");
-      console.log("  *_supported: 현재 모델 지원 POV 기준 benchmark (미지원 POV 제외, 명시적 로그 출력)");
+      console.log("사용법: npx tsx scripts/test_runner.ts [command] [count]");
+      console.log("  legacy: dev | holdout | smoke | full | dev_supported | holdout_supported | full_supported | dev_supported_skip");
+      console.log("  planner: planner_renderer [count] | planner_only [count] | ab_compare [count]");
+      console.log("  *_supported: 현재 모델 지원 POV 기준 benchmark (미지원 POV 제외)");
   }
 
   await pool.end();
