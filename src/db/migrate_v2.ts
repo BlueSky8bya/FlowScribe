@@ -156,15 +156,59 @@ CREATE TABLE IF NOT EXISTS revision_logs (
   rules_improved    TEXT[],
   verdict_before    TEXT,
   verdict_after     TEXT,
+  -- 학습 추적용 필드 (추가)
+  revised_text      TEXT,           -- 수정된 전체 텍스트
+  validation_before JSONB,          -- iteration 직전 ValidationResult
+  validation_after  JSONB,          -- iteration 직후 ValidationResult
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- ── Run Traces (학습 파이프라인용) ────────────────────────────
+-- 파이프라인 한 번 실행의 전체 궤적.
+-- TraceLogger (src/training/trace_logger.ts) 가 기록.
+-- DatasetBuilder (src/training/dataset_builder.ts) 가 읽어서 학습 데이터 생성.
+CREATE TABLE IF NOT EXISTS run_traces (
+  trace_id                UUID PRIMARY KEY,
+  trace_type              TEXT NOT NULL DEFAULT 'planner'
+                          CHECK (trace_type IN ('planner', 'legacy')),
+  book_id                 TEXT,
+  episode_number          INT  NOT NULL,
+  created_at              TIMESTAMPTZ DEFAULT NOW(),
+
+  -- 스냅샷
+  effective_context_snapshot JSONB NOT NULL DEFAULT '{}',
+
+  -- 각 단계 trace (nullable — 단계별 실패 허용)
+  planner_trace           JSONB,    -- PlannerTrace
+  plan_validation         JSONB,    -- PlanValidationResult
+  renderer_trace          JSONB,    -- RendererTrace
+  prose_validation        JSONB,    -- ValidationResult
+  revision_traces         JSONB DEFAULT '[]',
+
+  -- 집계
+  final_verdict           TEXT,
+  final_score             FLOAT,
+  revision_count          INT  DEFAULT 0,
+  total_elapsed_ms        INT,
+
+  -- 학습 적합성 레이블 (자동 계산)
+  is_planner_sft_eligible   BOOLEAN DEFAULT false,
+  is_renderer_sft_eligible  BOOLEAN DEFAULT false,
+  is_preference_eligible    BOOLEAN DEFAULT false
+);
+CREATE INDEX IF NOT EXISTS idx_run_traces_created
+  ON run_traces(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_run_traces_eligible
+  ON run_traces(is_planner_sft_eligible, is_renderer_sft_eligible);
+CREATE INDEX IF NOT EXISTS idx_run_traces_book_ep
+  ON run_traces(book_id, episode_number);
 `;
 
 export async function runMigrateV2(): Promise<void> {
   const client = await pool.connect();
   try {
     await client.query(SQL);
-    logInfo("db:migrate_v2", "V2 마이그레이션 완료 — 9개 테이블 생성/확인");
+    logInfo("db:migrate_v2", "V2 마이그레이션 완료 — 11개 테이블 생성/확인 (run_traces, revision_logs 확장 포함)");
   } catch (err) {
     logError("db:migrate_v2", err);
     throw err;

@@ -29,6 +29,12 @@ export interface PlannerPipelineOptions {
   promptVersion?: "A" | "B";
   /** plan FAIL 시 렌더링 스킵 여부 (기본 false: plan FAIL여도 렌더링 시도) */
   skipRenderOnPlanFail?: boolean;
+  /**
+   * 학습 trace 저장 여부.
+   * pool을 전달하면 run_traces 테이블에 실행 궤적을 저장한다.
+   * 운영 서버에서 데이터 수집 시 사용; 미전달 시 trace 저장 건너뜀.
+   */
+  tracePool?: import("pg").Pool;
 }
 
 const EMPTY_QUALITY_SCORES = {
@@ -46,7 +52,15 @@ export async function runPlannerPipeline(
     doRevise            = true,
     promptVersion       = "A",
     skipRenderOnPlanFail = false,
+    tracePool,
   } = opts;
+
+  // TraceLogger — tracePool 전달 시에만 활성화 (운영 중 데이터 수집)
+  let tracer: import("../training/trace_logger.js").TraceLogger | null = null;
+  if (tracePool) {
+    const { TraceLogger } = await import("../training/trace_logger.js");
+    tracer = new TraceLogger(ctx, "planner");
+  }
 
   logInfo("pipeline", "파이프라인 시작", { episode: ctx.episode_number, pov: ctx.gen_config.pov });
 
@@ -55,8 +69,14 @@ export async function runPlannerPipeline(
 
   // ─── Step 2: Creative Planning (LLM) ─────────────────────────
   const t_plan0 = Date.now();
-  const { plan: creativePlan, fallback_used } = await runCreativePlanner(ctx, stateConstraints);
+  const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints);
   const planner_elapsed_ms = Date.now() - t_plan0;
+  tracer?.setPlannerTrace({
+    raw_llm_output: raw_output ?? "",
+    parsed_plan: fallback_used ? null : creativePlan as unknown as import("../types/planner.js").ScenePlan,
+    fallback_used,
+    elapsed_ms: planner_elapsed_ms,
+  });
 
   // ─── Step 3: Merge → ScenePlan ───────────────────────────────
   const scenePlan: ScenePlan = {
@@ -80,6 +100,7 @@ export async function runPlannerPipeline(
 
   // ─── Step 4: Plan Validation (결정론적) ──────────────────────
   const planValidation = validatePlan(scenePlan, ctx);
+  tracer?.setPlanValidation(planValidation);
   logInfo("pipeline", "계획 검증 완료", {
     verdict:  planValidation.verdict,
     issues:   planValidation.issues.length,
@@ -122,6 +143,7 @@ export async function runPlannerPipeline(
 
   // ─── Step 6: Prose Validation (기존 validator.ts) ────────────
   const proseValidation = await validate(generatedText, ctx, { promptVersion });
+  tracer?.setProseValidation(proseValidation);
 
   // ─── Step 7: Revision (기존 revision.ts, optional) ───────────
   let finalVerdict: Verdict = proseValidation.verdict;
@@ -135,11 +157,17 @@ export async function runPlannerPipeline(
     revisionCount = revised.iterations;
   }
 
+  const totalElapsed = Date.now() - t0;
+  tracer?.finalize({ final_verdict: finalVerdict, final_score: finalScore, revision_count: revisionCount, total_elapsed_ms: totalElapsed });
+  if (tracer && tracePool) {
+    await tracer.save(tracePool);
+  }
+
   logInfo("pipeline", "파이프라인 완료", {
     plan_verdict:  planValidation.verdict,
     prose_verdict: finalVerdict,
     score:         finalScore,
-    elapsed_ms:    Date.now() - t0,
+    elapsed_ms:    totalElapsed,
   });
 
   return {
@@ -150,7 +178,7 @@ export async function runPlannerPipeline(
     final_verdict:     finalVerdict,
     final_score:       finalScore,
     revision_count:    revisionCount,
-    elapsed_ms:        Date.now() - t0,
+    elapsed_ms:        totalElapsed,
     planner_elapsed_ms,
     renderer_elapsed_ms,
     plan_fallback_used: fallback_used,

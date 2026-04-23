@@ -180,7 +180,7 @@ function buildFallbackPlan(
 export async function runCreativePlanner(
   ctx: EffectiveContext,
   sc: ExtractedStateConstraints,
-): Promise<{ plan: CreativePlan; fallback_used: boolean }> {
+): Promise<{ plan: CreativePlan; fallback_used: boolean; raw_output: string }> {
   const llm   = getLLMClient();
   const model = getStoryModel();
 
@@ -204,16 +204,16 @@ export async function runCreativePlanner(
 
     if (parsed) {
       logInfo("pipeline:planner", "플래너 JSON 파싱 성공");
-      return { plan: parsed, fallback_used: false };
+      return { plan: parsed, fallback_used: false, raw_output: raw };
     }
 
     logWarn("pipeline:planner", "JSON 파싱 실패 — fallback 사용", {
       raw_preview: raw.slice(0, 200),
     });
-    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true };
+    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true, raw_output: raw };
 
   } catch (err) {
     logWarn("pipeline:planner", "플래너 LLM 오류 — fallback 사용", { error: String(err) });
-    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true };
+    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true, raw_output: "" };
   }
 }
