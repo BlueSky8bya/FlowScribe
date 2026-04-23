@@ -12,16 +12,19 @@
  *   gen_config?: Partial<GenConfig>,
  *   task?: Partial<EpisodeTask>,
  *   prev_episode_state?: Partial<PrevEpisodeState>,
- *   validate?: boolean,      // 생성 후 Claude 검증 여부 (기본 false)
- *   revise?: boolean,        // 검증 실패 시 자동 리비전 여부 (기본 false)
- *   prompt_version?: "A"|"B" // 검증 프롬프트 버전 (기본 "A")
+ *   validate?: boolean,        // 생성 후 검증 여부 (기본 false)
+ *   revise?: boolean,          // 검증 실패 시 자동 리비전 여부 (기본 false)
+ *   prompt_version?: "A"|"B"   // 검증 프롬프트 버전 (기본 "A")
+ *   use_planner?: boolean,     // Planner→Renderer 파이프라인 사용 (기본 false = legacy)
+ *   skip_render_on_plan_fail?: boolean  // 계획 실패 시 렌더링 스킵 (기본 false)
  * }
  *
- * SSE 스트리밍 + 검증 결과 반환:
- * data: {"token": "..."}
+ * SSE 이벤트:
+ * data: {"token": "..."}          (legacy 경로 스트리밍)
  * data: {"done": true, "chars": N}
- * data: {"validation": {...}}   (validate=true일 때)
- * data: {"revision": {...}}     (revise=true일 때)
+ * data: {"plan": {...}}           (use_planner=true일 때 — ScenePlan + PlanValidation)
+ * data: {"validation": {...}}     (validate=true일 때)
+ * data: {"revision": {...}}       (revise=true일 때)
  */
 
 import { Router, Request, Response } from "express";
@@ -29,6 +32,7 @@ import { streamEpisode } from "../services/story.js";
 import { buildEffectiveContext, effectiveContextToStoryContext, saveEpisodeSnapshot } from "../services/effective_context.js";
 import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
+import { runPlannerPipeline } from "../pipeline/index.js";
 import { logInfo, logError } from "../lib/logger.js";
 import type { GenConfig, EpisodeTask, PrevEpisodeState } from "../types/canonical.js";
 
@@ -52,6 +56,8 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     validate: doValidate = false,
     revise: doRevise = false,
     prompt_version: promptVersion = "A",
+    use_planner: usePlanner = false,
+    skip_render_on_plan_fail: skipRenderOnPlanFail = false,
   } = req.body as {
     book_id: string;
     episode: number;
@@ -61,6 +67,8 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     validate?: boolean;
     revise?: boolean;
     prompt_version?: "A" | "B";
+    use_planner?: boolean;
+    skip_render_on_plan_fail?: boolean;
   };
 
   if (!bookId || !episode) {
@@ -72,58 +80,90 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
 
   logInfo("api:generate_v2", "V2 생성 시작", {
     book_id: bookId, episode, do_validate: doValidate, do_revise: doRevise,
-    has_gen_config: !!overrideGenConfig, has_task: !!overrideTask,
+    use_planner: usePlanner, has_gen_config: !!overrideGenConfig, has_task: !!overrideTask,
   });
 
   try {
     // ── 유효 컨텍스트 조립 ─────────────────────────────────────
     const ctx = await buildEffectiveContext({
-      bookId,
-      episodeNumber: episode,
-      overrideGenConfig,
-      overrideTask,
-      overridePrevState,
+      bookId, episodeNumber: episode,
+      overrideGenConfig, overrideTask, overridePrevState,
     });
 
     // 스냅샷 저장 (fire-and-forget)
     saveEpisodeSnapshot({ ...ctx, book_id: bookId } as any).catch(() => {});
 
-    // ── 기존 StoryContext 형식으로 변환 (하위 호환) ────────────
-    const storyCtx = effectiveContextToStoryContext(ctx);
+    const t0 = Date.now();
+    let fullText = "";
 
-    // ── SSE 스트리밍 생성 ──────────────────────────────────────
-    const t0       = Date.now();
-    const fullText = await streamEpisode(storyCtx as any, res);
-    clearInterval(heartbeat);
-    send({ done: true, chars: fullText.length, elapsed_ms: Date.now() - t0 });
-
-    logInfo("api:generate_v2", "생성 완료", {
-      book_id: bookId, episode, chars: fullText.length, elapsed_ms: Date.now() - t0,
-    });
-
-    // ── 검증 (선택적) ──────────────────────────────────────────
-    if (doValidate) {
-      const validation = await validate(fullText, ctx, {
-        bookId, episodeNumber: episode, iteration: 1, promptVersion,
+    if (usePlanner) {
+      // ── Planner→Renderer 파이프라인 경로 ─────────────────────
+      const pipelineResult = await runPlannerPipeline(ctx, {
+        doRevise: false,  // 리비전은 아래에서 별도 처리
+        promptVersion,
+        skipRenderOnPlanFail,
       });
-      send({ validation });
 
-      // ── 리비전 (선택적) ─────────────────────────────────────
-      if (doRevise && (validation.verdict === "FAIL" || validation.verdict === "WARN")) {
-        const revisionResult = await reviseUntilPass(fullText, validation, ctx, {
-          bookId, episodeNumber: episode, promptVersion,
-        });
-        send({
-          revision: {
-            verdict: revisionResult.final_verdict,
-            score: revisionResult.final_score,
-            iterations: revisionResult.iterations,
-            absolute_blocked: revisionResult.absolute_blocked,
+      fullText = pipelineResult.generated_text;
+      clearInterval(heartbeat);
+      send({ done: true, chars: fullText.length, elapsed_ms: Date.now() - t0 });
+      send({
+        plan: {
+          scene_plan: pipelineResult.scene_plan,
+          plan_validation: {
+            verdict: pipelineResult.plan_validation.verdict,
+            issues: pipelineResult.plan_validation.issues.length,
+            passed: pipelineResult.plan_validation.passed_checks.length,
           },
-        });
-        // 리비전된 최종 텍스트도 전송
-        if (revisionResult.iterations > 0 && !revisionResult.absolute_blocked) {
-          send({ revised_text: revisionResult.final_text });
+          planner_elapsed_ms: pipelineResult.planner_elapsed_ms,
+          renderer_elapsed_ms: pipelineResult.renderer_elapsed_ms,
+          plan_fallback_used: pipelineResult.plan_fallback_used,
+        },
+      });
+
+      if (doValidate) {
+        send({ validation: pipelineResult.prose_validation });
+        if (doRevise && (pipelineResult.prose_validation.verdict === "FAIL" || pipelineResult.prose_validation.verdict === "WARN")) {
+          const revisionResult = await reviseUntilPass(fullText, pipelineResult.prose_validation, ctx, { promptVersion });
+          send({ revision: {
+            verdict: revisionResult.final_verdict, score: revisionResult.final_score,
+            iterations: revisionResult.iterations, absolute_blocked: revisionResult.absolute_blocked,
+          }});
+          if (revisionResult.iterations > 0 && !revisionResult.absolute_blocked) {
+            send({ revised_text: revisionResult.final_text });
+          }
+        }
+      }
+
+      logInfo("api:generate_v2", "플래너 파이프라인 완료", {
+        book_id: bookId, episode, chars: fullText.length,
+        plan_verdict: pipelineResult.plan_validation.verdict,
+        prose_verdict: pipelineResult.final_verdict,
+        elapsed_ms: Date.now() - t0,
+      });
+    } else {
+      // ── Legacy 경로 (story.ts SSE 스트리밍) ──────────────────
+      const storyCtx = effectiveContextToStoryContext(ctx);
+      fullText = await streamEpisode(storyCtx as any, res);
+      clearInterval(heartbeat);
+      send({ done: true, chars: fullText.length, elapsed_ms: Date.now() - t0 });
+
+      logInfo("api:generate_v2", "레거시 생성 완료", {
+        book_id: bookId, episode, chars: fullText.length, elapsed_ms: Date.now() - t0,
+      });
+
+      if (doValidate) {
+        const validation = await validate(fullText, ctx, { bookId, episodeNumber: episode, iteration: 1, promptVersion });
+        send({ validation });
+        if (doRevise && (validation.verdict === "FAIL" || validation.verdict === "WARN")) {
+          const revisionResult = await reviseUntilPass(fullText, validation, ctx, { bookId, episodeNumber: episode, promptVersion });
+          send({ revision: {
+            verdict: revisionResult.final_verdict, score: revisionResult.final_score,
+            iterations: revisionResult.iterations, absolute_blocked: revisionResult.absolute_blocked,
+          }});
+          if (revisionResult.iterations > 0 && !revisionResult.absolute_blocked) {
+            send({ revised_text: revisionResult.final_text });
+          }
         }
       }
     }
