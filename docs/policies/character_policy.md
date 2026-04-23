@@ -1,6 +1,7 @@
 # 인물 정책 (Character Policy)
 
-**파일:** `src/types/character_policy.ts`, `src/lib/character_policy_resolver.ts`, `src/lib/name_classifier.ts`
+**파일:** `src/types/character_policy.ts` (타입), `src/policies/character_policy_resolver.ts` (리졸버), `src/lib/name_classifier.ts` (분류기)  
+**이전 경로:** `src/lib/character_policy_resolver.ts` → re-export shim 유지 (호환성)
 
 ## 신규 인물 등장 정책 (NewCharacterPolicy)
 

@@ -16,7 +16,7 @@
  * - buildGenPrompt POV rule variant 비교 실험 기반
  */
 
-import type { TestCase } from "../src/types/canonical.js";
+import type { TestCase } from "../../src/types/canonical.js";
 import { randomUUID } from "crypto";
 
 const ABS_ONLY = [

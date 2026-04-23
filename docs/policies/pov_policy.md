@@ -1,6 +1,7 @@
 # POV 지원 정책
 
-**파일:** `src/types/pov_policy.ts`, `src/lib/pov_rules.ts`  
+**파일:** `src/types/pov_policy.ts` (정책 상수), `src/policies/pov_rules.ts` (규칙 로직)  
+**이전 경로:** `src/lib/pov_rules.ts` → re-export shim 유지 (호환성)  
 **진단 일자:** 2026-04-22 (pov-capability-diagnostic)
 
 ## 현재 모델: gemma3:12b
@@ -46,9 +47,11 @@
 // 미지원 POV 확인
 import { isUnsupportedPov } from "src/types/pov_policy.js";
 
-// 서비스 경로 POV 체크
+// 서비스 경로 POV 체크 (권장: 새 코드는 policies/ 사용)
+import { checkPovForService } from "src/policies/pov_rules.js";
+// 또는 (하위 호환)
 import { checkPovForService } from "src/lib/pov_rules.js";
 
 // POV 규칙 문자열 생성 (Variant C)
-import { variantCPovRule } from "src/lib/pov_rules.js";
+import { variantCPovRule } from "src/policies/pov_rules.js";
 ```

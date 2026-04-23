@@ -14,14 +14,14 @@
  */
 
 import "dotenv/config";
-import { pool } from "../src/lib/db.js";
-import { runMigrateV2 } from "../src/db/migrate_v2.js";
-import { buildEffectiveContext, effectiveContextToStoryContext } from "../src/services/effective_context.js";
-import { validate } from "../src/services/validator.js";
-import { reviseUntilPass } from "../src/services/revision.js";
-import { getLLMClient, getStoryModel } from "../src/lib/llm.js";
-import { generateTestCases } from "./case_generator.js";
-import type { EffectiveContext, Difficulty } from "../src/types/canonical.js";
+import { pool } from "../../src/lib/db.js";
+import { runMigrateV2 } from "../../src/db/migrate_v2.js";
+import { buildEffectiveContext, effectiveContextToStoryContext } from "../../src/services/effective_context.js";
+import { validate } from "../../src/services/validator.js";
+import { reviseUntilPass } from "../../src/services/revision.js";
+import { getLLMClient, getStoryModel } from "../../src/lib/llm.js";
+import { generateTestCases } from "../benchmarks/case_generator.js";
+import type { EffectiveContext, Difficulty } from "../../src/types/canonical.js";
 
 // ── 인수 파싱 ────────────────────────────────────────────────
 const args = process.argv.slice(2);
@@ -164,7 +164,7 @@ ${ctx.rolling_summary ? `[직전 줄거리] ${ctx.rolling_summary}` : ""}
 }
 
 async function buildGenPromptFromCase(tc: any) {
-  const { generateTestCases: _ } = await import("./case_generator.js");
+  const { generateTestCases: _ } = await import("../benchmarks/case_generator.js");
   const cfg    = tc.gen_config;
   const ep     = 3;
   const chars  = tc.characters.map((c: any) => `${c.name}(${c.gender}): ${c.personality}`).join("\n");

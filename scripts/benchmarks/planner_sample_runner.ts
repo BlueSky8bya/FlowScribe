@@ -19,17 +19,17 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
+const ROOT = join(__dirname, "../..");
 
 // ── 동적 임포트 ───────────────────────────────────────────────
-const { pool } = await import("../src/lib/db.js");
-const { runMigrateV2 } = await import("../src/db/migrate_v2.js");
-const { getLLMClient, getStoryModel } = await import("../src/lib/llm.js");
-const { validate } = await import("../src/services/validator.js");
-const { runPlannerPipeline } = await import("../src/pipeline/index.js");
+const { pool } = await import("../../src/lib/db.js");
+const { runMigrateV2 } = await import("../../src/db/migrate_v2.js");
+const { getLLMClient, getStoryModel } = await import("../../src/lib/llm.js");
+const { validate } = await import("../../src/services/validator.js");
+const { runPlannerPipeline } = await import("../../src/pipeline/index.js");
 
-import type { TestCase, EffectiveContext } from "../src/types/canonical.js";
-import { AB_STATE_PERSISTENCE_CASES as ALL_SP_CASES } from "./ab_state_persistence_cases.js";
+import type { TestCase, EffectiveContext } from "../../src/types/canonical.js";
+import { AB_STATE_PERSISTENCE_CASES as ALL_SP_CASES } from "../fixtures/ab_state_persistence_cases.js";
 
 // ── test_runner.ts와 동일한 EffectiveContext 변환 ─────────────
 function testCaseToEffectiveContext(tc: TestCase, episodeNumber: number): EffectiveContext {
@@ -95,7 +95,7 @@ async function main() {
   const cfg   = tc.gen_config;
   const maxTok = Math.ceil((cfg.episodeLength + cfg.episodeLengthVar) * 0.65 * 1.4) + 300;
 
-  const { variantCPovRule } = await import("../src/lib/pov_rules.js") as any;
+  const { variantCPovRule } = await import("../../src/lib/pov_rules.js") as any;
   const charList = ctx.characters.map(c => `${c.name}(${c.gender}, ${c.type}): ${c.personality}`).join("\n");
   const legacySystem = `당신은 한국 소설 생성 AI다.\n\n[시점]\n${variantCPovRule(cfg.pov)}\n\n[등장인물]\n${charList}`;
   const legacyUser   = `${ctx.episode_number}화를 ${cfg.pov} 시점으로 생성해줘.`;

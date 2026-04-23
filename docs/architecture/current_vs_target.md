@@ -27,10 +27,14 @@ FlowScribe/
 │   │   ├── character_policy.ts   # 인물 등장/이름 정책
 │   │   └── planner.ts            # 파이프라인 전용 타입
 │   ├── lib/
-│   │   ├── pov_rules.ts          # Variant C POV 규칙 (공유)
-│   │   ├── character_policy_resolver.ts
+│   │   ├── pov_rules.ts          # re-export shim → src/policies/pov_rules.ts
+│   │   ├── character_policy_resolver.ts  # re-export shim → src/policies/
 │   │   ├── name_classifier.ts
 │   │   ├── llm.ts, db.ts, redis.ts, logger.ts, startup.ts
+│   ├── policies/                 # 도메인 정책 레이어 (2026-04-23 분리)
+│   │   ├── pov_rules.ts          # Variant C POV 규칙 + 미지원 POV 처리 (실제 구현)
+│   │   ├── character_policy_resolver.ts  # 인물 등장 정책 리졸버 (실제 구현)
+│   │   └── index.ts              # 정책 레이어 공개 API
 │   ├── db/
 │   │   ├── migrate_v2.ts         # V2 스키마 (실제 사용)
 │   │   └── migrate.ts            # V1 스키마 (레거시, 보존)

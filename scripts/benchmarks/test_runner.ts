@@ -23,25 +23,25 @@ import { randomUUID } from "crypto";
 import "dotenv/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
+const ROOT = join(__dirname, "../..");
 
 // ── 동적 임포트 (서버 의존성 분리) ────────────────────────────
 const { generateTestCases } = await import("./case_generator.js");
-const { pool } = await import("../src/lib/db.js");
-const { runMigrateV2 } = await import("../src/db/migrate_v2.js");
-const { validate } = await import("../src/services/validator.js");
-const { reviseUntilPass } = await import("../src/services/revision.js");
-const { getLLMClient, getStoryModel } = await import("../src/lib/llm.js");
+const { pool } = await import("../../src/lib/db.js");
+const { runMigrateV2 } = await import("../../src/db/migrate_v2.js");
+const { validate } = await import("../../src/services/validator.js");
+const { reviseUntilPass } = await import("../../src/services/revision.js");
+const { getLLMClient, getStoryModel } = await import("../../src/lib/llm.js");
 
 import type {
   TestCase, TestResult, RunReport, Difficulty, Verdict,
   EffectiveContext, GenConfig, PrevEpisodeState, EpisodeTask,
-} from "../src/types/canonical.js";
-import { resolveCharacterPolicy } from "../src/lib/character_policy_resolver.js";
-import { ACTIVE_POV_POLICY, isUnsupportedPov } from "../src/types/pov_policy.js";
-import { variantCPovRule as _sharedVariantCPovRule } from "../src/lib/pov_rules.js";
-import { runPlannerPipeline } from "../src/pipeline/index.js";
-import { AB_STATE_PERSISTENCE_CASES } from "./ab_state_persistence_cases.js";
+} from "../../src/types/canonical.js";
+import { resolveCharacterPolicy } from "../../src/lib/character_policy_resolver.js";
+import { ACTIVE_POV_POLICY, isUnsupportedPov } from "../../src/types/pov_policy.js";
+import { variantCPovRule as _sharedVariantCPovRule } from "../../src/lib/pov_rules.js";
+import { runPlannerPipeline } from "../../src/pipeline/index.js";
+import { AB_STATE_PERSISTENCE_CASES } from "../fixtures/ab_state_persistence_cases.js";
 
 // ══════════════════════════════════════════════════════════════
 // 생성기: TestCase → EffectiveContext 변환

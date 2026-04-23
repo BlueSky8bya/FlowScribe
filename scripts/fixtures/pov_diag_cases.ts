@@ -12,7 +12,7 @@
  * 재현성: 이 파일 자체가 고정 세트 — 랜덤 없음, 코드가 seed 역할
  */
 
-import type { TestCase } from "../src/types/canonical.js";
+import type { TestCase } from "../../src/types/canonical.js";
 import { randomUUID } from "crypto";
 
 const ABS_FORBIDDEN = [

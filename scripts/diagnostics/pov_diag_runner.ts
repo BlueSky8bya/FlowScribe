@@ -17,18 +17,18 @@ import { fileURLToPath } from "url";
 import "dotenv/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
+const ROOT = join(__dirname, "../..");
 
-const { pool }                = await import("../src/lib/db.js");
-const { runMigrateV2 }        = await import("../src/db/migrate_v2.js");
-const { validate }            = await import("../src/services/validator.js");
-const { getLLMClient, getStoryModel } = await import("../src/lib/llm.js");
-const { resolveCharacterPolicy } = await import("../src/lib/character_policy_resolver.js");
-const { POV_DIAG_CASES }      = await import("./pov_diag_cases.js");
+const { pool }                = await import("../../src/lib/db.js");
+const { runMigrateV2 }        = await import("../../src/db/migrate_v2.js");
+const { validate }            = await import("../../src/services/validator.js");
+const { getLLMClient, getStoryModel } = await import("../../src/lib/llm.js");
+const { resolveCharacterPolicy } = await import("../../src/lib/character_policy_resolver.js");
+const { POV_DIAG_CASES }      = await import("../fixtures/pov_diag_cases.js");
 
 import type {
   TestCase, EffectiveContext, ValidationResult, GenConfig,
-} from "../src/types/canonical.js";
+} from "../../src/types/canonical.js";
 
 // ── EffectiveContext 조립 ────────────────────────────────────
 function toCtx(tc: TestCase): EffectiveContext {

@@ -14,8 +14,8 @@
 import type {
   TestCase, GenConfig, WorldConfig, WorldRule, CanonicalCharacter,
   CharacterDynamicState, PrevEpisodeState, EpisodeTask, AuthorIntervention, Difficulty,
-} from "../src/types/canonical.js";
-import { ACTIVE_POV_POLICY } from "../src/types/pov_policy.js";
+} from "../../src/types/canonical.js";
+import { ACTIVE_POV_POLICY } from "../../src/types/pov_policy.js";
 import { randomUUID } from "crypto";
 
 /**

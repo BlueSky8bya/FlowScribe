@@ -21,7 +21,7 @@
  * 재현성: 이 파일 자체가 seed. 랜덤 없음.
  */
 
-import type { TestCase } from "../src/types/canonical.js";
+import type { TestCase } from "../../src/types/canonical.js";
 
 const ABS = [{ rule_type: "absolute_forbidden" as const, content: "성적인 묘사", is_active: true }];
 

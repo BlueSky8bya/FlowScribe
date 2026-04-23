@@ -30,18 +30,18 @@ import { fileURLToPath } from "url";
 import "dotenv/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const ROOT = join(__dirname, "..");
+const ROOT = join(__dirname, "../..");
 
-const { pool }            = await import("../src/lib/db.js");
-const { runMigrateV2 }    = await import("../src/db/migrate_v2.js");
-const { validate }        = await import("../src/services/validator.js");
-const { reviseUntilPass } = await import("../src/services/revision.js");
-const { getLLMClient, getStoryModel } = await import("../src/lib/llm.js");
-const { resolveCharacterPolicy } = await import("../src/lib/character_policy_resolver.js");
+const { pool }            = await import("../../src/lib/db.js");
+const { runMigrateV2 }    = await import("../../src/db/migrate_v2.js");
+const { validate }        = await import("../../src/services/validator.js");
+const { reviseUntilPass } = await import("../../src/services/revision.js");
+const { getLLMClient, getStoryModel } = await import("../../src/lib/llm.js");
+const { resolveCharacterPolicy } = await import("../../src/lib/character_policy_resolver.js");
 
-import type { TestCase, EffectiveContext, GenConfig } from "../src/types/canonical.js";
-import { variantCPovRule } from "../src/lib/pov_rules.js";
-import { AB_STATE_PERSISTENCE_CASES } from "./ab_state_persistence_cases.js";
+import type { TestCase, EffectiveContext, GenConfig } from "../../src/types/canonical.js";
+import { variantCPovRule } from "../../src/lib/pov_rules.js";
+import { AB_STATE_PERSISTENCE_CASES } from "../fixtures/ab_state_persistence_cases.js";
 
 // ══════════════════════════════════════════════════════════════
 // TestCase → EffectiveContext
