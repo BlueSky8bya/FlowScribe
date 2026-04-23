@@ -21,7 +21,7 @@ import type { EffectiveContext, ValidationResult, Verdict } from "../types/canon
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
 import { runCreativePlanner } from "./planner.js";
-import { validatePlan } from "./plan_validator.js";
+import { validatePlan, repairPlan } from "./plan_validator.js";
 import { renderFromPlan } from "./renderer.js";
 
 export interface PlannerPipelineOptions {
@@ -98,8 +98,15 @@ export async function runPlannerPipeline(
     hook_concrete_event:  creativePlan.hook_concrete_event,
   };
 
-  // ─── Step 4: Plan Validation (결정론적) ──────────────────────
-  const planValidation = validatePlan(scenePlan, ctx);
+  // ─── Step 4: Plan Validation → Auto-Repair (결정론적) ────────
+  let planValidation = validatePlan(scenePlan, ctx);
+  if (planValidation.verdict !== "PASS") {
+    const { plan: repairedPlan, repaired, repairs_applied } = repairPlan(planValidation, ctx);
+    if (repaired) {
+      planValidation = validatePlan(repairedPlan, ctx);
+      logInfo("pipeline", "계획 자동 보정 적용", { repairs: repairs_applied, verdict_after: planValidation.verdict });
+    }
+  }
   tracer?.setPlanValidation(planValidation);
   logInfo("pipeline", "계획 검증 완료", {
     verdict:  planValidation.verdict,
@@ -188,5 +195,5 @@ export async function runPlannerPipeline(
 // Re-export for convenience
 export { extractStateConstraints } from "./state_extractor.js";
 export { runCreativePlanner }      from "./planner.js";
-export { validatePlan }            from "./plan_validator.js";
+export { validatePlan, repairPlan } from "./plan_validator.js";
 export { renderFromPlan }          from "./renderer.js";

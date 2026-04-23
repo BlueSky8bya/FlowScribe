@@ -25,6 +25,8 @@
     "diag:pov": "tsx scripts/diagnostics/pov_diag_runner.ts",
     "diag:protagonist": "tsx scripts/diagnostics/protagonist_diag_runner.ts",
     "diag:state-persistence": "tsx scripts/diagnostics/ab_state_persistence_runner.ts",
+    "diag:planner-eligibility": "tsx scripts/diagnostics/planner_eligibility_runner.ts",
+    "train:calibrate-rewards": "tsx scripts/training/calibrate_rewards.ts",
     "diagnose": "tsx tools/diagnose.ts",
     "train:build-dataset": "tsx scripts/training/build_dataset.ts",
     "train:build-planner-sft": "tsx scripts/training/build_dataset.ts planner_sft",

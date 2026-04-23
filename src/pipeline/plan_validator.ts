@@ -17,7 +17,7 @@
  *   8. pov_contract 존재
  */
 
-import type { ScenePlan, PlanValidationResult, PlanVerdict, PlanIssue } from "../types/planner.js";
+import type { ScenePlan, PlanValidationResult, PlanVerdict, PlanIssue, CarryoverEffect, WorldRuleActivation } from "../types/planner.js";
 import type { EffectiveContext } from "../types/canonical.js";
 
 const VALID_HOOK_TYPES = new Set([
@@ -133,6 +133,12 @@ export function validatePlan(plan: ScenePlan, ctx: EffectiveContext): PlanValida
     passed.push("hook_concrete_event 존재");
   }
 
+  // hook 세 항목이 모두 통과했을 때 집계 마커 — reward_aggregator가 이 값으로 hook_concreteness 판단
+  const hookIssueFields = new Set(issues.filter(i => ["hook_type", "hook_payload", "hook_concrete_event"].includes(i.field)).map(i => i.field));
+  if (hookIssueFields.size === 0 && VALID_HOOK_TYPES.has(plan.hook_type)) {
+    passed.push("hook_complete");
+  }
+
   // 7. scene_beats 최소 2개
   if (!plan.scene_beats || plan.scene_beats.length < 2) {
     issues.push({
@@ -161,4 +167,104 @@ export function validatePlan(plan: ScenePlan, ctx: EffectiveContext): PlanValida
   const verdict: PlanVerdict = hasCritical ? "FAIL" : hasMajor ? "WARN" : "PASS";
 
   return { verdict, issues, passed_checks: passed, plan };
+}
+
+// ══════════════════════════════════════════════════════════════
+// repairPlan — 결정론적 자동 보정 (LLM 없음)
+//
+// 검증 후 FAIL/WARN 케이스에 대해, 단순 누락 필드를 컨텍스트에서
+// 채워 PASS/WARN으로 전환한다.
+// 보정 불가(critical 필드 내용 없음 등)는 원본 반환.
+// ══════════════════════════════════════════════════════════════
+
+export interface RepairResult {
+  plan: ScenePlan;
+  repaired: boolean;
+  repairs_applied: string[];
+}
+
+export function repairPlan(result: PlanValidationResult, ctx: EffectiveContext): RepairResult {
+  const { verdict, issues, plan } = result;
+  if (verdict === "PASS") return { plan, repaired: false, repairs_applied: [] };
+
+  const repaired = { ...plan };
+  const repairs: string[] = [];
+
+  for (const issue of issues) {
+    switch (issue.field) {
+      // ── carryover_effects 누락 → 직전 화 이벤트에서 자동 생성 ─
+      case "carryover_effects": {
+        if (ctx.prev_episode_state.ending_event && repaired.carryover_effects.length === 0) {
+          const charName = ctx.characters[0]?.name ?? "주인공";
+          const effect: CarryoverEffect = {
+            character_name: charName,
+            description: `직전 화 사건(${ctx.prev_episode_state.ending_event.slice(0, 50)})의 여파가 이번 화 초반 행동에 영향을 준다`,
+            must_appear_in_opening: true,
+          };
+          repaired.carryover_effects = [effect];
+          repairs.push("carryover_effects: 직전 화 이벤트에서 자동 생성");
+        }
+        break;
+      }
+
+      // ── world_rule 누락 → general_rules[0]에서 최소 계획 생성 ─
+      case "world_rule": {
+        const firstRule = ctx.general_rules[0];
+        if (firstRule && (!repaired.world_rule?.scene_usage?.trim())) {
+          const worldRule: WorldRuleActivation = {
+            rule_content: firstRule,
+            activation_type: "constraint",
+            scene_usage: `"${firstRule}" 규칙이 이번 화 인물의 행동 선택지를 제한한다`,
+          };
+          repaired.world_rule = worldRule;
+          repairs.push("world_rule: general_rules[0]에서 자동 생성");
+        }
+        break;
+      }
+
+      // ── hook_payload 부실 → hook_concrete_event에서 파생 ─────
+      case "hook_payload": {
+        if (repaired.hook_concrete_event && repaired.hook_concrete_event.trim().length >= 10) {
+          repaired.hook_payload = repaired.hook_concrete_event.slice(0, 80);
+          repairs.push("hook_payload: hook_concrete_event에서 파생");
+        }
+        break;
+      }
+
+      // ── hook_concrete_event 부실 → hook_payload에서 파생 ────
+      case "hook_concrete_event": {
+        if (repaired.hook_payload && repaired.hook_payload.trim().length >= 5) {
+          repaired.hook_concrete_event = `${repaired.hook_payload} — 이 상황이 마지막 장면에서 직접적으로 드러난다`;
+          repairs.push("hook_concrete_event: hook_payload에서 파생");
+        }
+        break;
+      }
+
+      // ── scene_beats 1개뿐 → 두 번째 비트 자동 추가 ──────────
+      case "scene_beats": {
+        if (repaired.scene_beats.length === 1) {
+          const firstBeat = repaired.scene_beats[0];
+          repaired.scene_beats = [
+            firstBeat,
+            {
+              beat_number: 2,
+              summary: ctx.task.required_events?.[0]
+                ? `${ctx.task.required_events[0]} 사건이 전개된다`
+                : "갈등이 고조되며 훅 상황으로 이어진다",
+              characters_involved: firstBeat.characters_involved,
+              location: firstBeat.location,
+            },
+          ];
+          repairs.push("scene_beats: 두 번째 비트 자동 추가");
+        }
+        break;
+      }
+    }
+  }
+
+  if (repairs.length === 0) {
+    return { plan, repaired: false, repairs_applied: [] };
+  }
+
+  return { plan: repaired, repaired: true, repairs_applied: repairs };
 }

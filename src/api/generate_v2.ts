@@ -17,6 +17,7 @@
  *   prompt_version?: "A"|"B"   // 검증 프롬프트 버전 (기본 "A")
  *   use_planner?: boolean,     // Planner→Renderer 파이프라인 사용 (기본 false = legacy)
  *   skip_render_on_plan_fail?: boolean  // 계획 실패 시 렌더링 스킵 (기본 false)
+ *   enable_trace?: boolean     // run_traces 테이블에 실행 궤적 저장 (기본 false, use_planner=true 시에만 적용)
  * }
  *
  * SSE 이벤트:
@@ -33,6 +34,7 @@ import { buildEffectiveContext, effectiveContextToStoryContext, saveEpisodeSnaps
 import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
+import { pool } from "../lib/db.js";
 import { logInfo, logError } from "../lib/logger.js";
 import type { GenConfig, EpisodeTask, PrevEpisodeState } from "../types/canonical.js";
 
@@ -58,6 +60,7 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     prompt_version: promptVersion = "A",
     use_planner: usePlanner = false,
     skip_render_on_plan_fail: skipRenderOnPlanFail = false,
+    enable_trace: enableTrace = false,
   } = req.body as {
     book_id: string;
     episode: number;
@@ -69,6 +72,7 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     prompt_version?: "A" | "B";
     use_planner?: boolean;
     skip_render_on_plan_fail?: boolean;
+    enable_trace?: boolean;
   };
 
   if (!bookId || !episode) {
@@ -102,6 +106,8 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
         doRevise: false,  // 리비전은 아래에서 별도 처리
         promptVersion,
         skipRenderOnPlanFail,
+        // enable_trace=true 시 학습 궤적 수집 (run_traces 테이블)
+        tracePool: enableTrace ? pool : undefined,
       });
 
       fullText = pipelineResult.generated_text;

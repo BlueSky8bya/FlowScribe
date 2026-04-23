@@ -597,8 +597,12 @@ async function runSmokeTest(count: number): Promise<RunReport> {
 async function runPlannerBatch(
   mode: "planner_renderer" | "planner_only" | "ab_compare",
   count: number,
+  opts: { seed?: string; enableTrace?: boolean } = {},
 ): Promise<void> {
-  const cases = AB_STATE_PERSISTENCE_CASES.slice(0, count);
+  // seed가 있으면 seeded random cases, 없으면 기존 고정 fixture
+  const cases = opts.seed
+    ? generateTestCases(count, "all", opts.seed).map(tc => ({ ...tc, episode_number: tc.episode_number }))
+    : AB_STATE_PERSISTENCE_CASES.slice(0, count);
   console.log(`\n🧠 ${mode.toUpperCase()} 실행 (${cases.length}케이스)`);
 
   type PlanRow = {
@@ -622,14 +626,20 @@ async function runPlannerBatch(
 
     if (mode === "planner_only") {
       const t0  = Date.now();
-      const res = await runPlannerPipeline(ctx, { doRevise: false, skipRenderOnPlanFail: true });
+      const res = await runPlannerPipeline(ctx, {
+        doRevise: false, skipRenderOnPlanFail: true,
+        tracePool: opts.enableTrace ? pool : undefined,
+      });
       const elapsed = Date.now() - t0;
       const pv = res.plan_validation;
       console.log(`plan=${pv.verdict} issues=${pv.issues.length} fallback=${res.plan_fallback_used} (${elapsed}ms)`);
       rows.push({ id: tc.id, planVerdict: pv.verdict, planIssues: pv.issues.length, fallback: res.plan_fallback_used, elapsed_ms: elapsed });
     } else {
       const t0  = Date.now();
-      const res = await runPlannerPipeline(ctx, { doRevise: false, skipRenderOnPlanFail: false });
+      const res = await runPlannerPipeline(ctx, {
+        doRevise: false, skipRenderOnPlanFail: false,
+        tracePool: opts.enableTrace ? pool : undefined,
+      });
       const elapsed = Date.now() - t0;
 
       let legacyVerdict: string | undefined;
@@ -712,7 +722,11 @@ async function main() {
   // V2 마이그레이션 보장
   try { await runMigrateV2(); } catch {}
 
-  const [,, command = "smoke", arg1 = "20", arg2 = "20"] = process.argv;
+  const [,, command = "smoke", arg1 = "20", arg2 = "20", ...rest] = process.argv;
+
+  // 공통 플래그 파싱: --seed=xxx, --trace
+  const seedFlag    = rest.find(a => a.startsWith("--seed="))?.split("=")[1];
+  const traceFlag   = rest.includes("--trace");
 
   switch (command) {
     case "dev":
@@ -771,18 +785,20 @@ async function main() {
     }
     // ── Planner→Renderer 파이프라인 모드 ─────────────────────────
     case "planner_renderer":
-      await runPlannerBatch("planner_renderer", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length);
+      await runPlannerBatch("planner_renderer", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length, { seed: seedFlag, enableTrace: traceFlag });
       break;
     case "planner_only":
-      await runPlannerBatch("planner_only", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length);
+      await runPlannerBatch("planner_only", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length, { seed: seedFlag, enableTrace: traceFlag });
       break;
     case "ab_compare":
-      await runPlannerBatch("ab_compare", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length);
+      await runPlannerBatch("ab_compare", parseInt(arg1) || AB_STATE_PERSISTENCE_CASES.length, { seed: seedFlag, enableTrace: traceFlag });
       break;
     default:
-      console.log("사용법: npx tsx scripts/test_runner.ts [command] [count]");
+      console.log("사용법: npx tsx scripts/benchmarks/test_runner.ts [command] [count] [--seed=xxx] [--trace]");
       console.log("  legacy: dev | holdout | smoke | full | dev_supported | holdout_supported | full_supported | dev_supported_skip");
       console.log("  planner: planner_renderer [count] | planner_only [count] | ab_compare [count]");
+      console.log("  플래그: --seed=<시드문자열>  동일 케이스 재현");
+      console.log("          --trace              run_traces DB에 궤적 저장");
       console.log("  *_supported: 현재 모델 지원 POV 기준 benchmark (미지원 POV 제외)");
   }
 

@@ -16,7 +16,7 @@ import type {
   CharacterDynamicState, PrevEpisodeState, EpisodeTask, AuthorIntervention, Difficulty,
 } from "../../src/types/canonical.js";
 import { ACTIVE_POV_POLICY } from "../../src/types/pov_policy.js";
-import { randomUUID } from "crypto";
+import { randomUUID, createHash } from "crypto";
 
 /**
  * 현재 모델이 안정적으로 지원하는 POV 목록.
@@ -25,15 +25,47 @@ import { randomUUID } from "crypto";
 export const SUPPORTED_POVS: GenConfig["pov"][] = ACTIVE_POV_POLICY.supported_povs;
 
 // ══════════════════════════════════════════════════════════════
-// 랜덤 유틸
+// 재현 가능한 PRNG (Mulberry32 — 시드 기반)
 // ══════════════════════════════════════════════════════════════
-function pick<T>(arr: T[]): T { return arr[Math.floor(Math.random() * arr.length)]; }
-function pickN<T>(arr: T[], n: number): T[] {
-  const shuffled = [...arr].sort(() => Math.random() - 0.5);
+
+/** 문자열 시드 → 32비트 정수 시드 변환 (SHA-256 앞 4바이트) */
+function seedToUint32(seed: string): number {
+  const hash = createHash("sha256").update(seed).digest();
+  return hash.readUInt32BE(0);
+}
+
+/** Mulberry32 — 빠르고 품질 좋은 32비트 PRNG */
+function mulberry32(seed: number): () => number {
+  let s = seed >>> 0;
+  return () => {
+    s += 0x6D2B79F5;
+    let t = s;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/**
+ * RNG 컨텍스트 — 케이스 생성 함수에 주입.
+ * seed가 없으면 Math.random()으로 fallback (기존 동작 유지).
+ */
+interface Rng {
+  next: () => number;
+}
+
+function makeRng(seed?: string): Rng {
+  if (seed === undefined) return { next: Math.random };
+  return { next: mulberry32(seedToUint32(seed)) };
+}
+
+function pick<T>(arr: T[], rng: Rng): T { return arr[Math.floor(rng.next() * arr.length)]; }
+function pickN<T>(arr: T[], n: number, rng: Rng): T[] {
+  const shuffled = [...arr].sort(() => rng.next() - 0.5);
   return shuffled.slice(0, n);
 }
-function rand(min: number, max: number): number {
-  return Math.round(min + Math.random() * (max - min));
+function rand(min: number, max: number, rng: Rng): number {
+  return Math.round(min + rng.next() * (max - min));
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -104,29 +136,29 @@ const INTERVENTION_TEMPLATES = [
 // ══════════════════════════════════════════════════════════════
 // 케이스 생성 함수
 // ══════════════════════════════════════════════════════════════
-function generateEasyCase(): Omit<TestCase, "id" | "difficulty"> {
-  const genre      = pick(GENRES);
-  const mood       = pick(MOODS);
-  const background = pick(BACKGROUNDS);
-  const pov        = pick(POVS.filter(p => p !== "교차 시점")); // easy에서는 교차 시점 제외
-  const style      = pick(STYLES);
-  const namePool   = pickN(CHARACTER_NAMES, 2);
+function generateEasyCase(rng: Rng): Omit<TestCase, "id" | "difficulty"> {
+  const genre      = pick(GENRES, rng);
+  const mood       = pick(MOODS, rng);
+  const background = pick(BACKGROUNDS, rng);
+  const pov        = pick(POVS.filter(p => p !== "교차 시점"), rng); // easy에서는 교차 시점 제외
+  const style      = pick(STYLES, rng);
+  const namePool   = pickN(CHARACTER_NAMES, 2, rng);
 
   const characters: CanonicalCharacter[] = namePool.map((name, i) => ({
-    name, personality: pick(PERSONALITIES),
+    name, personality: pick(PERSONALITIES, rng),
     type: "인간",
     gender: i === 0 ? "여성" : "남성",
   }));
 
-  const generalRules: WorldRule[] = pickN(GENERAL_RULES_POOL, rand(1, 2)).map(c => ({
+  const generalRules: WorldRule[] = pickN(GENERAL_RULES_POOL, rand(1, 2, rng), rng).map(c => ({
     rule_type: "general", content: c, is_active: true,
   }));
-  const absoluteRules: WorldRule[] = [pick(ABSOLUTE_FORBIDDEN_POOL)].map(c => ({
+  const absoluteRules: WorldRule[] = [pick(ABSOLUTE_FORBIDDEN_POOL, rng)].map(c => ({
     rule_type: "absolute_forbidden", content: c, is_active: true,
   }));
 
   const ep = 3;   // 테스트 일관성: 항상 3화로 고정
-  const loc = pick(LOCATIONS);
+  const loc = pick(LOCATIONS, rng);
 
   const prevState: PrevEpisodeState = {
     ending_event: `${characters[0].name}이(가) ${loc}에서 위기 상황에 처했다`,
@@ -149,8 +181,8 @@ function generateEasyCase(): Omit<TestCase, "id" | "difficulty"> {
     description: `[Easy] ${genre} / ${pov} / ${style}`,
     gen_config: {
       pov, style, genre, tone: mood,
-      conflict: rand(3, 6), foreshadow: rand(2, 5), emotion: rand(3, 6),
-      dialogue: rand(3, 7), direction: rand(2, 5),
+      conflict: rand(3, 6, rng), foreshadow: rand(2, 5, rng), emotion: rand(3, 6, rng),
+      dialogue: rand(3, 7, rng), direction: rand(2, 5, rng),
       episodeLength: 800, episodeLengthVar: 150,
       totalEpisodes: 10, totalEpisodesVar: 2,
     },
@@ -164,43 +196,43 @@ function generateEasyCase(): Omit<TestCase, "id" | "difficulty"> {
     prev_episode_state: prevState,
     task: {
       goal: `${ep}화: ${characters[0].name}과(와) ${characters[1].name}의 첫 번째 중요한 만남`,
-      required_events: [pick(REQUIRED_EVENTS_POOL)],
-      ending_hook_direction: pick(ENDING_HOOKS),
+      required_events: [pick(REQUIRED_EVENTS_POOL, rng)],
+      ending_hook_direction: pick(ENDING_HOOKS, rng),
     },
     active_interventions: [],
   };
 }
 
-function generateMediumCase(): Omit<TestCase, "id" | "difficulty"> {
-  const genre      = pick(GENRES);
-  const mood       = pick(MOODS);
-  const background = pick(BACKGROUNDS);
-  const pov        = pick(POVS);
-  const style      = pick(STYLES);
-  const namePool   = pickN(CHARACTER_NAMES, rand(3, 4));
+function generateMediumCase(rng: Rng): Omit<TestCase, "id" | "difficulty"> {
+  const genre      = pick(GENRES, rng);
+  const mood       = pick(MOODS, rng);
+  const background = pick(BACKGROUNDS, rng);
+  const pov        = pick(POVS, rng);
+  const style      = pick(STYLES, rng);
+  const namePool   = pickN(CHARACTER_NAMES, rand(3, 4, rng), rng);
 
   const characters: CanonicalCharacter[] = namePool.map((name, i) => ({
-    name, personality: pick(PERSONALITIES),
-    type: i === namePool.length - 1 && Math.random() > 0.7 ? "AI" : "인간",
-    gender: pick(["남성", "여성", "해당없음"]),
+    name, personality: pick(PERSONALITIES, rng),
+    type: i === namePool.length - 1 && rng.next() > 0.7 ? "AI" : "인간",
+    gender: pick(["남성", "여성", "해당없음"] as const, rng),
   }));
 
-  const generalRules: WorldRule[] = pickN(GENERAL_RULES_POOL, rand(3, 4)).map(c => ({
+  const generalRules: WorldRule[] = pickN(GENERAL_RULES_POOL, rand(3, 4, rng), rng).map(c => ({
     rule_type: "general", content: c, is_active: true,
   }));
-  const absoluteRules: WorldRule[] = pickN(ABSOLUTE_FORBIDDEN_POOL, rand(1, 2)).map(c => ({
+  const absoluteRules: WorldRule[] = pickN(ABSOLUTE_FORBIDDEN_POOL, rand(1, 2, rng), rng).map(c => ({
     rule_type: "absolute_forbidden", content: c, is_active: true,
   }));
 
   const ep    = 5;   // 테스트 일관성: medium은 5화 고정
-  const locs  = pickN(LOCATIONS, 2);
-  const hasIntervention = Math.random() > 0.5;
+  const locs  = pickN(LOCATIONS, 2, rng);
+  const hasIntervention = rng.next() > 0.5;
 
   const prevState: PrevEpisodeState = {
     ending_event: `${characters[0].name}이(가) 비밀 정보를 발견하고 ${characters[1].name}에게 숨겼다`,
     current_locations: Object.fromEntries(characters.map((c, i) => [c.name, locs[i % 2]])),
-    current_time: pick(["새벽", "아침", "한낮", "저녁", "한밤중"]),
-    character_physical_states: Object.fromEntries(characters.map(c => [c.name, pick(["정상", "경미한 부상", "피로 상태"])])),
+    current_time: pick(["새벽", "아침", "한낮", "저녁", "한밤중"], rng),
+    character_physical_states: Object.fromEntries(characters.map(c => [c.name, pick(["정상", "경미한 부상", "피로 상태"], rng)])),
     environment_changes: ["직전 화에서 큰 폭풍이 지나갔다"],
     open_foreshadows: [`${characters[0].name}의 과거에 숨겨진 비밀`],
     remaining_resources: { "식량": "3일치", "연료": "소량" },
@@ -211,7 +243,7 @@ function generateMediumCase(): Omit<TestCase, "id" | "difficulty"> {
 
   const interventions: AuthorIntervention[] = hasIntervention ? [{
     book_id: "test",
-    instruction: pick(INTERVENTION_TEMPLATES).replace("${name}", characters[1].name),
+    instruction: pick(INTERVENTION_TEMPLATES, rng).replace("${name}", characters[1].name),
     target_scope: "episode",
     duration: "single_episode",
     conflicts_absolute: false,
@@ -223,8 +255,8 @@ function generateMediumCase(): Omit<TestCase, "id" | "difficulty"> {
     description: `[Medium] ${genre} / ${pov} / ${style} / 인물 ${namePool.length}명${hasIntervention ? " / 작가 개입 있음" : ""}`,
     gen_config: {
       pov, style, genre, tone: mood,
-      conflict: rand(4, 8), foreshadow: rand(4, 7), emotion: rand(3, 8),
-      dialogue: rand(3, 8), direction: rand(3, 7),
+      conflict: rand(4, 8, rng), foreshadow: rand(4, 7, rng), emotion: rand(3, 8, rng),
+      dialogue: rand(3, 8, rng), direction: rand(3, 7, rng),
       episodeLength: 1000, episodeLengthVar: 200,
       totalEpisodes: 20, totalEpisodesVar: 5,
     },
@@ -235,42 +267,42 @@ function generateMediumCase(): Omit<TestCase, "id" | "difficulty"> {
       book_id: "test", character_name: c.name, episode_number: ep,
       location: locs[i % 2],
       physical_state: prevState.character_physical_states[c.name],
-      recent_goal: pick(["생존", "진실 발견", "복수", "탈출", "신뢰 회복"]),
+      recent_goal: pick(["생존", "진실 발견", "복수", "탈출", "신뢰 회복"], rng),
     })),
     prev_episode_state: prevState,
     task: {
       goal: `${ep}화: 갈등이 심화되고 인물 간 관계가 변화하는 장면`,
-      required_events: pickN(REQUIRED_EVENTS_POOL, 2),
+      required_events: pickN(REQUIRED_EVENTS_POOL, 2, rng),
       hidden_info: [`${characters[0].name}의 진짜 목적은 아직 공개하지 않는다`],
-      ending_hook_direction: pick(ENDING_HOOKS),
+      ending_hook_direction: pick(ENDING_HOOKS, rng),
     },
     active_interventions: interventions,
   };
 }
 
-function generateHardCase(): Omit<TestCase, "id" | "difficulty"> {
-  const genre      = pick(GENRES);
-  const mood       = pick(MOODS);
-  const background = pick(BACKGROUNDS);
-  const pov        = pick(POVS);
-  const style      = pick(STYLES);
-  const namePool   = pickN(CHARACTER_NAMES, 5);
+function generateHardCase(rng: Rng): Omit<TestCase, "id" | "difficulty"> {
+  const genre      = pick(GENRES, rng);
+  const mood       = pick(MOODS, rng);
+  const background = pick(BACKGROUNDS, rng);
+  const pov        = pick(POVS, rng);
+  const style      = pick(STYLES, rng);
+  const namePool   = pickN(CHARACTER_NAMES, 5, rng);
 
   const characters: CanonicalCharacter[] = namePool.map(name => ({
-    name, personality: pick(PERSONALITIES),
-    type: pick(["인간", "인간", "인간", "AI", "기타"]),
-    gender: pick(["남성", "여성", "해당없음"]),
+    name, personality: pick(PERSONALITIES, rng),
+    type: pick(["인간", "인간", "인간", "AI", "기타"] as const, rng),
+    gender: pick(["남성", "여성", "해당없음"] as const, rng),
   }));
 
-  const generalRules: WorldRule[] = pickN(GENERAL_RULES_POOL, rand(4, 6)).map(c => ({
+  const generalRules: WorldRule[] = pickN(GENERAL_RULES_POOL, rand(4, 6, rng), rng).map(c => ({
     rule_type: "general", content: c, is_active: true,
   }));
-  const absoluteRules: WorldRule[] = pickN(ABSOLUTE_FORBIDDEN_POOL, rand(2, 3)).map(c => ({
+  const absoluteRules: WorldRule[] = pickN(ABSOLUTE_FORBIDDEN_POOL, rand(2, 3, rng), rng).map(c => ({
     rule_type: "absolute_forbidden", content: c, is_active: true,
   }));
 
   const ep   = 8;
-  const locs = pickN(LOCATIONS, 3);
+  const locs = pickN(LOCATIONS, 3, rng);
 
   const prevState: PrevEpisodeState = {
     ending_event: `${characters[0].name}이(가) 적의 함정에 빠지고 ${characters[1].name}이 배신당했다`,
@@ -322,8 +354,8 @@ function generateHardCase(): Omit<TestCase, "id" | "difficulty"> {
     description: `[Hard] ${genre} / ${pov} / ${style} / 5인물 / 다중 복선 / 작가 개입 2개`,
     gen_config: {
       pov, style, genre, tone: mood,
-      conflict: rand(7, 10), foreshadow: rand(6, 9), emotion: rand(6, 9),
-      dialogue: rand(4, 9), direction: rand(6, 10),
+      conflict: rand(7, 10, rng), foreshadow: rand(6, 9, rng), emotion: rand(6, 9, rng),
+      dialogue: rand(4, 9, rng), direction: rand(6, 10, rng),
       episodeLength: 1200, episodeLengthVar: 200,
       totalEpisodes: 25, totalEpisodesVar: 5,
     },
@@ -335,13 +367,13 @@ function generateHardCase(): Omit<TestCase, "id" | "difficulty"> {
       location: locs[i % 3],
       physical_state: prevState.character_physical_states[c.name],
       items: i === 0 ? ["부서진 검", "지도 조각"] : i === 2 ? ["신비한 유물"] : [],
-      recent_goal: pick(["생존", "진실 발견", "복수", "탈출", "팀 보호"]),
+      recent_goal: pick(["생존", "진실 발견", "복수", "탈출", "팀 보호"], rng),
       foreshadow_connections: i < 2 ? [prevState.open_foreshadows[i]] : [],
     })),
     prev_episode_state: prevState,
     task: {
       goal: `${ep}화: 절정 직전 — 모든 갈등이 한 지점으로 수렴`,
-      required_events: pickN(REQUIRED_EVENTS_POOL, 3),
+      required_events: pickN(REQUIRED_EVENTS_POOL, 3, rng),
       hidden_info: [`적 수장의 진짜 정체는 이번 화에서 공개하지 않는다`],
       ending_hook_direction: "기존 상식을 뒤집는 반전으로 독자를 다음 화로 끌어당긴다",
       special_constraints: [
@@ -358,10 +390,19 @@ function generateHardCase(): Omit<TestCase, "id" | "difficulty"> {
 // ══════════════════════════════════════════════════════════════
 const DIFFICULTY_RATIO = { easy: 0.3, medium: 0.4, hard: 0.3 };
 
+/**
+ * seed가 주어지면 동일한 seed에서 항상 동일한 케이스를 생성한다.
+ * seed 없으면 기존 동작(Math.random) 유지.
+ *
+ * 예) generateTestCases(20, "all", "benchmark-v1")
+ *   → 항상 동일한 20개 케이스
+ */
 export function generateTestCases(
   count: number,
-  targetDifficulty: Difficulty | "all" = "all"
+  targetDifficulty: Difficulty | "all" = "all",
+  seed?: string,
 ): TestCase[] {
+  const rng   = makeRng(seed);
   const cases: TestCase[] = [];
 
   if (targetDifficulty === "all") {
@@ -369,17 +410,17 @@ export function generateTestCases(
     const mediumCnt = Math.round(count * DIFFICULTY_RATIO.medium);
     const hardCnt   = count - easyCnt - mediumCnt;
 
-    for (let i = 0; i < easyCnt;   i++) cases.push({ id: randomUUID(), difficulty: "easy",   ...generateEasyCase() });
-    for (let i = 0; i < mediumCnt; i++) cases.push({ id: randomUUID(), difficulty: "medium", ...generateMediumCase() });
-    for (let i = 0; i < hardCnt;   i++) cases.push({ id: randomUUID(), difficulty: "hard",   ...generateHardCase() });
+    for (let i = 0; i < easyCnt;   i++) cases.push({ id: randomUUID(), difficulty: "easy",   ...generateEasyCase(rng) });
+    for (let i = 0; i < mediumCnt; i++) cases.push({ id: randomUUID(), difficulty: "medium", ...generateMediumCase(rng) });
+    for (let i = 0; i < hardCnt;   i++) cases.push({ id: randomUUID(), difficulty: "hard",   ...generateHardCase(rng) });
   } else {
     const gen = targetDifficulty === "easy" ? generateEasyCase
       : targetDifficulty === "medium" ? generateMediumCase : generateHardCase;
-    for (let i = 0; i < count; i++) cases.push({ id: randomUUID(), difficulty: targetDifficulty, ...gen() });
+    for (let i = 0; i < count; i++) cases.push({ id: randomUUID(), difficulty: targetDifficulty, ...gen(rng) });
   }
 
-  // 순서 섞기
-  return cases.sort(() => Math.random() - 0.5);
+  // 순서 섞기 (rng 사용)
+  return cases.sort(() => rng.next() - 0.5);
 }
 
 /**
@@ -395,7 +436,9 @@ export function generateTestCases(
 export function generateSupportedPovTestCases(
   count: number,
   targetDifficulty: Difficulty | "all" = "all",
+  seed?: string,
 ): TestCase[] {
+  const rng          = makeRng(seed);
   const supportedSet = new Set(SUPPORTED_POVS);
   const maxAttempts  = count * 10;
   const cases: TestCase[] = [];
@@ -418,12 +461,12 @@ export function generateSupportedPovTestCases(
         d => counts[d] < targets[d]
       );
       if (remaining.length === 0) break;
-      difficulty = remaining[Math.floor(Math.random() * remaining.length)];
+      difficulty = remaining[Math.floor(rng.next() * remaining.length)];
     }
 
     const gen = difficulty === "easy" ? generateEasyCase
       : difficulty === "medium" ? generateMediumCase : generateHardCase;
-    const base = gen();
+    const base = gen(rng);
 
     if (!supportedSet.has(base.gen_config.pov)) continue;
 
@@ -438,13 +481,15 @@ export function generateSupportedPovTestCases(
     );
   }
 
-  return cases.sort(() => Math.random() - 0.5);
+  return cases.sort(() => rng.next() - 0.5);
 }
 
 // ── CLI 실행 ───────────────────────────────────────────────────
+// 사용법: npx tsx scripts/benchmarks/case_generator.ts [count] [difficulty] [seed]
 if (process.argv[1]?.includes("case_generator")) {
   const count      = parseInt(process.argv[2] ?? "10", 10);
   const difficulty = (process.argv[3] ?? "all") as Difficulty | "all";
-  const cases = generateTestCases(count, difficulty);
+  const seed       = process.argv[4];  // 없으면 Math.random() fallback
+  const cases = generateTestCases(count, difficulty, seed);
   console.log(JSON.stringify(cases, null, 2));
 }
