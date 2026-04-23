@@ -58,6 +58,27 @@ document.addEventListener("DOMContentLoaded", () => {
     if (to && el.contains(to)) return;
     hideTip();
   });
+
+  // 오른쪽 패널: 커서 따라다님 (왼쪽으로 표시 — CSS로 이미 방향 지정)
+  document.querySelector(".right-panel")?.addEventListener("mouseover", e => {
+    const el = e.target.closest("[data-tip]");
+    if (!el) return;
+    showTip(el.getAttribute("data-tip"));
+  });
+  document.querySelector(".right-panel")?.addEventListener("mousemove", e => {
+    if (tip.style.display === "none") return;
+    // 왼쪽으로 표시 — 커서 왼쪽에 붙임
+    const tipW = tip.offsetWidth || 220;
+    tip.style.left = (e.clientX - tipW - 14) + "px";
+    tip.style.top  = (e.clientY - 10) + "px";
+    tip.style.transform = "";
+  });
+  document.querySelector(".right-panel")?.addEventListener("mouseout", e => {
+    if (!e.target.closest("[data-tip]")) return;
+    const to = e.relatedTarget;
+    if (to && e.target.closest("[data-tip]")?.contains(to)) return;
+    hideTip();
+  });
 });
 
 // 테마
@@ -84,13 +105,17 @@ function showToast(msg, type = "warn", duration = 3000) {
 
 // ── 폰트 크기 조절 ───────────────────────────────────────
 (function initFontScale() {
-  const sbVal   = parseFloat(localStorage.getItem("fs-sb-font") || "1.0");
+  const sbVal   = parseFloat(localStorage.getItem("fs-sb-font")   || "1.0");
+  const rpVal   = parseFloat(localStorage.getItem("fs-rp-font")   || "1.0");
   const mainVal = parseFloat(localStorage.getItem("fs-main-font") || "1.0");
-  document.documentElement.style.setProperty("--sb-font-scale", sbVal);
+  document.documentElement.style.setProperty("--sb-font-scale",   sbVal);
+  document.documentElement.style.setProperty("--rp-font-scale",   rpVal);
   document.documentElement.style.setProperty("--main-font-scale", mainVal);
-  const sbSlider = document.getElementById("sbFontSlider");
+  const sbSlider   = document.getElementById("sbFontSlider");
+  const rpSlider   = document.getElementById("rpFontSlider");
   const mainSlider = document.getElementById("mainFontSlider");
-  if (sbSlider)   { sbSlider.value = sbVal;   document.getElementById("sbFontVal").textContent   = sbVal.toFixed(1) + "×"; }
+  if (sbSlider)   { sbSlider.value   = sbVal;   document.getElementById("sbFontVal").textContent   = sbVal.toFixed(1)   + "×"; }
+  if (rpSlider)   { rpSlider.value   = rpVal;   document.getElementById("rpFontVal").textContent   = rpVal.toFixed(1)   + "×"; }
   if (mainSlider) { mainSlider.value = mainVal; document.getElementById("mainFontVal").textContent = mainVal.toFixed(1) + "×"; }
 })();
 
@@ -99,6 +124,12 @@ function setSbFont(val) {
   document.documentElement.style.setProperty("--sb-font-scale", val);
   document.getElementById("sbFontVal").textContent = val.toFixed(1) + "×";
   localStorage.setItem("fs-sb-font", val);
+}
+function setRpFont(val) {
+  val = parseFloat(val);
+  document.documentElement.style.setProperty("--rp-font-scale", val);
+  document.getElementById("rpFontVal").textContent = val.toFixed(1) + "×";
+  localStorage.setItem("fs-rp-font", val);
 }
 function setMainFont(val) {
   val = parseFloat(val);
@@ -330,6 +361,42 @@ document.addEventListener("keydown", e => {
       document.body.style.userSelect = "";
       const w = sidebar.getBoundingClientRect().width;
       localStorage.setItem("fs-sb-width", Math.round(w));
+      document.removeEventListener("mousemove", onMove);
+      document.removeEventListener("mouseup", onUp);
+    }
+    document.addEventListener("mousemove", onMove);
+    document.addEventListener("mouseup", onUp);
+  });
+})();
+
+// ── 오른쪽 패널 너비 드래그 조절 (왼쪽과 대칭) ────────────
+(function initRightPanelResize() {
+  const handle = document.getElementById("rpResizeHandle");
+  const panel  = document.getElementById("rightPanel");
+  if (!handle || !panel) return;
+
+  const saved = localStorage.getItem("fs-rp-width");
+  if (saved) document.documentElement.style.setProperty("--rp-width", saved + "px");
+
+  let startX, startW;
+  handle.addEventListener("mousedown", e => {
+    startX = e.clientX;
+    startW = panel.getBoundingClientRect().width;
+    handle.classList.add("dragging");
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+
+    function onMove(e) {
+      // 오른쪽 패널은 왼쪽 edge를 드래그 → 커서가 왼쪽으로 갈수록 넓어짐
+      const w = Math.min(600, Math.max(200, startW - (e.clientX - startX)));
+      document.documentElement.style.setProperty("--rp-width", w + "px");
+    }
+    function onUp() {
+      handle.classList.remove("dragging");
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      const w = panel.getBoundingClientRect().width;
+      localStorage.setItem("fs-rp-width", Math.round(w));
       document.removeEventListener("mousemove", onMove);
       document.removeEventListener("mouseup", onUp);
     }

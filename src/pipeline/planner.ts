@@ -60,32 +60,110 @@ function buildPlannerUserPrompt(
   ctx: EffectiveContext,
   sc: ExtractedStateConstraints,
 ): string {
+  const nc = sc.narrative_contract;
+
+  // ── 연재 계약 ──────────────────────────────────────────────────
+  const narrativeLines = [
+    `최종화: ${nc.resolved_final}화 / 남은 화수: ${nc.remaining_episodes}화 / 회차역할: ${nc.episode_role}`,
+    `분량: ${sc.char_budget.target}자 (허용 ${sc.char_budget.min}~${sc.char_budget.max}자)`,
+    `ending: ${sc.ending_constraint}`,
+  ].join("\n");
+
+  // ── 작가 개입 ──────────────────────────────────────────────────
+  const interventionText = sc.active_intervention_instructions.length > 0
+    ? sc.active_intervention_instructions.map((ins, i) => `${i + 1}. ${ins}`).join("\n")
+    : null;
+
+  // ── 절대 금지 ──────────────────────────────────────────────────
+  const absoluteText = sc.absolute_forbidden.length > 0
+    ? sc.absolute_forbidden.map((r, i) => `${i + 1}. ${r}`).join("\n")
+    : null;
+
+  // ── 이번 화 추가 제약 ───────────────────────────────────────────
+  const episodeConstraintLines: string[] = [];
+  if (sc.episode_forbidden.length > 0)
+    episodeConstraintLines.push(`금지: ${sc.episode_forbidden.join(", ")}`);
+  if (sc.episode_required.length > 0)
+    episodeConstraintLines.push(`필수 포함: ${sc.episode_required.join(", ")}`);
+  if (ctx.task.special_constraints?.length)
+    episodeConstraintLines.push(`특수 제약: ${ctx.task.special_constraints.join(", ")}`);
+  const episodeConstraintText = episodeConstraintLines.length > 0
+    ? episodeConstraintLines.join("\n")
+    : null;
+
+  // ── 일반 규칙 ──────────────────────────────────────────────────
   const rulesText = sc.general_rules.length > 0
     ? sc.general_rules.map((r, i) => `${i + 1}. ${r}`).join("\n")
     : "없음";
 
+  // ── 스토리 흐름 (rolling_summary + 최근 아크 요약) ─────────────
+  const storyFlowParts: string[] = [];
+  if (ctx.rolling_summary) storyFlowParts.push(ctx.rolling_summary);
+  const lastArc = ctx.arc_summaries?.at(-1);
+  if (lastArc) storyFlowParts.push(`[아크${lastArc.arc_number} ${lastArc.episode_start}~${lastArc.episode_end}화] ${lastArc.summary}`);
+  const storyFlowText = storyFlowParts.length > 0 ? storyFlowParts.join("\n") : null;
+
+  // ── 인물 아크 상태 ─────────────────────────────────────────────
+  const arcEntries = Object.entries(ctx.character_arcs ?? {});
+  const characterArcText = arcEntries.length > 0
+    ? arcEntries.map(([name, arc]) => `${name}: ${arc.state}${arc.key_events.length ? ` (${arc.key_events.slice(-2).join(", ")})` : ""}`).join("\n")
+    : null;
+
+  // ── 직전 화 말미 ───────────────────────────────────────────────
+  const prevTailText = ctx.prev_episode_tail
+    ? ctx.prev_episode_tail.slice(-200)
+    : null;
+
+  // ── 복선 메모리 ────────────────────────────────────────────────
   const foreshadows = ctx.foreshadow_memory.map(f => `- ${f.content}`).join("\n") || "없음";
+
+  // ── 필수 사건 / 숨은 정보 ─────────────────────────────────────
   const requiredEvents = ctx.task.required_events?.join(", ") || "없음";
-  const hookDir = sc.ending_hook_direction || "자유";
+  const hiddenInfo = ctx.task.hidden_info?.length
+    ? ctx.task.hidden_info.join(", ")
+    : null;
 
-  return `[${ctx.episode_number}화]
-[목표] ${sc.task_goal}
-[필수 사건] ${requiredEvents}
-[엔딩 훅 방향] ${hookDir}
+  // ── 등장 불가 인물 ─────────────────────────────────────────────
+  const absentLine = sc.absent_characters.length > 0
+    ? `\n[등장 불가 인물] ${sc.absent_characters.join(", ")} — 이번 화에 등장하지 않는다\n`
+    : "";
 
-[인물 현재 상태]
-${sc.char_summary}
+  // ── 프롬프트 조립 ──────────────────────────────────────────────
+  const sections: string[] = [
+    `[${ctx.episode_number}화]\n[목표] ${sc.task_goal}\n[필수 사건] ${requiredEvents}\n[엔딩 훅 방향] ${sc.ending_hook_direction || "자유"}`,
+    `[연재 계약]\n${narrativeLines}`,
+  ];
 
-[직전 화 여파]
-${sc.prev_event_summary}
+  if (interventionText)
+    sections.push(`[작가 개입]\n${interventionText}`);
 
-[세계관 규칙]
-${rulesText}
+  if (absoluteText)
+    sections.push(`[절대 금지]\n${absoluteText}`);
 
-[미회수 복선]
-${foreshadows}
+  if (episodeConstraintText)
+    sections.push(`[이번 화 제약]\n${episodeConstraintText}`);
 
-위 정보를 바탕으로 장면 계획 JSON을 출력해라.`;
+  sections.push(`[인물 현재 상태]\n${sc.char_summary}${absentLine}`);
+
+  sections.push(`[직전 화 여파]\n${sc.prev_event_summary}`);
+
+  if (prevTailText)
+    sections.push(`[직전 화 말미]\n${prevTailText}`);
+
+  if (storyFlowText)
+    sections.push(`[스토리 흐름]\n${storyFlowText}`);
+
+  if (characterArcText)
+    sections.push(`[인물 아크]\n${characterArcText}`);
+
+  if (hiddenInfo)
+    sections.push(`[숨은 정보]\n${hiddenInfo}`);
+
+  sections.push(`[일반 규칙]\n${rulesText}`);
+  sections.push(`[미회수 복선]\n${foreshadows}`);
+  sections.push("위 정보를 바탕으로 장면 계획 JSON을 출력해라.");
+
+  return sections.join("\n\n");
 }
 
 // ══════════════════════════════════════════════════════════════

@@ -10,9 +10,18 @@
  * - state persistence 문제의 근원을 프롬프트 지시 강화가 아닌 구조로 해결한다.
  */
 
-import type { EffectiveContext, GenConfig } from "../types/canonical.js";
+import type { EffectiveContext, GenConfig, EpisodeCharBudget } from "../types/canonical.js";
+import { resolveCharBudget } from "../types/canonical.js";
 import type { ForbiddenAction, ItemConstraint } from "../types/planner.js";
 import { variantCPovRule } from "../lib/pov_rules.js";
+
+export type EpisodeRole = "mid" | "late" | "pre-final" | "final";
+
+export interface NarrativeContract {
+  resolved_final: number;
+  remaining_episodes: number;
+  episode_role: EpisodeRole;
+}
 
 export interface ExtractedStateConstraints {
   // ScenePlan deterministic fields
@@ -24,6 +33,19 @@ export interface ExtractedStateConstraints {
   tone_contract: string;
   target_length: number;
   ending_constraint: "cliff" | "final";
+
+  // Story contract — planner + trace용
+  char_budget: EpisodeCharBudget;
+  absent_characters: string[];  // visibility_state가 "absent" 또는 "cannot_act"인 인물
+
+  // Narrative contract — 연재 흐름 제약
+  narrative_contract: NarrativeContract;
+
+  // Rule / Intervention contract — 규칙/개입 제약
+  absolute_forbidden: string[];
+  episode_forbidden: string[];    // gen_config.forbidden_elements
+  episode_required: string[];     // gen_config.required_elements
+  active_intervention_instructions: string[];  // is_active인 AuthorIntervention의 instruction
 
   // Context for creative planner prompt
   char_summary: string;
@@ -124,14 +146,27 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     }
   }
 
-  // char_summary: planner 프롬프트용
+  // char_budget: EpisodeCharBudget 계산
+  const char_budget = resolveCharBudget(cfg);
+
+  // absent_characters: visibility_state 기반 등장 불가 인물
+  const absent_characters = ctx.character_dynamic_states
+    .filter(d => d.visibility_state === "absent" || d.visibility_state === "cannot_act")
+    .map(d => d.character_name);
+
+  // char_summary: planner 프롬프트용 (emotional_state + visibility_state 포함)
   const char_summary = ctx.characters.map(c => {
-    const dyn  = ctx.character_dynamic_states.find(d => d.character_name === c.name);
-    const loc   = dyn?.location ?? "위치 불명";
-    const state = dyn?.physical_state ?? "정상";
-    const items = dyn?.items?.join(", ") ?? "없음";
-    const goal  = dyn?.recent_goal ?? "";
-    return `${c.name}(${c.gender}): 위치=${loc}, 상태=${state}, 소지품=${items}${goal ? `, 목표=${goal}` : ""}`;
+    const dyn     = ctx.character_dynamic_states.find(d => d.character_name === c.name);
+    const loc     = dyn?.location ?? "위치 불명";
+    const state   = dyn?.physical_state ?? "정상";
+    const items   = dyn?.items?.join(", ") ?? "없음";
+    const goal    = dyn?.recent_goal ?? "";
+    const emotion = dyn?.emotional_state;
+    const vis     = dyn?.visibility_state;
+    let line = `${c.name}(${c.gender}): 위치=${loc}, 상태=${state}, 소지품=${items}${goal ? `, 목표=${goal}` : ""}`;
+    if (emotion) line += `, 감정=${emotion}`;
+    if (vis && vis !== "present") line += `, 등장=${vis === "absent" ? "불가" : "행동불가"}`;
+    return line;
   }).join("\n");
 
   // prev_event_summary
@@ -145,9 +180,26 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
   // target_length: 중간값 사용
   const target_length = cfg.episodeLength + Math.round(cfg.episodeLengthVar / 2);
 
-  // ending_constraint
+  // ending_constraint — resolved_final_episode 우선, 폴백은 totalEpisodes
+  const resolvedFinal = cfg.resolved_final_episode ?? cfg.totalEpisodes;
   const ending_constraint: "cliff" | "final" =
-    ctx.episode_number >= cfg.totalEpisodes ? "final" : "cliff";
+    ctx.episode_number >= resolvedFinal ? "final" : "cliff";
+
+  // narrative_contract: 연재 흐름 제약
+  const remaining = resolvedFinal - ctx.episode_number;
+  const episode_role: EpisodeRole =
+    ending_constraint === "final" ? "final"
+    : remaining <= 1             ? "pre-final"
+    : remaining <= 5             ? "late"
+    : "mid";
+
+  // rule / intervention contract: 규칙/개입 제약
+  const absolute_forbidden = ctx.absolute_forbidden ?? [];
+  const episode_forbidden  = cfg.forbidden_elements ?? [];
+  const episode_required   = cfg.required_elements  ?? [];
+  const active_intervention_instructions = (ctx.active_interventions ?? [])
+    .filter(i => i.is_active)
+    .map(i => i.instruction);
 
   return {
     opening_location:      openingLoc,
@@ -158,6 +210,13 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     tone_contract:         buildToneContract(cfg),
     target_length,
     ending_constraint,
+    char_budget,
+    absent_characters,
+    narrative_contract: { resolved_final: resolvedFinal, remaining_episodes: remaining, episode_role },
+    absolute_forbidden,
+    episode_forbidden,
+    episode_required,
+    active_intervention_instructions,
     char_summary,
     prev_event_summary,
     general_rules:         ctx.general_rules,

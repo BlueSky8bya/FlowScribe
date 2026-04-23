@@ -161,6 +161,18 @@ export function validatePlan(plan: ScenePlan, ctx: EffectiveContext): PlanValida
     passed.push("pov_contract 존재");
   }
 
+  // 9. absolute_forbidden 계약 등록 확인 (정보성 — 실제 위반 감지는 prose validator)
+  const af = ctx.absolute_forbidden ?? [];
+  if (af.length > 0) {
+    passed.push(`absolute_forbidden_registered: ${af.length}개`);
+  }
+
+  // 10. active_interventions 계약 등록 확인 (정보성)
+  const activeInterventions = (ctx.active_interventions ?? []).filter(i => i.is_active);
+  if (activeInterventions.length > 0) {
+    passed.push(`active_interventions_registered: ${activeInterventions.length}개`);
+  }
+
   // verdict 결정
   const hasCritical = issues.some(i => i.severity === "critical");
   const hasMajor    = issues.some(i => i.severity === "major");

@@ -51,7 +51,8 @@ export async function getLatestDynamicStates(
       `SELECT DISTINCT ON (character_name)
          book_id, character_name, episode_number,
          location, physical_state, items, recent_goal,
-         relationship_updates, foreshadow_connections, behavior_hints, alias_used
+         relationship_updates, foreshadow_connections, behavior_hints, alias_used,
+         emotional_state, visibility_state
        FROM character_dynamic_states
        WHERE book_id = $1 AND episode_number <= $2
        ORDER BY character_name, episode_number DESC`,

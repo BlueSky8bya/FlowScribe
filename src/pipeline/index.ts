@@ -76,6 +76,32 @@ export async function runPlannerPipeline(
     parsed_plan: fallback_used ? null : creativePlan as unknown as import("../types/planner.js").ScenePlan,
     fallback_used,
     elapsed_ms: planner_elapsed_ms,
+    input_contract: {
+      // Narrative
+      target_length:      stateConstraints.target_length,
+      char_budget: {
+        target: stateConstraints.char_budget.target,
+        min:    stateConstraints.char_budget.min,
+        max:    stateConstraints.char_budget.max,
+      },
+      ending_constraint:  stateConstraints.ending_constraint,
+      resolved_final:     stateConstraints.narrative_contract.resolved_final,
+      remaining_episodes: stateConstraints.narrative_contract.remaining_episodes,
+      episode_role:       stateConstraints.narrative_contract.episode_role,
+      // Character
+      absent_characters:  stateConstraints.absent_characters,
+      // Rule / Intervention
+      active_interventions: stateConstraints.active_intervention_instructions,
+      absolute_forbidden:   stateConstraints.absolute_forbidden,
+      episode_forbidden:    stateConstraints.episode_forbidden,
+      episode_required:     stateConstraints.episode_required,
+      // Memory / Arc (존재 여부만)
+      has_rolling_summary:   !!ctx.rolling_summary,
+      arc_summaries_count:   ctx.arc_summaries?.length ?? 0,
+      character_arcs_count:  Object.keys(ctx.character_arcs ?? {}).length,
+      has_prev_tail:         !!ctx.prev_episode_tail,
+      foreshadow_count:      ctx.foreshadow_memory?.length ?? 0,
+    },
   });
 
   // ─── Step 3: Merge → ScenePlan ───────────────────────────────

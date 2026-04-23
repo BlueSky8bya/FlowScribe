@@ -1,5 +1,24 @@
 // ── 에피소드 생성 & SSE 스트리밍 ─────────────────────────────
 
+// 현재 로드된 캐릭터 상태 — 화 전환 시에도 재사용
+let _currentCharStates = [];
+// 단일 hover 리스너 마운트 여부 (중복 방지)
+let _hoverListenerMounted = false;
+// 이름 → 상태 맵 (O(1) 조회)
+let _charStateMap = {};
+
+// 화 전환 후 이름 wrapping + 패널 재적용
+function _reapplyCharUI() {
+  if (!_currentCharStates.length) return;
+  // output이 새로 렌더링됐으므로 .char-name-ref 없음 → wrapCharNamesInOutput 재실행
+  const outputEl = document.getElementById('output');
+  if (outputEl) outputEl.querySelectorAll('.char-name-ref').forEach(el => {
+    el.outerHTML = el.textContent; // span 제거해서 wrapCharNamesInOutput 재진입 허용
+  });
+  updateSceneCharPanel(_currentCharStates);
+  wrapCharNamesInOutput(_currentCharStates);
+}
+
 let _sessionStart = null;
 let _rewindCount = 0;
 let _speedChanges = 0;
@@ -250,6 +269,7 @@ function viewPrev() {
   displayedEpisode = prev;
   renderProgressive(episodeCache[displayedEpisode], true);
   updateEpisodeUI();
+  _reapplyCharUI();
 }
 
 function viewNext() {
@@ -258,6 +278,7 @@ function viewNext() {
   displayedEpisode = next;
   renderProgressive(episodeCache[displayedEpisode], true);
   updateEpisodeUI();
+  _reapplyCharUI();
 }
 
 function regenerate() {
@@ -302,40 +323,56 @@ function generate() {
   displayedEpisode = episodeNum;
   btn.disabled = true; prevBtn.disabled = true;
   updateEpisodeUI();
+  let _pendingCharStates = null;
+
+  function _finishGeneration() {
+    if (_generateFinished) return;
+    _generateFinished = true;
+    es.close();
+    _generating = false;
+    renderProgressive(rawText, true);
+    applyFocusLine?.();
+    if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
+    episodeCache[episodeNum] = rawText;
+    saveEpisode(episodeNum, rawText);
+    _sendLog(episodeNum, 1.0, null);
+    displayedEpisode = episodeNum;
+    currentEpisode++;
+    updateEpisodeUI();
+    syncBookEpisode?.();
+    if (currentEpisode > 1) applySettingsLock?.(true);
+    btn.disabled = false;
+  }
+  let _generateFinished = false;
+
   const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${bookId}`);
   es.onmessage = e => {
-    if (e.data === "[DONE]") {
-      es.close();
-      _generating = false;
-      renderProgressive(rawText, true);
-      applyFocusLine();
-      episodeCache[episodeNum] = rawText;
-      saveEpisode(episodeNum, rawText);
-      _sendLog(episodeNum, 1.0, null);
-      displayedEpisode = episodeNum;
-      currentEpisode++;
-      updateEpisodeUI();
-      syncBookEpisode?.();
-      if (currentEpisode > 1) applySettingsLock(true);
-      btn.disabled = false;
-      return;
-    }
+    if (e.data === "[DONE]") { _finishGeneration(); return; }
     try {
-      const { token, error } = JSON.parse(e.data);
-      if (error) {
+      const json = JSON.parse(e.data);
+      if (json.error) {
         _generating = false;
         output.textContent = "오류가 발생했습니다.";
         es.close(); btn.disabled = false; prevBtn.disabled = false;
-      } else { rawText += token; _renderQueue = rawText; pacingAppend(token); }
-    } catch (e) { console.error(e); }
+      } else if (json.done) {
+        if (json.char_states) _pendingCharStates = json.char_states;
+        if (json.episode_meta) updateDebugMeta(json.episode_meta);
+        // done JSON 수신 후 짧은 지연으로 스트림 종료 대기
+        setTimeout(_finishGeneration, 300);
+      } else if (json.token) {
+        rawText += json.token; _renderQueue = rawText; pacingAppend(json.token);
+      }
+    } catch (err) { console.error(err); }
   };
   es.onerror = () => {
+    if (_generateFinished) return;
     es.close();
     _generating = false;
     if (rawText) {
       const approxCompletion = Math.min(rawText.length / 900, 1.0);
       _sendLog(episodeNum, approxCompletion, approxCompletion < 0.95 ? approxCompletion : null);
       renderProgressive(rawText, true);
+      if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
       episodeCache[episodeNum] = rawText;
       saveEpisode(episodeNum, rawText);
       displayedEpisode = episodeNum;
@@ -345,3 +382,140 @@ function generate() {
     btn.disabled = false; prevBtn.disabled = false;
   };
 }
+
+// ══════════════════════════════════════════════════════════════
+// 몰입형 UI — Scene Character Panel + Hover Card + Debug Drawer
+// ══════════════════════════════════════════════════════════════
+
+const _PHYS_HIDDEN = ['정상', '없음', '양호'];
+const _GENDER_COLOR = { '남성': '#5a8fd4', '여성': '#d47090', '해당없음': 'var(--text4)', '기타': 'var(--text4)' };
+
+function updateSceneCharPanel(charStates) {
+  // 전역 상태 갱신
+  _currentCharStates = charStates;
+  _charStateMap = Object.fromEntries(charStates.map(s => [s.character_name, s]));
+
+  const panel = document.getElementById('sceneCharPanel');
+  const list  = document.getElementById('sceneCharList');
+  if (!panel || !list) return;
+  const visible = charStates.filter(s => s.visibility_state !== 'absent');
+  if (!visible.length) { panel.hidden = true; return; }
+
+  list.innerHTML = visible.map(s => {
+    const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
+    const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
+    const typeLabel = s.type ? s.type : '';
+    const baseInfo = [typeLabel, gLabel].filter(Boolean).join(' · ');
+
+    const details = [
+      baseInfo ? `<span class="detail-label">유형</span>${baseInfo}` : null,
+      s.emotional_state
+        ? `<span class="detail-label">감정</span>${s.emotional_state}` : null,
+      s.physical_state && !_PHYS_HIDDEN.includes(s.physical_state)
+        ? `<span class="detail-label">상태</span>${s.physical_state}` : null,
+      s.items && s.items.length
+        ? `<span class="detail-label">소지</span>${s.items.join(', ')}` : null,
+    ].filter(Boolean);
+
+    return `<div class="scene-char-item">
+      <div class="scene-char-name" style="color:${gColor}">${s.character_name}</div>
+      ${details.map(d => `<div class="scene-char-detail">${d}</div>`).join('')}
+    </div>`;
+  }).join('');
+  panel.hidden = false;
+}
+
+function wrapCharNamesInOutput(charStates) {
+  const outputEl = document.getElementById('output');
+  if (!outputEl) return;
+  // 이미 wrapping 되어 있으면 재진입 금지
+  if (outputEl.querySelector('.char-name-ref')) return;
+  const names = charStates.map(s => s.character_name).filter(n => n && n.length >= 2);
+  if (!names.length) return;
+  const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const regex = new RegExp(`(${escaped.join('|')})`, 'g');
+  outputEl.querySelectorAll('p').forEach(p => {
+    p.innerHTML = p.innerHTML.replace(regex, m => {
+      const s = _charStateMap[m];
+      const gColor = s ? (_GENDER_COLOR[s.gender] ?? '') : '';
+      const style = gColor ? ` style="border-bottom-color:${gColor}20"` : '';
+      return `<span class="char-name-ref" data-char="${m}"${style}>${m}</span>`;
+    });
+  });
+  _ensureHoverListener();
+}
+
+// 기존 책 로드 시 char_states 없을 때 맵만 채움 (패널 표시 없이)
+function seedCharStateMapFromGenderMap(charStates) {
+  charStates.forEach(s => { _charStateMap[s.character_name] = s; });
+  _currentCharStates = charStates;
+  wrapCharNamesInOutput(charStates);
+}
+
+// 단일 문서 레벨 hover 리스너 — 중복 방지
+function _ensureHoverListener() {
+  if (_hoverListenerMounted) return;
+  _hoverListenerMounted = true;
+
+  const card = document.getElementById('charHoverCard');
+  if (!card) return;
+
+  function showCard(el, name) {
+    const s = _charStateMap[name]; if (!s) return;
+    const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
+    const nameEl = card.querySelector('.char-hover-name');
+    nameEl.textContent = name;
+    nameEl.style.color = gColor;
+
+    const baseInfo = [s.type, s.gender && s.gender !== '해당없음' ? s.gender : null].filter(Boolean).join(' · ');
+    const emotion  = s.emotional_state || '';
+    const physical = (s.physical_state && !_PHYS_HIDDEN.includes(s.physical_state)) ? s.physical_state : '';
+    const items    = (s.items && s.items.length) ? s.items.join(', ') : '';
+
+    const rows = [
+      baseInfo ? `유형  ${baseInfo}` : null,
+      emotion  ? `감정  ${emotion}`  : null,
+      physical ? `상태  ${physical}` : null,
+      items    ? `소지  ${items}`    : null,
+    ].filter(Boolean);
+
+    const emotionEl  = document.getElementById('hoverRowEmotion');
+    const physicalEl = document.getElementById('hoverRowPhysical');
+    const itemsEl    = document.getElementById('hoverRowItems');
+    if (emotionEl)  emotionEl.textContent  = rows[0] ?? '';
+    if (physicalEl) physicalEl.textContent = rows[1] ?? '';
+    if (itemsEl)    itemsEl.textContent    = rows[2] ?? (rows.length < 3 ? rows[2] ?? '' : '');
+
+    // 로우가 1개 미만 (baseInfo만)이면 안내 없이 기본 표시, 완전 없으면 안내
+    if (!rows.length && emotionEl) emotionEl.textContent = '상태 정보가 없습니다';
+
+    // 화면 경계 처리: 카드가 우측을 벗어나지 않게
+    const rect = el.getBoundingClientRect();
+    const cardW = 260;
+    const left = rect.left + rect.width / 2 - cardW / 2;
+    card.style.left = `${Math.max(8, Math.min(left, window.innerWidth - cardW - 8))}px`;
+    card.style.top  = `${rect.bottom + 6}px`;
+    card.hidden = false;
+  }
+
+  document.addEventListener('mouseover', e => {
+    const r = e.target.closest('.char-name-ref');
+    if (r) showCard(r, r.dataset.char);
+    else if (!e.target.closest('#charHoverCard')) card.hidden = true;
+  });
+}
+
+function updateDebugMeta(meta) {
+  const content = document.getElementById('debugMetaContent');
+  const drawer  = document.getElementById('debugMetaDrawer');
+  if (!content || !meta) return;
+  content.innerHTML = Object.entries(meta)
+    .filter(([, v]) => v !== null && v !== undefined)
+    .map(([k, v]) => `<b>${k}</b>: ${JSON.stringify(v)}`)
+    .join('\n');
+  if (drawer) drawer.hidden = false;
+}
+
+document.getElementById('debugMetaToggle')?.addEventListener('click', () => {
+  document.getElementById('debugMetaDrawer')?.classList.toggle('open');
+});

@@ -21,12 +21,13 @@ const WEIGHTS = {
   fallback_penalty:  0.2,  // 적용 시 음수
 
   // Renderer reward 가중치
-  prose_total:           0.3,
-  pov_consistency:       0.15,
-  character_consistency: 0.2,
-  ending_hook:           0.15,
-  world_rule_usage:      0.1,
-  violation_penalty:     0.1,  // 적용 시 음수
+  prose_total:              0.25,  // 0.3 → 0.25 (intervention_adherence 추가로 조정)
+  pov_consistency:          0.15,
+  character_consistency:    0.20,
+  ending_hook:              0.15,
+  world_rule_usage:         0.05,  // 0.1 → 0.05 (intervention_adherence로 일부 이전)
+  intervention_adherence:   0.10,  // new — active_interventions 준수 신호
+  violation_penalty:        0.10,  // 적용 시 음수
 
   // Combined
   planner_weight:  0.4,
@@ -58,14 +59,19 @@ export function computePlannerReward(
 export function computeRendererReward(
   proseValidation: ValidationResult,
   revisionCount: number,
-): Pick<RewardBreakdown, "prose_total_score" | "pov_consistency" | "character_consistency" | "ending_hook" | "world_rule_usage" | "hard_violation_penalty" | "revision_penalty" | "renderer_reward"> {
+): Pick<RewardBreakdown,
+  "prose_total_score" | "pov_consistency" | "character_consistency" |
+  "ending_hook" | "world_rule_usage" | "intervention_adherence" |
+  "hard_violation_penalty" | "absolute_forbidden_penalty" | "revision_penalty" | "renderer_reward"
+> {
   const qs = proseValidation.quality_scores;
 
-  const prose_total_score    = proseValidation.total_score / 100;
-  const pov_consistency      = (qs.pov_consistency ?? 0) / 100;
+  const prose_total_score     = proseValidation.total_score / 100;
+  const pov_consistency       = (qs.pov_consistency ?? 0) / 100;
   const character_consistency = (qs.character_consistency ?? 0) / 100;
-  const ending_hook          = (qs.ending_hook ?? 0) / 100;
-  const world_rule_usage     = (qs.world_rule_usage ?? 0) / 100;
+  const ending_hook           = (qs.ending_hook ?? 0) / 100;
+  const world_rule_usage      = (qs.world_rule_usage ?? 0) / 100;
+  const intervention_adherence = (qs.intervention_adherence ?? 0) / 100;
 
   const hard_violation_penalty = proseValidation.hard_violations.reduce((sum, v) => {
     if (v.severity === "critical") return sum - 0.25;
@@ -73,21 +79,27 @@ export function computeRendererReward(
     return sum - 0.05;
   }, 0);
 
+  // absolute_forbidden_penalty: critical violations만 별도 추출 (절대금지 위반 전용 신호)
+  const absolute_forbidden_penalty = proseValidation.hard_violations
+    .filter(v => v.severity === "critical")
+    .reduce((sum) => sum - 0.25, 0);
+
   const revision_penalty = revisionCount * -0.15;
 
   const renderer_reward =
-    prose_total_score      * WEIGHTS.prose_total +
-    pov_consistency        * WEIGHTS.pov_consistency +
-    character_consistency  * WEIGHTS.character_consistency +
-    ending_hook            * WEIGHTS.ending_hook +
-    world_rule_usage       * WEIGHTS.world_rule_usage +
-    hard_violation_penalty * WEIGHTS.violation_penalty +
+    prose_total_score        * WEIGHTS.prose_total +
+    pov_consistency          * WEIGHTS.pov_consistency +
+    character_consistency    * WEIGHTS.character_consistency +
+    ending_hook              * WEIGHTS.ending_hook +
+    world_rule_usage         * WEIGHTS.world_rule_usage +
+    intervention_adherence   * WEIGHTS.intervention_adherence +
+    hard_violation_penalty   * WEIGHTS.violation_penalty +
     revision_penalty;
 
   return {
     prose_total_score, pov_consistency, character_consistency,
-    ending_hook, world_rule_usage, hard_violation_penalty,
-    revision_penalty, renderer_reward,
+    ending_hook, world_rule_usage, intervention_adherence,
+    hard_violation_penalty, absolute_forbidden_penalty, revision_penalty, renderer_reward,
   };
 }
 
@@ -100,7 +112,8 @@ export function computeReward(trace: RunTrace): ComputedReward {
     ? computeRendererReward(trace.prose_validation, trace.revision_count)
     : {
         prose_total_score: 0, pov_consistency: 0, character_consistency: 0,
-        ending_hook: 0, world_rule_usage: 0, hard_violation_penalty: 0,
+        ending_hook: 0, world_rule_usage: 0, intervention_adherence: 0,
+        hard_violation_penalty: 0, absolute_forbidden_penalty: 0,
         revision_penalty: 0, renderer_reward: 0,
       };
 

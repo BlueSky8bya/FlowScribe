@@ -24,6 +24,7 @@ const _tts = {
   utterances: [],      // 현재 발화 큐
   currentIdx: 0,
   segments: [],        // [{text, type:'narration'|'dialogue', character:string|null}]
+  domSegments: [],     // DOM <p> 요소 배열 (하이라이팅용)
 };
 
 // ── 초기화 ────────────────────────────────────────────────────
@@ -36,8 +37,9 @@ async function initVoiceArchive() {
 
 function _loadSystemVoices() {
   const load = () => {
-    _tts.voices = window.speechSynthesis.getVoices().filter(v => v.lang.startsWith("ko") || v.lang.startsWith("ja") || v.lang.startsWith("zh") || v.lang.startsWith("en"));
-    if (!_tts.voices.length) _tts.voices = window.speechSynthesis.getVoices();
+    const all = window.speechSynthesis.getVoices();
+    _tts.voices = all.filter(v => v.lang.startsWith("ko"));
+    if (!_tts.voices.length) _tts.voices = all; // 폴백: 시스템에 한국어 음성 없을 때
     _populateVoiceSelect();
   };
   load();
@@ -777,20 +779,21 @@ function _renderTTSBar() {
   const bar = document.getElementById("ttsBar");
   if (!bar) return;
   bar.innerHTML = `
-    <span style="font-size:.85rem;color:var(--text4);white-space:nowrap;">🔊 TTS</span>
     <select class="tts-voice-select" id="ttsVoiceSelect" onchange="_ttsSelectVoice(this.value)"></select>
-    <button class="tts-ctrl-btn" id="ttsPlayBtn" onclick="_ttsTogglePlay()" title="재생/일시정지">▶</button>
-    <button class="tts-ctrl-btn danger" onclick="_ttsStop()" title="정지">⏹</button>
-    <div class="tts-rate-wrap">
-      <span class="tts-rate-label">속도</span>
-      <input class="tts-rate-input" type="range" id="ttsRate" min="0.5" max="2" step="0.05" value="1.0"
-        oninput="_tts.rate=parseFloat(this.value);document.getElementById('ttsRateVal').textContent=parseFloat(this.value).toFixed(1)+'x'" />
-      <span class="tts-rate-display" id="ttsRateVal">1.0x</span>
-    </div>
     <div class="tts-progress" id="ttsProgress" onclick="_ttsSeek(event)">
       <div class="tts-progress-fill" id="ttsProgressFill" style="width:0%"></div>
     </div>
-    <span class="tts-status" id="ttsStatus">준비</span>`;
+    <div class="tts-ctrl-row">
+      <button class="tts-play-btn" id="ttsPlayBtn" onclick="_ttsTogglePlay()" title="재생/일시정지">▶</button>
+      <button class="tts-stop-btn" onclick="_ttsStop()" title="정지">■</button>
+      <span class="tts-status-text" id="ttsStatus">준비됨</span>
+    </div>
+    <div class="tts-speed-row">
+      <span class="tts-speed-label">속도</span>
+      <input class="tts-rate-input" type="range" id="ttsRate" min="0.5" max="2" step="0.05" value="1.0"
+        oninput="_ttsChangeRate(parseFloat(this.value))" />
+      <span class="tts-rate-display" id="ttsRateVal">1.0x</span>
+    </div>`;
   _populateVoiceSelect();
 }
 
@@ -857,25 +860,55 @@ function _ttsTogglePlay() {
 }
 
 function _ttsReadCurrent() {
-  if (!window.displayedEpisode || !window.episodeCache?.[window.displayedEpisode]) {
+  // displayedEpisode는 app.js에서 let으로 선언된 전역 — window 프로퍼티가 아니므로 직접 접근
+  if (typeof displayedEpisode === "undefined" || displayedEpisode == null ||
+      !episodeCache?.[displayedEpisode]) {
     showToast("먼저 에피소드를 생성하거나 선택하세요", "warn"); return;
   }
-  const text = window.episodeCache[window.displayedEpisode];
+  const text = episodeCache[displayedEpisode];
   _ttsSpeak(text);
 }
 
 function _ttsSpeak(text) {
   _tts.synth.cancel();
-  _tts.segments = _parseSegments(text);
+  _clearTtsHighlight();
+
+  // DOM <p> 기반 세그먼트 — 각 문단을 하나의 발화로
+  const outputEl = document.getElementById("output");
+  const pEls = outputEl ? [...outputEl.querySelectorAll("p")] : [];
+  if (pEls.length) {
+    _tts.domSegments = pEls;
+    _tts.segments = pEls.map(p => ({ text: p.innerText || p.textContent || "", type: "narration" }));
+  } else {
+    _tts.domSegments = [];
+    _tts.segments = _parseSegments(text);
+  }
+
   _tts.currentIdx = 0;
   _tts.playing = true;
   _tts.paused = false;
   _speakNext();
 }
 
+function _clearTtsHighlight() {
+  document.querySelectorAll(".tts-current").forEach(el => el.classList.remove("tts-current"));
+}
+
+function _ttsChangeRate(val) {
+  _tts.rate = val;
+  const display = document.getElementById("ttsRateVal");
+  if (display) display.textContent = val.toFixed(1) + "x";
+  // 재생 중이면 현재 문단부터 새 속도로 재시작
+  if (_tts.playing && !_tts.paused) {
+    _tts.synth.cancel();
+    _speakNext();
+  }
+}
+
 function _speakNext() {
   if (_tts.currentIdx >= _tts.segments.length) {
     _tts.playing = false;
+    _clearTtsHighlight();
     _setTTSStatus("완료");
     document.getElementById("ttsPlayBtn").textContent = "▶";
     document.getElementById("ttsProgressFill").style.width = "100%";
@@ -897,12 +930,19 @@ function _speakNext() {
     utter.pitch *= 1.08;
   }
 
-  // 진행률
+  // 진행률 + DOM 하이라이팅
   utter.onstart = () => {
     const pct = Math.round((_tts.currentIdx / _tts.segments.length) * 100);
     document.getElementById("ttsProgressFill").style.width = `${pct}%`;
     _setTTSStatus(`${_tts.currentIdx + 1} / ${_tts.segments.length} 문단`);
     document.getElementById("ttsPlayBtn").textContent = "⏸";
+    // 현재 문단 하이라이트
+    _clearTtsHighlight();
+    const domEl = _tts.domSegments[_tts.currentIdx];
+    if (domEl) {
+      domEl.classList.add("tts-current");
+      domEl.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
   };
   utter.onend = () => {
     _tts.currentIdx++;
@@ -918,6 +958,7 @@ function _ttsStop() {
   _tts.playing = false;
   _tts.paused  = false;
   _tts.currentIdx = 0;
+  _clearTtsHighlight();
   _setTTSStatus("정지됨");
   document.getElementById("ttsPlayBtn").textContent = "▶";
   document.getElementById("ttsProgressFill").style.width = "0%";

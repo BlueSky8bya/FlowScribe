@@ -102,7 +102,15 @@
         <button class="sidebar-new-btn" onclick="createNewBook()">
           <span class="plus-icon">＋</span>새 책 만들기
         </button>
-        <div id="bookList" class="book-list"></div>
+        <!-- 책 목록 접기/펼치기 토글 (책 선택 후 표시) -->
+        <button class="book-list-toggle" id="bookListToggle" style="display:none;" onclick="toggleBookList()">
+          <span class="book-list-toggle-icon">▾</span>
+          <span class="book-list-active-label" id="bookListActiveLabel"></span>
+          <span style="font-size:.62em;color:var(--text4);flex-shrink:0;">서재</span>
+        </button>
+        <div class="book-list-wrap" id="bookListWrap">
+          <div id="bookList" class="book-list"></div>
+        </div>
       </div>
 
       <div class="sidebar-divider"></div>
@@ -139,57 +147,6 @@
         🔍 복선 되돌아보기
       </button>
 
-      <div class="sidebar-divider"></div>
-
-      <!-- ── 독자 프로필 (Hexagon) ── -->
-      <div class="sidebar-section">
-        <div class="sb-section-row">
-          <div class="sb-section-label" style="margin:0;">독자 프로필</div>
-          <span class="sb-profile-hint" data-tip="화를 읽을수록 AI가&#10;취향을 자동 학습합니다">✦ AI 학습 중</span>
-        </div>
-        <div class="hexagon-wrap">
-          <svg class="hexagon-svg" id="hexagonSvg" viewBox="-10 -10 240 210" width="240" height="210"></svg>
-        </div>
-        <div class="hex-legend-grid" id="hexLegendGrid"></div>
-      </div>
-
-      <div class="sidebar-divider"></div>
-
-      <!-- ── 세션 통계 ── -->
-      <div class="sidebar-section">
-        <div class="sb-section-label">독서 통계</div>
-        <div class="session-stats" id="sessionStats">
-          <div class="stat-item">
-            <div class="stat-num" id="statTotalSessions">—</div>
-            <div class="stat-label">총 독서 세션</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-num" id="statAvgCompletion">—</div>
-            <div class="stat-label">평균 완독률</div>
-          </div>
-          <div class="stat-item">
-            <div class="stat-num" id="statAvgTime">—</div>
-            <div class="stat-label">평균 체류</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="sidebar-divider"></div>
-
-      <!-- ── Voice Archive ── -->
-      <div class="sidebar-section">
-        <div class="sb-section-label">음성</div>
-        <button class="sidebar-voice-btn" onclick="openVoiceArchive('mine')">
-          <span class="voice-icon">🎙</span>
-          Voice Archive
-          <span class="sidebar-voice-count" id="voiceCount"></span>
-        </button>
-        <button class="sidebar-voice-btn" onclick="openVoiceArchive('map')" style="font-size:.86rem;color:var(--text4);">
-          <span class="voice-icon">👤</span>
-          캐릭터 배역 설정
-        </button>
-      </div>
-
       <!-- 테마 -->
       <div class="sidebar-bottom">
         <div class="sidebar-divider"></div>
@@ -205,92 +162,172 @@
     <!-- ════ 메인 ════ -->
     <main class="main-content">
 
-      <!-- 상단 고정 바 -->
-      <div class="main-topbar">
-        <div class="read-mode-bar">
-          <button class="read-mode-btn active" id="mode-eye"
-            data-tip="📖 묵독 — 눈으로 조용히 읽기&#10;대사·지문이 시각적으로 구분됩니다&#10;체류 시간·스크롤로 취향을 학습합니다"
-            onclick="setReadMode('eye');onReadModeChange?.('eye')">
-            📖 묵독
-          </button>
-          <button class="read-mode-btn" id="mode-aloud"
-            data-tip="🎤 낭독 — 내가 소리내어 읽기&#10;문단 클릭 → 현재 위치 강조 표시&#10;↑ ↓ 방향키로 문단 이동 가능"
-            onclick="setReadMode('aloud');onReadModeChange?.('aloud')">
-            🎤 낭독
-          </button>
-          <button class="read-mode-btn" id="mode-tts"
-            data-tip="🔊 청독 — AI가 읽어주기&#10;읽는 중인 문장이 자동으로 강조됩니다&#10;지나간 문장은 흐리게 처리됩니다"
-            onclick="setReadMode('tts');onReadModeChange?.('tts')">
-            🔊 청독
-          </button>
-        </div>
-        <!-- 폰트 크기 조절 -->
-        <div class="font-size-ctrl" id="fontSizeCtrl">
-          <button class="font-size-toggle-btn" onclick="toggleFontPanel()">
-            <span class="font-toggle-aa">Aa</span>
-            <span class="font-toggle-label">글자 크기</span>
-          </button>
-          <div class="font-panel" id="fontPanel" style="display:none;">
-            <div class="font-panel-title">글자 크기 조절</div>
-            <div class="font-panel-row">
-              <span>사이드바</span>
-              <input type="range" min="0.4" max="1.4" step="0.05" id="sbFontSlider"
-                oninput="setSbFont(this.value)" />
-              <span id="sbFontVal">1.0×</span>
+      <!-- ── 콘텐츠 컬럼 ── -->
+      <div class="content-col">
+
+        <!-- 상단 고정 바 -->
+        <div class="main-topbar">
+          <div class="read-mode-bar">
+            <button class="read-mode-btn active" id="mode-eye"
+              data-tip="📖 묵독 — 눈으로 조용히 읽기&#10;대사·지문이 시각적으로 구분됩니다&#10;체류 시간·스크롤로 취향을 학습합니다"
+              onclick="setReadMode('eye');onReadModeChange?.('eye')">
+              📖 묵독
+            </button>
+            <button class="read-mode-btn" id="mode-aloud"
+              data-tip="🎤 낭독 — 내가 소리내어 읽기&#10;문단 클릭 → 현재 위치 강조 표시&#10;↑ ↓ 방향키로 문단 이동 가능"
+              onclick="setReadMode('aloud');onReadModeChange?.('aloud')">
+              🎤 낭독
+            </button>
+            <button class="read-mode-btn" id="mode-tts"
+              data-tip="🔊 청독 — AI가 읽어주기&#10;읽는 중인 문장이 자동으로 강조됩니다&#10;지나간 문장은 흐리게 처리됩니다"
+              onclick="setReadMode('tts');onReadModeChange?.('tts')">
+              🔊 청독
+            </button>
+          </div>
+          <!-- 폰트 크기 조절 -->
+          <div class="font-size-ctrl" id="fontSizeCtrl">
+            <button class="font-size-toggle-btn" onclick="toggleFontPanel()">
+              <span class="font-toggle-aa">Aa</span>
+              <span class="font-toggle-label">글자 크기</span>
+            </button>
+            <div class="font-panel" id="fontPanel" style="display:none;">
+              <div class="font-panel-title">글자 크기 조절</div>
+              <div class="font-panel-row">
+                <span>좌측 메뉴</span>
+                <input type="range" min="0.4" max="1.4" step="0.05" id="sbFontSlider"
+                  oninput="setSbFont(this.value)" />
+                <span id="sbFontVal">1.0×</span>
+              </div>
+              <div class="font-panel-row">
+                <span>우측 패널</span>
+                <input type="range" min="0.4" max="1.4" step="0.05" id="rpFontSlider"
+                  oninput="setRpFont(this.value)" />
+                <span id="rpFontVal">1.0×</span>
+              </div>
+              <div class="font-panel-row">
+                <span>본문</span>
+                <input type="range" min="0.8" max="1.8" step="0.05" id="mainFontSlider"
+                  oninput="setMainFont(this.value)" />
+                <span id="mainFontVal">1.0×</span>
+              </div>
             </div>
-            <div class="font-panel-row">
-              <span>본문</span>
-              <input type="range" min="0.8" max="1.8" step="0.05" id="mainFontSlider"
-                oninput="setMainFont(this.value)" />
-              <span id="mainFontVal">1.0×</span>
+          </div>
+          <button class="icon-btn" id="settingsBtn" onclick="openModal()">세계관 설정</button>
+        </div>
+
+        <!-- 에피소드 제목 헤더 -->
+        <div class="output-header" id="outputHeader" style="display:none;">
+          <span class="output-ep-label" id="outputEpLabel"></span>
+          <span class="output-ep-title" id="outputEpTitle"></span>
+        </div>
+
+        <!-- 출력 스크롤 영역 -->
+        <div class="output-scroll-area">
+          <div id="output"></div>
+        </div>
+
+        <!-- 하단 고정 컨트롤 영역 -->
+        <div class="bottom-controls">
+          <div class="episode-controls">
+            <button class="btn-prev" id="prevBtn" onclick="viewPrev()" disabled>이전화 보기</button>
+            <div class="ep-regen-group">
+              <span class="ep-info" id="epInfo"></span>
+              <button class="btn-regen" id="regenBtn" onclick="regenerate()" style="display:none">↺ 재생성</button>
+            </div>
+            <button class="btn-generate" id="sendBtn" onclick="generate()">1화 생성</button>
+          </div>
+
+          <!-- 작가 개입 -->
+          <div class="director-panel" id="directorPanel">
+            <div class="director-header">
+              <span class="director-title">✍ 작가 개입</span>
+              <span class="director-badge" id="directorBadge" style="display:none;"></span>
+              <span class="director-hint">다음 화 생성 시 반영됩니다</span>
+              <button class="director-clear-btn" id="directorClearBtn" onclick="clearOverrides()" style="display:none;">초기화</button>
+            </div>
+            <div class="director-input-row">
+              <input type="text" class="director-input" id="directorInput"
+                placeholder="예: 분위기를 더 어둡게, 주인공이 망설이는 장면 추가, 갈등을 절정으로..." />
+              <button class="director-apply-btn" onclick="addOverride()">적용</button>
+            </div>
+            <div id="overrideList" class="override-list"></div>
+          </div>
+        </div>
+
+      </div><!-- /content-col -->
+
+      <!-- ── 오른쪽 패널 (모드별, content-col과 동일 높이) ── -->
+      <aside class="right-panel" id="rightPanel">
+        <div class="right-panel-resize-handle" id="rpResizeHandle"></div>
+
+        <!-- 독자 프로필 + 장면 컨텍스트 — 항상 표시 -->
+        <div class="rp-section rp-always">
+          <div class="rp-label">
+            독자 프로필
+            <span class="rp-badge" data-tip="화를 읽을수록 AI가&#10;취향을 자동 학습합니다">✦ AI</span>
+          </div>
+          <div class="hexagon-wrap">
+            <svg class="hexagon-svg" id="hexagonSvg" viewBox="-10 -10 240 210" width="200" height="172"></svg>
+          </div>
+          <div class="hex-legend-grid" id="hexLegendGrid"></div>
+          <!-- 지금 장면 인물 상태 (에피소드 생성/로드 후 표시) -->
+          <div id="sceneCharPanel" class="scene-char-panel" hidden>
+            <div class="scene-char-panel-title">지금 장면</div>
+            <div id="sceneCharList" class="scene-char-list"></div>
+          </div>
+        </div>
+
+        <!-- 묵독 전용: 독서 기록 -->
+        <div class="rp-section rp-eye">
+          <div class="rp-divider"></div>
+          <div class="rp-label">독서 기록</div>
+          <div class="session-stats" id="sessionStats">
+            <div class="stat-item">
+              <div class="stat-num" id="statTotalSessions">—</div>
+              <div class="stat-label">읽은 횟수</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num" id="statAvgCompletion">—</div>
+              <div class="stat-label">완독 비율</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-num" id="statAvgTime">—</div>
+              <div class="stat-label">평균 독서 시간</div>
             </div>
           </div>
         </div>
-        <button class="icon-btn" id="settingsBtn" onclick="openModal()">세계관 설정</button>
-      </div>
 
-      <!-- 에피소드 제목 헤더 (스크롤 영역 밖 고정) -->
-      <div class="output-header" id="outputHeader" style="display:none;">
-        <span class="output-ep-label" id="outputEpLabel"></span>
-        <span class="output-ep-title" id="outputEpTitle"></span>
-      </div>
-
-      <!-- 출력 스크롤 영역 -->
-      <div class="output-scroll-area">
-        <div id="output"></div>
-        <!-- TTS 컨트롤러 바 (소리내어 읽기 모드에서만 표시) -->
-        <div class="tts-bar hidden" id="ttsBar"></div>
-      </div>
-
-      <!-- 하단 고정 컨트롤 영역 -->
-      <div class="bottom-controls">
-        <div class="episode-controls">
-          <button class="btn-prev"     id="prevBtn" onclick="viewPrev()" disabled>이전화 보기</button>
-          <div class="ep-regen-group">
-            <span class="ep-info" id="epInfo"></span>
-            <button class="btn-regen" id="regenBtn" onclick="regenerate()" style="display:none">↺ 재생성</button>
-          </div>
-          <button class="btn-generate" id="sendBtn" onclick="generate()">1화 생성</button>
+        <!-- 낭독 전용: 안내 -->
+        <div class="rp-section rp-aloud">
+          <div class="rp-divider"></div>
+          <div class="rp-label">낭독 가이드</div>
+          <ul class="rp-guide">
+            <li>문단 클릭 → 현재 위치 강조</li>
+            <li>↑ ↓ 방향키로 문단 이동</li>
+            <li>대사는 색상으로 구분</li>
+          </ul>
         </div>
 
-        <!-- 작가 개입 -->
-        <div class="director-panel" id="directorPanel">
-          <div class="director-header">
-            <span class="director-title">✍ 작가 개입</span>
-            <span class="director-badge" id="directorBadge" style="display:none;"></span>
-            <span class="director-hint">다음 화 생성 시 반영됩니다</span>
-            <button class="director-clear-btn" id="directorClearBtn" onclick="clearOverrides()" style="display:none;">초기화</button>
-          </div>
-          <div class="director-input-row">
-            <input type="text" class="director-input" id="directorInput"
-              placeholder="예: 분위기를 더 어둡게, 주인공이 망설이는 장면 추가, 갈등을 절정으로..." />
-            <button class="director-apply-btn" onclick="addOverride()">적용</button>
-          </div>
-          <div id="overrideList" class="override-list"></div>
+        <!-- 청독 전용: TTS 컨트롤 + 음성 설정 -->
+        <div class="rp-section rp-tts">
+          <div class="rp-divider"></div>
+          <div class="rp-label">재생</div>
+          <div class="tts-bar hidden" id="ttsBar"></div>
+          <div class="rp-divider" style="margin-top:.8rem;"></div>
+          <div class="rp-label">음성</div>
+          <button class="sidebar-voice-btn" onclick="openVoiceArchive('mine')">
+            <span class="voice-icon">🎙</span>Voice Archive
+            <span class="sidebar-voice-count" id="voiceCount"></span>
+          </button>
+          <button class="sidebar-voice-btn" onclick="openVoiceArchive('map')" style="font-size:.86rem;color:var(--text4);">
+            <span class="voice-icon">👤</span>캐릭터 배역 설정
+          </button>
         </div>
-      </div>
+
+      </aside>
 
     </main>
+
   </div>
 
   <div id="toast-container"></div>
@@ -391,11 +428,27 @@
   <script src="/js/rules.js"></script>
   <script src="/js/chars.js"></script>
   <script src="/js/suggest.js"></script>
-  <script src="/js/generate.js?v=13"></script>
+  <script src="/js/generate.js?v=17"></script>
   <script src="/js/story-config.js"></script>
   <script src="/js/modal.js"></script>
   <script src="/js/director.js"></script>
   <script src="/js/voice.js"></script>
   <script src="/js/app.js"></script>
+
+  <!-- Name Hover Card (body 최하단, fixed 포지셔닝) -->
+  <div id="charHoverCard" class="char-hover-card" hidden>
+    <div class="char-hover-name"></div>
+    <div class="char-hover-body">
+      <div class="char-hover-row" id="hoverRowEmotion"></div>
+      <div class="char-hover-row" id="hoverRowPhysical"></div>
+      <div class="char-hover-row" id="hoverRowItems"></div>
+    </div>
+  </div>
+
+  <!-- Debug Meta Drawer (기본 숨김, episode_meta 있을 때만 표시) -->
+  <div id="debugMetaDrawer" class="debug-meta-drawer" hidden>
+    <button class="debug-meta-toggle" id="debugMetaToggle" title="Debug Info">⚙</button>
+    <div class="debug-meta-content" id="debugMetaContent"></div>
+  </div>
 </body>
 </html>

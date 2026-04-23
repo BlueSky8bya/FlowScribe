@@ -4,6 +4,7 @@ import { logSaveQueue, profileUpdateQueue } from "../queues/index.js";
 export interface SessionLogInput {
   book_id: string;
   episode_number: number;
+  user_id?: string;           // 유저 단위 프로필 갱신용 (optional, 신규 경로)
   dwell_ms?: number;
   dropout_position?: number;  // 0.0 ~ 1.0
   rewind_count?: number;

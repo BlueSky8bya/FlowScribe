@@ -17,6 +17,7 @@ import type { RunTrace, PlannerTrace, RendererTrace, RevisionIterationTrace } fr
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { PlanValidationResult } from "../types/planner.js";
 import { logInfo, logWarn } from "../lib/logger.js";
+import { currentSchemaVersions } from "./schema_versions.js";
 
 export class TraceLogger {
   private trace: Partial<RunTrace>;
@@ -38,6 +39,7 @@ export class TraceLogger {
       is_planner_sft_eligible: false,
       is_renderer_sft_eligible: false,
       is_preference_eligible: false,
+      ...currentSchemaVersions(),
     };
   }
 
@@ -101,8 +103,9 @@ export class TraceLogger {
           effective_context_snapshot, planner_trace, plan_validation,
           renderer_trace, prose_validation, revision_traces,
           final_verdict, final_score, revision_count, total_elapsed_ms,
-          is_planner_sft_eligible, is_renderer_sft_eligible, is_preference_eligible
-        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+          is_planner_sft_eligible, is_renderer_sft_eligible, is_preference_eligible,
+          schema_version, planner_schema_version, reward_schema_version
+        ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
         ON CONFLICT (trace_id) DO NOTHING`,
         [
           t.trace_id, t.trace_type, t.book_id, t.episode_number, t.created_at,
@@ -114,6 +117,7 @@ export class TraceLogger {
           JSON.stringify(t.revision_traces ?? []),
           t.final_verdict, t.final_score, t.revision_count, t.total_elapsed_ms,
           t.is_planner_sft_eligible, t.is_renderer_sft_eligible, t.is_preference_eligible,
+          t.schema_version ?? null, t.planner_schema_version ?? null, t.reward_schema_version ?? null,
         ],
       );
       logInfo("training:trace", "trace 저장", { trace_id: t.trace_id, verdict: t.final_verdict });

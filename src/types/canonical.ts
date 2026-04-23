@@ -37,6 +37,32 @@ export interface WorldRule {
   is_active: boolean;
 }
 
+/**
+ * 회차 글자수 예산 — soft budget (hard cap 아님)
+ * target: 렌더러 프롬프트에 전달되는 목표값 (= episodeLength + round(var/2))
+ * min/max: 수용 범위 (validator 참조용)
+ * strictness: soft = 권장, medium = 경고, hard = 위반
+ */
+export interface EpisodeCharBudget {
+  target: number;
+  min: number;
+  max: number;
+  strictness: "soft" | "medium" | "hard";
+}
+
+/** GenConfig → EpisodeCharBudget 변환 헬퍼 */
+export function resolveCharBudget(
+  cfg: Pick<GenConfig, "episodeLength" | "episodeLengthVar">,
+  strictness: EpisodeCharBudget["strictness"] = "soft",
+): EpisodeCharBudget {
+  return {
+    target:     cfg.episodeLength + Math.round(cfg.episodeLengthVar / 2),
+    min:        cfg.episodeLength - cfg.episodeLengthVar,
+    max:        cfg.episodeLength + cfg.episodeLengthVar,
+    strictness,
+  };
+}
+
 /** 생성 설정 (회차별 조정 가능) */
 export interface GenConfig {
   pov: "1인칭 주인공" | "1인칭 관찰자" | "3인칭 관찰자" | "전지적 작가" | "교차 시점";
@@ -52,10 +78,49 @@ export interface GenConfig {
   episodeLengthVar: number;
   totalEpisodes: number;
   totalEpisodesVar: number;
+  /**
+   * 아크/책 시작 시 한 번 결정해서 고정한 최종 화수.
+   * 설정된 경우 state_extractor의 ending_constraint 판단에 totalEpisodes 대신 사용.
+   * 미설정 시 totalEpisodes 폴백 (하위 호환).
+   * 외부(서비스 레이어 / seeded RNG)에서 주입 — GenConfig 자체에서 샘플링하지 않음.
+   */
+  resolved_final_episode?: number;
   forbidden_elements?: string[];  // 이번 화 추가 금지요소
   required_elements?: string[];   // 이번 화 필수요소
   /** 인물 등장 정책 — 미입력 시 resolveCharacterPolicy()가 장르 기반 기본값 채움 */
   character_policy?: import("./character_policy.js").CharacterPolicyConfig;
+}
+
+/**
+ * 책/아크 시작 시 한 번 확정되는 계약 — 이후 변경 금지.
+ * resolved_final_episode: 호출자(서비스 레이어 또는 seeded RNG)가 결정해서 주입.
+ * 런타임 참조용 타입으로, DB 저장이 필요한 경우 books.context JSONB 내 중첩 저장.
+ */
+export interface BookArcContract {
+  nominal_total_episodes: number;     // GenConfig.totalEpisodes
+  episode_variance: number;           // GenConfig.totalEpisodesVar
+  resolved_final_episode: number;     // 외부 주입값 (서비스 or seeded RNG)
+  char_budget: EpisodeCharBudget;     // resolveCharBudget() 결과
+  contract_version: string;           // "1.0"
+  frozen_at: string;                  // ISO timestamp
+}
+
+/**
+ * BookArcContract 생성 헬퍼 — 순수 조합 함수.
+ * resolvedFinalEpisode 결정은 호출자 책임 (예: Math.round(totalEpisodes + rng() * 2 * var - var)).
+ */
+export function createBookArcContract(
+  cfg: GenConfig,
+  resolvedFinalEpisode: number,
+): BookArcContract {
+  return {
+    nominal_total_episodes: cfg.totalEpisodes,
+    episode_variance:       cfg.totalEpisodesVar,
+    resolved_final_episode: resolvedFinalEpisode,
+    char_budget:            resolveCharBudget(cfg),
+    contract_version:       "1.0",
+    frozen_at:              new Date().toISOString(),
+  };
 }
 
 // ══════════════════════════════════════════════════════════════
@@ -68,13 +133,17 @@ export interface CharacterDynamicState {
   character_name: string;
   episode_number: number;
   location?: string;
-  physical_state?: string;
+  physical_state?: string;          // 부상/신체 상태 (ForbiddenAction 변환에 사용)
   items?: string[];
   recent_goal?: string;
   relationship_updates?: Record<string, string>; // 상대방 이름 → 관계 상태
   foreshadow_connections?: string[];             // 연관된 미회수 복선 id
   behavior_hints?: string;
   alias_used?: string[];
+  /** 감정 상태 — physical_state(부상)와 분리된 심리/정서 상태 */
+  emotional_state?: string;
+  /** 이번 화 등장 가능 여부 — planner 입력용. 미설정 시 "present"로 간주 */
+  visibility_state?: "present" | "absent" | "cannot_act";
 }
 
 /** 작가 개입 단위 */

@@ -29,6 +29,7 @@ const ROOT = join(__dirname, "../..");
 const { generateTestCases } = await import("./case_generator.js");
 const { pool } = await import("../../src/lib/db.js");
 const { runMigrateV2 } = await import("../../src/db/migrate_v2.js");
+const { runMigrateV3 } = await import("../../src/db/migrate_v3.js");
 const { validate } = await import("../../src/services/validator.js");
 const { reviseUntilPass } = await import("../../src/services/revision.js");
 const { getLLMClient, getStoryModel } = await import("../../src/lib/llm.js");
@@ -721,6 +722,7 @@ async function runPlannerBatch(
 async function main() {
   // V2 마이그레이션 보장
   try { await runMigrateV2(); } catch {}
+  try { await runMigrateV3(); } catch {}
 
   const [,, command = "smoke", arg1 = "20", arg2 = "20", ...rest] = process.argv;
 

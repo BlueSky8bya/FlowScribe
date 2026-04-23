@@ -415,6 +415,19 @@ async function selectBook(book) {
         displayedEpisode = episodes[episodes.length - 1].episode_number;
         renderProgressive(episodeCache[displayedEpisode], true);
         currentEpisode = Math.max(currentEpisode, displayedEpisode + 1);
+        // 캐릭터 상태 패널 복원 (fire-and-forget)
+        fetch(`/api/generate/char-states?book_id=${bookId}&episode=${displayedEpisode}`)
+          .then(r => r.ok ? r.json() : null)
+          .then(d => {
+            if (d?.char_states?.length) {
+              updateSceneCharPanel(d.char_states);
+              wrapCharNamesInOutput(d.char_states);
+            } else {
+              // char_states가 없을 때 charGenderMap 기반 fallback
+              _applyCharGenderFallback();
+            }
+          })
+          .catch(() => { _applyCharGenderFallback(); });
       } else {
         // DB에 에피소드 없으면 1화부터 시작
         currentEpisode = 1;
@@ -457,8 +470,38 @@ async function selectBook(book) {
   updateEpisodeUI();
   updateOutputHeader();
 
+  // 책 선택 후 책 목록 자동 접기 (에피소드 목록이 위로 올라오도록)
+  _collapseBookList(book.title);
+
   const epCount = Object.keys(episodeCache).length;
   if (epCount > 0) showToast(`${book.title} — ${epCount}화 불러왔습니다.`, "info", 2000);
+}
+
+// ── 책 목록 접기/펼치기 ────────────────────────────────────
+
+let _bookListManuallyOpen = false;
+
+function _collapseBookList(activeTitle) {
+  const wrap   = document.getElementById("bookListWrap");
+  const toggle = document.getElementById("bookListToggle");
+  const label  = document.getElementById("bookListActiveLabel");
+  if (!wrap || !toggle) return;
+  toggle.style.display = "flex";
+  if (label) label.textContent = activeTitle || "";
+  // 사용자가 수동으로 열었으면 접지 않음 (연속 삭제 등 작업 편의)
+  if (_bookListManuallyOpen) return;
+  wrap.classList.add("collapsed");
+  toggle.classList.add("collapsed");
+}
+
+function toggleBookList() {
+  const wrap   = document.getElementById("bookListWrap");
+  const toggle = document.getElementById("bookListToggle");
+  if (!wrap || !toggle) return;
+  const isCollapsed = wrap.classList.toggle("collapsed");
+  toggle.classList.toggle("collapsed", isCollapsed);
+  // 수동으로 펼쳤으면 플래그 on, 수동으로 접었으면 off
+  _bookListManuallyOpen = !isCollapsed;
 }
 
 // ── 책 삭제 ───────────────────────────────────────────────
@@ -605,6 +648,7 @@ function updateEpisodeListUI() {
       updateEpisodeUI();
       updateEpisodeListUI();
       updateOutputHeader();
+      _reapplyCharUI?.();
     };
     list.appendChild(btn);
   });
@@ -876,3 +920,24 @@ async function syncBookEpisode() {
   await Promise.all([loadProfile(), loadForeshadowStats(), loadSessionStats()]);
 }
 
+// ── charGenderMap 기반 fallback (기존 책에서 char_states가 없을 때) ──
+
+function _applyCharGenderFallback() {
+  const gmap = window.charGenderMap ?? {};
+  const names = Object.keys(gmap);
+  if (!names.length) return;
+
+  const charStates = names.map(name => ({
+    character_name: name,
+    gender: gmap[name] === "남성" ? "남성" : gmap[name] === "여성" ? "여성" : null,
+    type: null,
+    emotional_state: null,
+    physical_state: null,
+    items: [],
+    location: null,
+    visibility_state: "present",
+  }));
+
+  // 이름 span wrapping + hover 카드 맵 구성 (패널 표시는 안 함 — 상태 데이터 없음)
+  if (typeof seedCharStateMapFromGenderMap === "function") seedCharStateMapFromGenderMap(charStates);
+}

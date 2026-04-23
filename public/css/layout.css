@@ -1,7 +1,9 @@
 /* ── 리셋 & 스크롤 ──────────────────────────────────────── */
 :root{
-  --sb-font-scale: 1.3;   /* 사이드바 폰트 배율 (JS로 제어) */
+  --sb-font-scale: 1.3;   /* 왼쪽 사이드바 폰트 배율 (JS로 제어) */
+  --rp-font-scale: 1.3;   /* 오른쪽 패널 폰트 배율 (JS로 제어) */
   --main-font-scale: 1.0; /* 본문 폰트 배율 (JS로 제어) */
+  --rp-width: 260px;      /* 오른쪽 패널 너비 (JS로 제어) */
 }
 *{box-sizing:border-box;margin:0;padding:0;}
 ::-webkit-scrollbar{width:4px;}
@@ -48,12 +50,12 @@ body{
    사이드바
 ══════════════════════════════════════════════════════════ */
 .sidebar{
-  width:var(--sb-width,340px);min-width:200px;max-width:600px;height:100%;
+  width:var(--sb-width,260px);min-width:180px;max-width:400px;height:100%;
   background:var(--sidebar-bg);border-right:1px solid var(--border);
   display:flex;flex-direction:column;
-  overflow-y:auto;overflow-x:visible; /* tooltip 클리핑 방지 */
+  overflow-y:auto;overflow-x:visible;
   flex-shrink:0;position:relative;
-  font-size:calc(1.7rem * var(--sb-font-scale));
+  font-size:calc(1.6rem * var(--sb-font-scale));
 }
 .sidebar-resize-handle{
   position:absolute;top:0;right:-3px;bottom:0;width:6px;
@@ -314,38 +316,201 @@ body{
 .theme-btn:hover,.theme-btn.active{border-color:var(--accent);color:var(--accent);background:var(--accent-bg);}
 
 /* ══════════════════════════════════════════════════════════
-   메인 콘텐츠
+   메인 콘텐츠 (content-col + right-panel)
 ══════════════════════════════════════════════════════════ */
 .main-content{
-  flex:1;min-height:0;
+  flex:1;min-height:0;min-width:0;
+  display:flex;flex-direction:row;
+  overflow:hidden;
+}
+
+/* 본문 컬럼 */
+.content-col{
+  flex:1;min-width:0;min-height:0;
   display:flex;flex-direction:column;
   overflow:hidden;
 }
+
 .main-topbar{
   flex-shrink:0;
   display:flex;align-items:center;gap:.9rem;
-  width:100%;padding:.9rem 2.5rem .7rem;
+  width:100%;padding:.8rem 2rem .65rem;
   border-bottom:1px solid var(--border);
   background:var(--bg);
 }
 
-/* 출력 스크롤 영역 — 텍스트만 독립적으로 스크롤 */
+/* 출력 스크롤 영역 */
 .output-scroll-area{
   flex:1;min-height:0;
   overflow-y:auto;overflow-x:hidden;
   display:flex;flex-direction:column;align-items:center;
-  padding:1.6rem 2.5rem 1rem;
+  padding:1.4rem 2rem .8rem;
 }
 
 /* 하단 고정 컨트롤 영역 */
 .bottom-controls{
   flex-shrink:0;
   display:flex;flex-direction:column;align-items:center;
-  padding:.8rem 2.5rem 1.4rem;
+  padding:.7rem 2rem 1.2rem;
   background:var(--bg);
   border-top:1px solid var(--border);
   width:100%;
 }
+
+/* ── 오른쪽 패널 ───────────────────────────────────────── */
+.right-panel{
+  width:var(--rp-width,260px);min-width:180px;max-width:400px;
+  flex-shrink:0;position:relative;
+  display:flex;flex-direction:column;
+  border-left:1px solid var(--border);
+  background:var(--sidebar-bg);
+  overflow-y:auto;overflow-x:visible;
+  font-size:calc(1.6rem * var(--rp-font-scale));
+}
+.right-panel-resize-handle{
+  position:absolute;top:0;left:-3px;bottom:0;width:6px;
+  cursor:col-resize;z-index:100;
+  background:transparent;transition:background .15s;
+}
+.right-panel-resize-handle:hover,.right-panel-resize-handle.dragging{
+  background:var(--accent);opacity:.35;
+}
+.rp-section{ padding:.85rem 1rem; }
+.rp-always{ display:block; }
+.rp-divider{ height:1px;background:var(--border);margin:.5rem 0 .8rem; }
+.rp-label{
+  font-size:.6em;font-family:inherit;
+  color:var(--text4);text-transform:uppercase;letter-spacing:.11em;
+  margin-bottom:.6rem;display:flex;align-items:center;gap:.35rem;
+  font-weight:500;
+}
+.rp-badge{
+  font-size:.75em;color:var(--accent);
+  background:var(--accent-bg);border:1px solid var(--accent-border);
+  border-radius:3px;padding:.04rem .28rem;letter-spacing:.02em;
+}
+
+/* 헥사곤 영역 — 오른쪽 패널에서 바 범례 숨김 (시각 중복 방지) */
+.right-panel #hexLegendGrid{ display:none; }
+.right-panel .hexagon-wrap{ margin-bottom:.3rem; }
+
+/* 오른쪽 패널 data-tip → 왼쪽으로 열림 (화면 끝 overflow 방지) */
+.right-panel [data-tip]::after{
+  right:calc(100% + 8px);left:auto;
+  top:50%;transform:translateY(-50%);
+  text-align:right;
+}
+
+/* 독서 기록 — 세로 스택 */
+.right-panel .session-stats{ display:flex;flex-direction:column;gap:.3rem; }
+.right-panel .stat-item{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:.42rem .6rem;border-radius:7px;
+  background:var(--bg2);border:1px solid var(--border);
+}
+.right-panel .stat-num{ font-size:.88rem;color:var(--accent);font-weight:600;line-height:1; }
+.right-panel .stat-label{ font-size:.72rem;color:var(--text3);letter-spacing:.01em; }
+
+/* 낭독 가이드 */
+.rp-guide{
+  list-style:none;display:flex;flex-direction:column;gap:.28rem;padding:0;
+}
+.rp-guide li{
+  font-size:.72em;color:var(--text3);line-height:1.5;
+  padding:.3rem .55rem;background:var(--bg2);border-radius:5px;
+  border-left:2px solid var(--accent-border);
+}
+
+/* ── 책 목록 접기/펼치기 ────────────────────────────────── */
+.book-list-wrap{
+  overflow:hidden;
+  max-height:600px;
+  transition:max-height .3s ease;
+}
+.book-list-wrap.collapsed{
+  max-height:0;
+}
+.book-list-toggle{
+  width:100%;background:none;border:none;border-radius:8px;
+  color:var(--text3);font-family:inherit;font-size:.78em;
+  padding:.48rem .75rem;cursor:pointer;text-align:left;
+  display:flex;align-items:center;gap:.5rem;
+  transition:all .15s;margin-bottom:.4rem;
+  border:1px solid transparent;
+}
+.book-list-toggle:hover{
+  background:var(--bg3);border-color:var(--border2);color:var(--text2);
+}
+.book-list-toggle-icon{
+  font-size:.7em;color:var(--text4);transition:transform .25s;flex-shrink:0;
+}
+.book-list-wrap.collapsed ~ .book-list-toggle .book-list-toggle-icon,
+.book-list-toggle.collapsed .book-list-toggle-icon{
+  transform:rotate(-90deg);
+}
+.book-list-active-label{
+  flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  font-size:.78em;color:var(--accent);font-weight:600;
+}
+
+/* 모드별 섹션 기본 숨김 */
+.rp-eye,.rp-aloud,.rp-tts{ display:none; }
+body.mode-eye   .rp-eye   { display:block; }
+body.mode-aloud .rp-aloud { display:block; }
+body.mode-tts   .rp-tts   { display:block; }
+
+/* ── TTS 플레이어 (오른쪽 패널 전용) ─────────────────── */
+.right-panel .tts-bar{
+  max-width:none;width:100%;margin-bottom:0;
+  flex-direction:column;align-items:stretch;
+  gap:0;padding:0;border:none;background:none;border-radius:0;
+}
+.right-panel .tts-bar.hidden{ display:none; }
+
+/* 음성 선택 */
+.right-panel .tts-voice-select{
+  max-width:none;width:100%;font-size:.75rem;
+  padding:.38rem .6rem;border-radius:7px;margin-bottom:.55rem;
+}
+/* 진행 바 */
+.right-panel .tts-progress{
+  width:100%;min-width:unset;height:8px;margin-bottom:.65rem;
+  border-radius:4px;cursor:pointer;transition:height .15s;
+}
+.right-panel .tts-progress:hover{ height:12px; }
+/* 컨트롤 버튼 행 */
+.right-panel .tts-ctrl-row{
+  display:flex;align-items:center;gap:.5rem;margin-bottom:.5rem;
+}
+.right-panel .tts-play-btn{
+  width:38px;height:38px;border-radius:50%;flex-shrink:0;
+  background:var(--accent-bg);border:1.5px solid var(--accent-border);
+  color:var(--accent);font-size:.9rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .18s;
+}
+.right-panel .tts-play-btn:hover{ background:var(--accent);color:var(--bg);border-color:var(--accent); }
+.right-panel .tts-stop-btn{
+  width:28px;height:28px;border-radius:6px;flex-shrink:0;
+  background:var(--bg2);border:1px solid var(--border2);
+  color:var(--text4);font-size:.72rem;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:all .18s;
+}
+.right-panel .tts-stop-btn:hover{ border-color:var(--danger-text);color:var(--danger-text); }
+.right-panel .tts-status-text{
+  flex:1;font-size:.7rem;color:var(--text4);text-align:right;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+}
+/* 속도 행 */
+.right-panel .tts-speed-row{
+  display:flex;align-items:center;gap:.4rem;
+}
+.right-panel .tts-speed-label{ font-size:.68rem;color:var(--text4);flex-shrink:0; }
+.right-panel .tts-rate-input{ flex:1;accent-color:var(--accent); }
+.right-panel .tts-rate-display{ font-size:.7rem;color:var(--accent);min-width:2.2rem;text-align:right; }
+.right-panel .tts-voice-select{ max-width:none;width:100%; }
 .read-mode-bar{display:flex;gap:.35rem;flex:1;}
 .read-mode-btn{
   flex:1;background:var(--bg2);border:1px solid var(--border2);border-radius:7px;

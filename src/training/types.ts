@@ -19,6 +19,29 @@ export interface PlannerTrace {
   fallback_used: boolean;
   fallback_reason?: string;
   elapsed_ms: number;
+  /** planner가 실제로 참조한 계약 — 학습 데이터 필터링/분석용 */
+  input_contract?: {
+    // Narrative contract
+    target_length: number;
+    char_budget: { target: number; min: number; max: number };
+    ending_constraint: "cliff" | "final";
+    resolved_final: number;
+    remaining_episodes: number;
+    episode_role: "mid" | "late" | "pre-final" | "final";
+    // Character contract
+    absent_characters: string[];
+    // Rule / Intervention contract
+    active_interventions: string[];   // is_active인 instruction 텍스트
+    absolute_forbidden: string[];
+    episode_forbidden: string[];
+    episode_required: string[];
+    // Memory / Arc contract (존재 여부만 기록 — 원문은 effective_context_snapshot에)
+    has_rolling_summary: boolean;
+    arc_summaries_count: number;
+    character_arcs_count: number;
+    has_prev_tail: boolean;
+    foreshadow_count: number;
+  };
 }
 
 export interface RendererTrace {
@@ -65,6 +88,11 @@ export interface RunTrace {
   is_planner_sft_eligible: boolean;   // plan_validation.verdict == PASS
   is_renderer_sft_eligible: boolean;  // final_verdict == PASS && revision_count == 0
   is_preference_eligible: boolean;    // 동일 ctx에서 두 번 이상 생성된 경우
+
+  // 스키마 버전 — null이면 v1.1 이전 (schema_versions.ts 참조)
+  schema_version?:         string;
+  planner_schema_version?: string;
+  reward_schema_version?:  string;
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -85,8 +113,10 @@ export interface RewardBreakdown {
   world_rule_usage: number;       // 0~1
 
   // 제약 위반 페널티
-  hard_violation_penalty: number; // -0.25 per critical, -0.1 per major
-  revision_penalty: number;       // -0.15 per iteration
+  hard_violation_penalty: number;       // -0.25 per critical, -0.1 per major
+  absolute_forbidden_penalty: number;   // -0.25 per critical (절대금지 위반 전용 신호)
+  intervention_adherence: number;       // 0~1 (prose validator intervention_adherence 점수)
+  revision_penalty: number;             // -0.15 per iteration
 
   // 종합
   planner_reward: number;         // plan_* 합산

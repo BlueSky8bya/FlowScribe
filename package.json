@@ -12,6 +12,7 @@
     "start": "node dist/index.js",
     "db:migrate": "tsx src/db/migrate_v2.ts",
     "db:migrate-v1": "tsx src/db/migrate.ts",
+    "db:migrate-v3": "tsx src/db/migrate_v3.ts",
     "bench:dev": "tsx scripts/benchmarks/test_runner.ts dev",
     "bench:dev-supported": "tsx scripts/benchmarks/test_runner.ts dev_supported",
     "bench:holdout": "tsx scripts/benchmarks/test_runner.ts holdout",

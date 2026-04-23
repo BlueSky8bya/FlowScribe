@@ -55,6 +55,18 @@ function applyDelta(profile: ReaderProfile, delta: Partial<ReaderProfile>): Read
   return next;
 }
 
+// userId 기반 프로필 (신규 키: profile:user:{userId})
+export async function getProfileByUser(userId: string): Promise<ReaderProfile> {
+  const raw = await redis.get(`profile:user:${userId}`);
+  if (!raw) return { ...DEFAULT_PROFILE };
+  try { return JSON.parse(raw); } catch { return { ...DEFAULT_PROFILE }; }
+}
+
+export async function setProfileByUser(userId: string, profile: ReaderProfile): Promise<void> {
+  await redis.set(`profile:user:${userId}`, JSON.stringify(profile), "EX", PROFILE_TTL);
+}
+
+// bookId 기반 프로필 (레거시 — 자연 소멸용, 신규 코드에서 사용 금지)
 export async function getProfile(bookId: string): Promise<ReaderProfile> {
   const raw = await redis.get(`profile:${bookId}`);
   if (!raw) return { ...DEFAULT_PROFILE };
@@ -63,11 +75,15 @@ export async function getProfile(bookId: string): Promise<ReaderProfile> {
 
 export async function updateProfileFromLog(log: SessionLogInput): Promise<void> {
   try {
-    const current = await getProfile(log.book_id);
+    // user_id가 있으면 userId 기반 키 사용, 없으면 레거시 bookId 키 사용
+    const profileKey = log.user_id ? `profile:user:${log.user_id}` : `profile:${log.book_id}`;
+    const raw = await redis.get(profileKey);
+    const current: ReaderProfile = raw ? JSON.parse(raw) : { ...DEFAULT_PROFILE };
     const delta   = computeDelta(log);
     const updated = applyDelta(current, delta);
-    await redis.set(`profile:${log.book_id}`, JSON.stringify(updated), "EX", PROFILE_TTL);
+    await redis.set(profileKey, JSON.stringify(updated), "EX", PROFILE_TTL);
     logInfo("service:profile", "ReaderProfile 갱신 완료", {
+      user_id: log.user_id ?? null,
       book_id: log.book_id,
       episode: log.episode_number,
       delta,

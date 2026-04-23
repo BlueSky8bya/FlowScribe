@@ -97,6 +97,16 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     // 스냅샷 저장 (fire-and-forget)
     saveEpisodeSnapshot({ ...ctx, book_id: bookId } as any).catch(() => {});
 
+    // character dynamic state snapshot — done 이벤트에 포함
+    const charStateSnapshot = ctx.character_dynamic_states.map(s => ({
+      character_name:   s.character_name,
+      location:         s.location        ?? null,
+      physical_state:   s.physical_state  ?? null,
+      items:            s.items           ?? [],
+      emotional_state:  s.emotional_state ?? null,
+      visibility_state: s.visibility_state ?? "present",
+    }));
+
     const t0 = Date.now();
     let fullText = "";
 
@@ -112,7 +122,16 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
 
       fullText = pipelineResult.generated_text;
       clearInterval(heartbeat);
-      send({ done: true, chars: fullText.length, elapsed_ms: Date.now() - t0 });
+      send({
+        done: true, chars: fullText.length, elapsed_ms: Date.now() - t0,
+        char_states: charStateSnapshot,
+        episode_meta: {
+          plan_verdict:      pipelineResult.plan_validation.verdict,
+          final_score:       pipelineResult.final_score,
+          revision_count:    pipelineResult.revision_count,
+          plan_fallback_used: pipelineResult.plan_fallback_used,
+        },
+      });
       send({
         plan: {
           scene_plan: pipelineResult.scene_plan,
@@ -152,7 +171,7 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
       const storyCtx = effectiveContextToStoryContext(ctx);
       fullText = await streamEpisode(storyCtx as any, res);
       clearInterval(heartbeat);
-      send({ done: true, chars: fullText.length, elapsed_ms: Date.now() - t0 });
+      send({ done: true, chars: fullText.length, elapsed_ms: Date.now() - t0, char_states: charStateSnapshot });
 
       logInfo("api:generate_v2", "레거시 생성 완료", {
         book_id: bookId, episode, chars: fullText.length, elapsed_ms: Date.now() - t0,

@@ -1,8 +1,18 @@
 import { Router, Request, Response } from "express";
 import { enqueueLog, getRecentLogs } from "../services/logger.js";
 import { logError, logInfo } from "../lib/logger.js";
+import jwt from "jsonwebtoken";
 
 export const logsRouter = Router();
+
+function softGetUserId(req: Request): string | undefined {
+  try {
+    const token = req.cookies?.fs_token ?? req.headers.authorization?.replace("Bearer ", "");
+    if (!token) return undefined;
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as { id?: string };
+    return decoded.id ?? undefined;
+  } catch { return undefined; }
+}
 
 // POST /api/logs — 세션 로그 저장 (큐를 통해 비동기 처리)
 logsRouter.post("/", async (req: Request, res: Response) => {
@@ -17,13 +27,15 @@ logsRouter.post("/", async (req: Request, res: Response) => {
     return;
   }
 
+  const user_id = softGetUserId(req);
+
   try {
     await enqueueLog({
-      book_id, episode_number,
+      book_id, episode_number, user_id,
       dwell_ms, dropout_position, rewind_count,
       completion_rate, speed_changes, emotion_signals,
     });
-    logInfo("api:logs", "세션 로그 큐 등록", { book_id, episode_number, completion_rate });
+    logInfo("api:logs", "세션 로그 큐 등록", { book_id, episode_number, completion_rate, user_id: user_id ?? null });
     res.json({ ok: true });
   } catch (err) {
     logError("api:logs:enqueue", err, { book_id, episode_number });
