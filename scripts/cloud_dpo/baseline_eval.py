@@ -18,8 +18,10 @@ logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logg
 log = logging.getLogger("baseline")
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--val-file", default=os.getenv("VAL_FILE", "dpo_v3_val.jsonl"))
+parser.add_argument("--val-file",   default=os.getenv("VAL_FILE", "dpo_v3_val.jsonl"))
 parser.add_argument("--output-dir", default="./smoke_output/baseline")
+parser.add_argument("--max-len",    type=int, default=1024,
+                    help="토크나이저 최대 길이 (run_dpo_smoke.py와 동일값 사용 권장)")
 args = parser.parse_args()
 
 HF_TOKEN = os.getenv("HF_TOKEN", "")
@@ -62,8 +64,8 @@ log.info(f"  val: {len(val_raw)}건")
 
 def compute_logprobs(model, tokenizer, prompt, response):
     full = prompt + response
-    enc_full   = tokenizer(full,   return_tensors="pt", truncation=True, max_length=2048).to(device)
-    enc_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=1024).to(device)
+    enc_full   = tokenizer(full,   return_tensors="pt", truncation=True, max_length=args.max_len * 2).to(device)
+    enc_prompt = tokenizer(prompt, return_tensors="pt", truncation=True, max_length=args.max_len).to(device)
     prompt_len = enc_prompt.input_ids.shape[1]
     with torch.no_grad():
         out = model(**enc_full, labels=enc_full.input_ids)
@@ -114,7 +116,7 @@ FOREIGN_RE = re.compile(r"[一-鿿぀-ゟ゠-ヿ　-〿]")
 for idx, s in enumerate(samples):
     sc = s.get("metadata", {}).get("scenario", "?")
     log.info(f"  생성 {idx+1}/5: scenario={sc}")
-    inp = tokenizer(s["prompt"], return_tensors="pt", truncation=True, max_length=1024).to(device)
+    inp = tokenizer(s["prompt"], return_tensors="pt", truncation=True, max_length=args.max_len).to(device)
     with torch.no_grad():
         out_ids = model.generate(**inp, **GEN_KWARGS)
     gen = tokenizer.decode(out_ids[0][inp.input_ids.shape[1]:], skip_special_tokens=True)

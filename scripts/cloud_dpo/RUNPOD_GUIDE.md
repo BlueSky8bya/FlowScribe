@@ -88,7 +88,8 @@ DPO 학습 전 baseline 수치를 기록해 두면 학습 후 비교가 명확�
 ```bash
 cd /workspace
 export HF_TOKEN=hf_xxxx
-python baseline_eval.py --val-file dpo_v3_val.jsonl --output-dir ./smoke_output/baseline
+# --max-len은 run_dpo_smoke.py와 동일한 값을 사용해야 공정한 비교가 된다 (기본 1024)
+python baseline_eval.py --val-file dpo_v3_val.jsonl --max-len 1024 --output-dir ./smoke_output/baseline
 ```
 
 예상 시간: 15~20분 (val 29쌍 × logprob 계산 + generation 5개)
@@ -105,7 +106,7 @@ export HF_TOKEN=hf_xxxx
 export TRAIN_FILE=dpo_v3_train.jsonl
 export VAL_FILE=dpo_v3_val.jsonl
 
-# 표준 실행 (2 epoch, 기본 max-len=1024, eval=epoch 단위, 체크포인트 저장 없음)
+# 표준 실행 (2 epoch, 기본 max-len=1024)
 python run_dpo_smoke.py \
   --epochs 2 \
   --lr 5e-5 \
@@ -113,18 +114,34 @@ python run_dpo_smoke.py \
   --lora-r 16 \
   --batch 1 \
   --grad-accum 16 \
+  --max-len 1024 \
   --output-dir ./smoke_output
 
-# 빠른 확인 (1 epoch + gen 생략 + 10쌍만 val 평가)
+# fast smoke — gen_truncated_rate 먼저 확인 (max-len 1024)
 python run_dpo_smoke.py \
   --epochs 1 \
-  --skip-gen \
   --fast-eval 10 \
-  --output-dir ./smoke_output
+  --max-len 1024 \
+  --output-dir ./smoke_output/fast_1024
+
+# fast smoke — truncation 심할 때 max-len 상향 비교 (1536, VRAM +2~3GB, 시간 +20%)
+python run_dpo_smoke.py \
+  --epochs 1 \
+  --fast-eval 10 \
+  --max-len 1536 \
+  --output-dir ./smoke_output/fast_1536
 
 # 데이터 검증만
 python run_dpo_smoke.py --dry-run
 ```
+
+> **gen_truncated_rate 판정 기준**
+> - `< 30%` : 양호 — 현재 max-len으로 진행 가능
+> - `30~60%` : 주의 — 해석은 가능하나 max-len 상향 고려
+> - `60~70%` : 경고 — full smoke 전 max-len 1536으로 재실행 권장
+> - `70%+`   : 위험 — max-len 2048로 상향 후 재실행. VRAM +5~6GB, 시간 +40% 예상
+>
+> 상향 순서: `1024 → 1536 → 2048`. 각 단계에서 VRAM OOM과 학습 시간을 함께 확인.
 
 백그라운드 실행 (SSH 끊겨도 계속):
 ```bash
@@ -191,6 +208,12 @@ smoke_output/
 | **합계** | **~18 GB** |
 
 A100 40GB면 충분히 여유 있음. RTX 4090 24GB는 batch=1, grad_accum=16 설정이면 경계선이지만 가능.
+
+| max-len | 추가 VRAM | 비고 |
+|---------|-----------|------|
+| 1024 (기본) | 기준 | A100 40GB 여유 |
+| 1536 | +2~3 GB | A100 40GB 안전 |
+| 2048 | +5~6 GB | A100 40GB 타이트, 80GB 권장 |
 
 ---
 

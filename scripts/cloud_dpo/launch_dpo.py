@@ -159,6 +159,10 @@ def parse_args():
     p.add_argument("--lora-r",        type=int,   default=16)
     p.add_argument("--batch",         type=int,   default=1)
     p.add_argument("--grad-accum",    type=int,   default=16)
+    p.add_argument("--max-len",       type=int,   default=1024,
+                   help="DPO 학습/평가 최대 토큰 길이 (기본: 1024). "
+                        "gen_truncated_rate 높으면 1536→2048 순서로 상향. "
+                        "VRAM/시간 증가 주의.")
     p.add_argument("--skip-baseline", action="store_true",
                    help="baseline 평가 건너뜀 (시간 절약 ~15분)")
     p.add_argument("--skip-gen",      action="store_true",
@@ -347,6 +351,7 @@ def main():
     print(f"  Epochs:   {args.epochs}")
     print(f"  LR:       {args.lr}")
     print(f"  Beta:     {args.beta}")
+    print(f"  Max-len:  {args.max_len}  (gen_truncated_rate 60%+ 시 1536→2048 상향)")
     print(f"  Baseline: {'건너뜀' if args.skip_baseline else '실행'}")
     print(f"  SSH key:  {ssh_key}")
     if args.dry_run:
@@ -393,6 +398,7 @@ def main():
         ssh_cmd(host, port, ssh_key,
                 f"cd /workspace && export HF_TOKEN={hf_token} && "
                 f"python baseline_eval.py --val-file dpo_v3_val.jsonl "
+                f"--max-len {args.max_len} "
                 f"--output-dir {args.output_dir}/baseline")
 
     # Step 6: DPO 학습
@@ -411,6 +417,7 @@ def main():
         f" --lora-r {args.lora_r}"
         f" --batch {args.batch}"
         f" --grad-accum {args.grad_accum}"
+        f" --max-len {args.max_len}"
         f" --output-dir {args.output_dir}",
     ]
     if args.skip_gen:
