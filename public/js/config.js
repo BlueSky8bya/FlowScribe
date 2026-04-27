@@ -36,7 +36,9 @@ let charCount     = 1;
 let currentEpisode = 1;
 const episodeCache = {};
 let bookId = null; // auth.js의 initAuth()에서 설정
+let activeBookTitle = ""; // 현재 선택된 책 제목
 let readMode = localStorage.getItem("fs-readmode") || "eye";
+window._capWithChars = false; // 캡처 토글 상태 (false=텍스트만, true=+인물정보)
 
 // ── 인물 로딩 메시지 풀 ───────────────────────────────────────
 const LOADING_MSGS = [

@@ -83,7 +83,8 @@
 }
 
 /* 하단 액션 바 */
-.bible-footer{flex-shrink:0;background:var(--spine-bg);border-top:1px solid var(--spine-line);padding:.65rem 1.4rem;display:flex;align-items:center;justify-content:space-between;}
+.bible-footer{flex-shrink:0;background:var(--spine-bg);border-top:1px solid var(--spine-line);padding:.65rem 1.4rem;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:30;}
+.page-loading-overlay.show{opacity:1;transform:translateY(0);pointer-events:none !important;}
 .bible-page-hint{font-size:.7rem;color:var(--page-num);letter-spacing:.08em;font-family:Georgia,serif;}
 
 /* 절 번호 */
@@ -188,7 +189,6 @@ textarea.char-input{resize:none;line-height:1.6;min-height:3rem;overflow:hidden;
   opacity:0;pointer-events:none;transition:opacity .25s,transform .25s;
   transform:translateY(8px);z-index:20;display:flex;align-items:flex-start;gap:.75rem;
 }
-.page-loading-overlay.show{opacity:1;transform:translateY(0);}
 .left-overlay{left:1rem;}
 .right-overlay{right:1rem;}
 .loading-spinner{

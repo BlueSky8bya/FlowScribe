@@ -75,8 +75,13 @@ async function saveContext() {
     if (type   === "기타") type   = card.querySelector(".type-inp").value.trim()   || "기타";
     if (gender === "기타") gender = card.querySelector(".gender-inp").value.trim() || "기타";
     if (!name) return;
+    // 초기 소지품: 쉼표 구분 텍스트 → [{name}] 배열
+    const itemsRaw = card.querySelector(".char-initial-items")?.value.trim() || "";
+    const initial_items = itemsRaw
+      ? itemsRaw.split(/[,，]+/).map(s => s.trim()).filter(Boolean).map(s => ({ name: s }))
+      : [];
     characterDefaults[name] = `[유형: ${type}, 성별: ${gender}]${personality ? " " + personality : ""}`;
-    characterRows.push({ name, personality, type, gender, source: "user" });
+    characterRows.push({ name, personality, type, gender, source: "user", initial_items });
   });
 
   const worldBible = {

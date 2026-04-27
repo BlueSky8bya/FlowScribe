@@ -6,7 +6,7 @@
   <title>FlowScribe</title>
   <link rel="stylesheet" href="/css/tokens.css" />
   <link rel="stylesheet" href="/css/layout.css" />
-  <link rel="stylesheet" href="/css/components.css" />
+  <link rel="stylesheet" href="/css/components.css?v=28" />
   <link rel="stylesheet" href="/css/modal.css" />
   <link rel="stylesheet" href="/css/voice.css" />
 </head>
@@ -105,8 +105,7 @@
         <!-- 책 목록 접기/펼치기 토글 (책 선택 후 표시) -->
         <button class="book-list-toggle" id="bookListToggle" style="display:none;" onclick="toggleBookList()">
           <span class="book-list-toggle-icon">▾</span>
-          <span class="book-list-active-label" id="bookListActiveLabel"></span>
-          <span style="font-size:.62em;color:var(--text4);flex-shrink:0;">서재</span>
+          <span class="book-list-toggle-label">서재 펼치기</span>
         </button>
         <div class="book-list-wrap" id="bookListWrap">
           <div id="bookList" class="book-list"></div>
@@ -118,18 +117,7 @@
       <!-- ── 아크 진행 ── -->
       <div class="sidebar-section" id="arcSection" style="display:none;">
         <div class="sb-section-label">이야기 진행</div>
-        <div class="arc-block">
-          <div class="arc-label-row">
-            <span class="arc-name" id="arcName">제1막</span>
-            <span class="arc-range" id="arcRange">1–10화</span>
-            <span class="arc-pct" id="arcPct">0%</span>
-          </div>
-          <div class="arc-track">
-            <div class="arc-fill" id="arcFill" style="width:0%"></div>
-            <div class="arc-ticks" id="arcTicks"></div>
-          </div>
-          <div class="arc-ep-row" id="arcEpRow"></div>
-        </div>
+        <div id="arcActList"></div>
       </div>
 
       <div class="sidebar-divider" id="arcDivider" style="display:none;"></div>
@@ -212,11 +200,13 @@
               </div>
             </div>
           </div>
-          <button class="icon-btn" id="settingsBtn" onclick="openModal()">세계관 설정</button>
+          <button class="icon-btn debug-mode-btn" id="debugModeBtn" onclick="toggleDebugDrawer()" title="디버그 모드">🔍</button>
         </div>
 
         <!-- 에피소드 제목 헤더 -->
         <div class="output-header" id="outputHeader" style="display:none;">
+          <span class="output-book-title" id="outputBookTitle"></span>
+          <span class="output-ep-sep" id="outputEpSep" style="display:none;">·</span>
           <span class="output-ep-label" id="outputEpLabel"></span>
           <span class="output-ep-title" id="outputEpTitle"></span>
         </div>
@@ -229,28 +219,36 @@
         <!-- 하단 고정 컨트롤 영역 -->
         <div class="bottom-controls">
           <div class="episode-controls">
-            <button class="btn-prev" id="prevBtn" onclick="viewPrev()" disabled>이전화 보기</button>
-            <div class="ep-regen-group">
-              <span class="ep-info" id="epInfo"></span>
-              <button class="btn-regen" id="regenBtn" onclick="regenerate()" style="display:none">↺ 재생성</button>
-            </div>
-            <button class="btn-generate" id="sendBtn" onclick="generate()">1화 생성</button>
-          </div>
 
-          <!-- 작가 개입 -->
-          <div class="director-panel" id="directorPanel">
-            <div class="director-header">
-              <span class="director-title">✍ 작가 개입</span>
-              <span class="director-badge" id="directorBadge" style="display:none;"></span>
-              <span class="director-hint">다음 화 생성 시 반영됩니다</span>
-              <button class="director-clear-btn" id="directorClearBtn" onclick="clearOverrides()" style="display:none;">초기화</button>
+            <div class="bc-left">
+              <button class="bc-primary bc-primary-ghost" id="prevBtn" onclick="viewPrev()" disabled>← 이전화</button>
             </div>
-            <div class="director-input-row">
-              <input type="text" class="director-input" id="directorInput"
-                placeholder="예: 분위기를 더 어둡게, 주인공이 망설이는 장면 추가, 갈등을 절정으로..." />
-              <button class="director-apply-btn" onclick="addOverride()">적용</button>
+
+            <div class="bc-center">
+              <button class="bc-ghost" id="directorFloatBtn" onclick="toggleDirectorPanel()">
+                ✍ 작가 개입
+                <span class="director-float-badge" id="directorFloatBadge" style="display:none;"></span>
+              </button>
+              <span class="bc-center-sep" id="directorSep" style="display:none"></span>
+              <span class="bc-ep-num" id="epInfo"></span>
+              <button class="bc-ghost bc-regen" id="regenBtn" onclick="regenerate()" style="display:none">↺ 재생성</button>
             </div>
-            <div id="overrideList" class="override-list"></div>
+
+            <div class="bc-right">
+              <label class="bc-cap-toggle" id="capToggleWrap" style="display:none" data-tip="OFF: 텍스트만&#10;ON: +인물 정보 포함">
+                <input type="checkbox" id="capToggleCheck" onchange="
+                  window._capWithChars = this.checked;
+                  var b = document.getElementById('captureBtnMain');
+                  document.getElementById('captureBtnLabel').textContent = this.checked ? '캡처+' : '캡처';
+                  b.classList.toggle('cap-active', this.checked);
+                  b.dataset.tip = this.checked ? '본문 + 등장 인물 상태를 이미지로 캡처' : '본문을 이미지로 캡처해 클립보드에 복사';
+                ">
+                <span class="bc-cap-toggle-track"></span>
+              </label>
+              <button class="bc-ghost bc-cap-btn" id="captureBtnMain" style="display:none" onclick="captureEpisode(window._capWithChars)" data-tip="본문을 이미지로 캡처해 클립보드에 복사"><span class="bc-cap-icon">📷</span><span class="bc-cap-label" id="captureBtnLabel">캡처</span></button>
+              <button class="bc-primary" id="sendBtn" onclick="generate()">1화 생성</button>
+            </div>
+
           </div>
         </div>
 
@@ -260,21 +258,15 @@
       <aside class="right-panel" id="rightPanel">
         <div class="right-panel-resize-handle" id="rpResizeHandle"></div>
 
-        <!-- 독자 프로필 + 장면 컨텍스트 — 항상 표시 -->
-        <div class="rp-section rp-always">
-          <div class="rp-label">
-            독자 프로필
-            <span class="rp-badge" data-tip="화를 읽을수록 AI가&#10;취향을 자동 학습합니다">✦ AI</span>
-          </div>
-          <div class="hexagon-wrap">
-            <svg class="hexagon-svg" id="hexagonSvg" viewBox="-10 -10 240 210" width="200" height="172"></svg>
-          </div>
-          <div class="hex-legend-grid" id="hexLegendGrid"></div>
-          <!-- 지금 장면 인물 상태 (에피소드 생성/로드 후 표시) -->
-          <div id="sceneCharPanel" class="scene-char-panel" hidden>
-            <div class="scene-char-panel-title">지금 장면</div>
-            <div id="sceneCharList" class="scene-char-list"></div>
-          </div>
+        <!-- 세계관 설정 버튼 -->
+        <div class="rp-section rp-always" style="padding-bottom:0;">
+          <button class="rp-settings-btn" id="settingsBtn" onclick="openModal()">⚙ 세계관 설정</button>
+        </div>
+
+        <!-- 지금 장면 인물 상태 (에피소드 생성/로드 후 표시) -->
+        <div id="sceneCharPanel" class="scene-char-panel rp-section" hidden>
+          <div class="scene-char-panel-title">인물 정보</div>
+          <div id="sceneCharList" class="scene-char-list"></div>
         </div>
 
         <!-- 묵독 전용: 독서 기록 -->
@@ -301,11 +293,20 @@
         <div class="rp-section rp-aloud">
           <div class="rp-divider"></div>
           <div class="rp-label">낭독 가이드</div>
-          <ul class="rp-guide">
-            <li>문단 클릭 → 현재 위치 강조</li>
-            <li>↑ ↓ 방향키로 문단 이동</li>
-            <li>대사는 색상으로 구분</li>
-          </ul>
+          <div class="aloud-guide">
+            <div class="aloud-guide-item">
+              <span class="aloud-guide-key">클릭</span>
+              <span class="aloud-guide-desc">문단을 선택해 읽는 위치 표시</span>
+            </div>
+            <div class="aloud-guide-item">
+              <span class="aloud-guide-key">↑ ↓</span>
+              <span class="aloud-guide-desc">방향키로 문단 앞뒤 이동</span>
+            </div>
+            <div class="aloud-guide-item">
+              <span class="aloud-guide-key aloud-guide-key-color">색상</span>
+              <span class="aloud-guide-desc">대사와 지문이 구분되어 표시</span>
+            </div>
+          </div>
         </div>
 
         <!-- 청독 전용: TTS 컨트롤 + 음성 설정 -->
@@ -322,6 +323,121 @@
           <button class="sidebar-voice-btn" onclick="openVoiceArchive('map')" style="font-size:.86rem;color:var(--text4);">
             <span class="voice-icon">👤</span>캐릭터 배역 설정
           </button>
+        </div>
+
+        <!-- 독자 프로필 — 맨 아래 -->
+        <div class="rp-section rp-always">
+          <div class="rp-divider"></div>
+          <div class="rp-label">
+            독자 프로필
+            <span class="rp-badge" data-tip="화를 읽을수록 AI가&#10;취향을 자동 학습합니다">✦ AI</span>
+          </div>
+          <div class="hexagon-wrap">
+            <svg class="hexagon-svg" id="hexagonSvg" viewBox="-10 -10 240 210" width="200" height="172"></svg>
+          </div>
+          <div class="hex-legend-grid" id="hexLegendGrid"></div>
+        </div>
+
+        <!-- 디버그 품질 리포트 (사이드바 최하단, 🔍 버튼 10회 클릭으로 진입) -->
+        <div id="rpDebugSection" class="rp-section rp-debug-section" hidden>
+          <div class="rp-divider"></div>
+          <button class="rp-debug-toggle" id="rpDebugToggle" onclick="toggleRpDebugPanel()">
+            <span class="rp-debug-toggle-label">
+              <span class="rp-debug-icon">🔍</span>
+              <span>품질 리포트</span>
+            </span>
+            <span class="rp-debug-badge" id="rpDebugBadge"></span>
+            <span class="rp-debug-chevron" id="rpDebugChevron">▸</span>
+          </button>
+          <div class="rp-debug-panel" id="rpDebugPanel" hidden>
+            <div class="eq-audit-status" id="eqAuditStatus" style="padding:6px 0 4px;font-size:.72rem;color:var(--text4);font-style:italic;"></div>
+            <!-- 기본 정보 -->
+            <div class="eq-section">
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>기본 정보</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqBasicInfo"></div>
+            </div>
+            <!-- 품질 점수 -->
+            <div class="eq-section" id="eqScoreSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>품질 점수</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqQualityScores"></div>
+            </div>
+            <!-- 플래너 -->
+            <div class="eq-section" id="eqPlannerSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>플래너 &amp; 생성</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqPlannerInfo"></div>
+            </div>
+            <!-- 경고 & 힌트 -->
+            <div class="eq-section" id="eqWarningSection" hidden>
+              <div class="eq-section-label eq-section-label-warn" onclick="toggleEqSection(this)">
+                <span>경고 &amp; 힌트</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqWarnings"></div>
+            </div>
+            <!-- 작가 개입 & 제약 -->
+            <div class="eq-section" id="eqConstraintSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>적용된 제약 &amp; 개입</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqConstraints"></div>
+            </div>
+            <!-- 장면 계획 -->
+            <div class="eq-section" id="eqBeatsSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>장면 계획 (Scene Beats)</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqBeats"></div>
+            </div>
+            <!-- 리비전 이력 -->
+            <div class="eq-section" id="eqRevisionSection" hidden>
+              <div class="eq-section-label eq-section-label-warn" onclick="toggleEqSection(this)">
+                <span>리비전 이력</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqRevisions"></div>
+            </div>
+            <!-- 후처리 통계 -->
+            <div class="eq-section" id="eqPostprocSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>후처리 통계</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqPostproc"></div>
+            </div>
+            <!-- Episode Reward v2 -->
+            <div class="eq-section" id="eqEpisodeRewardSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>Episode Reward v2</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqEpisodeReward"></div>
+            </div>
+            <!-- Trajectory -->
+            <div class="eq-section" id="eqTrajectorySection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>Trajectory Reward</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqTrajectory"></div>
+            </div>
+            <!-- Ending / Closure -->
+            <div class="eq-section" id="eqEndingSection" hidden>
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>Ending / Closure Reward</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqEnding"></div>
+            </div>
+            <!-- 인물 상태 -->
+            <div class="eq-section">
+              <div class="eq-section-label" onclick="toggleEqSection(this)">
+                <span>인물 상태</span><span class="eq-toggle-icon">▾</span>
+              </div>
+              <div class="eq-section-body" id="eqCharStates">
+                <div class="eq-empty">에피소드 생성 후 표시됩니다</div>
+              </div>
+            </div>
+          </div>
         </div>
 
       </aside>
@@ -419,36 +535,56 @@
   <!-- 플로팅 툴팁 -->
   <div id="hexFloatTip" class="hex-float-tip" style="display:none;"></div>
 
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
   <script src="/marked.min.js"></script>
   <script src="/js/config.js"></script>
   <script src="/js/calibration.js"></script>
-  <script src="/js/auth.js"></script>
+  <script src="/js/auth.js?v=5"></script>
   <script src="/js/ui.js?v=5"></script>
   <script src="/js/chips.js"></script>
   <script src="/js/rules.js"></script>
   <script src="/js/chars.js"></script>
   <script src="/js/suggest.js"></script>
-  <script src="/js/generate.js?v=17"></script>
+  <script src="/js/generate.js?v=31"></script>
   <script src="/js/story-config.js"></script>
   <script src="/js/modal.js"></script>
   <script src="/js/director.js"></script>
   <script src="/js/voice.js"></script>
   <script src="/js/app.js"></script>
 
-  <!-- Name Hover Card (body 최하단, fixed 포지셔닝) -->
+  <!-- Name Hover Card — 이름 + 성별 + 현재 상태만 (body 최하단, fixed 포지셔닝) -->
   <div id="charHoverCard" class="char-hover-card" hidden>
-    <div class="char-hover-name"></div>
-    <div class="char-hover-body">
-      <div class="char-hover-row" id="hoverRowEmotion"></div>
-      <div class="char-hover-row" id="hoverRowPhysical"></div>
-      <div class="char-hover-row" id="hoverRowItems"></div>
+    <div class="char-hover-header">
+      <span class="char-hover-name"></span>
+      <span class="char-hover-sep" id="hoverSep"></span>
+      <span class="char-hover-subtitle"></span>
     </div>
+    <div class="char-hover-row" id="hoverRowStatus"></div>
   </div>
 
-  <!-- Debug Meta Drawer (기본 숨김, episode_meta 있을 때만 표시) -->
-  <div id="debugMetaDrawer" class="debug-meta-drawer" hidden>
-    <button class="debug-meta-toggle" id="debugMetaToggle" title="Debug Info">⚙</button>
-    <div class="debug-meta-content" id="debugMetaContent"></div>
+  <!-- Legacy debug IDs — kept for JS backward compat, hidden -->
+  <div id="debugMetaDrawer" style="display:none;" aria-hidden="true">
+    <div id="debugCharStates"></div>
+    <div id="debugEpisodeMeta"></div>
+    <div id="debugEpisodeMetaTitle"></div>
+    <div id="debugMetaContent"></div>
+  </div>
+
+
+  <!-- 작가 개입 플로팅 패널 -->
+  <div class="director-float-panel" id="directorFloatPanel">
+    <div class="director-float-header">
+      <span class="director-float-title">✍ 작가 개입</span>
+      <span class="director-badge" id="directorBadge" style="display:none;"></span>
+      <span class="director-hint">다음 화 생성 시 반영됩니다</span>
+      <button class="director-clear-btn" id="directorClearBtn" onclick="clearOverrides()" style="display:none;">초기화</button>
+    </div>
+    <div class="director-input-row">
+      <input type="text" class="director-input" id="directorInput"
+        placeholder="예: 분위기를 더 어둡게, 주인공이 망설이는 장면 추가..." />
+      <button class="director-apply-btn" onclick="addOverride()">적용</button>
+    </div>
+    <div id="overrideList" class="override-list"></div>
   </div>
 </body>
 </html>

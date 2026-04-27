@@ -399,11 +399,26 @@ async function createNewBook(title) {
 
 async function selectBook(book) {
   bookId = book.id;
+  activeBookTitle = book.title ?? "";
   currentEpisode = book.current_episode ?? 1;
+  _openActIndices.clear();
+  _arcSeeded = false;
 
   Object.keys(episodeCache).forEach(k => delete episodeCache[k]);
   displayedEpisode = null;
   output.innerHTML = "";
+
+  // 이전 책 잔상 즉시 제거 (async 로드 전 동기 초기화)
+  if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
+  ["statTotalSessions","statAvgCompletion","statAvgTime"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = "—";
+  });
+  document.querySelectorAll(".metric-fill[data-key]").forEach(el => el.style.width = "0%");
+  document.querySelectorAll(".metric-val[data-key]").forEach(el => el.textContent = "0");
+  const _dirBadge = document.getElementById("directorBadge");
+  if (_dirBadge) { _dirBadge.textContent = ""; _dirBadge.style.display = "none"; }
+
+  let _needCharFallback = false;  // 함수 스코프 선언 (블록 내 선언 시 ReferenceError 방지)
 
   // 에피소드 복원
   try {
@@ -414,23 +429,28 @@ async function selectBook(book) {
       if (episodes.length) {
         displayedEpisode = episodes[episodes.length - 1].episode_number;
         renderProgressive(episodeCache[displayedEpisode], true);
-        currentEpisode = Math.max(currentEpisode, displayedEpisode + 1);
-        // 캐릭터 상태 패널 복원 (fire-and-forget)
-        fetch(`/api/generate/char-states?book_id=${bookId}&episode=${displayedEpisode}`)
-          .then(r => r.ok ? r.json() : null)
-          .then(d => {
-            if (d?.char_states?.length) {
-              updateSceneCharPanel(d.char_states);
-              wrapCharNamesInOutput(d.char_states);
-            } else {
-              // char_states가 없을 때 charGenderMap 기반 fallback
-              _applyCharGenderFallback();
-            }
-          })
-          .catch(() => { _applyCharGenderFallback(); });
+        currentEpisode = displayedEpisode + 1;
+        // 캐릭터 상태 + audit 데이터 복원 (fire-and-forget)
+        const _ep = displayedEpisode;
+        Promise.all([
+          fetch(`/api/generate/char-states?book_id=${bookId}&episode=${_ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch(`/api/generate/audit-status?book_id=${bookId}&episode=${_ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]).then(([d, auditData]) => {
+          if (d?.char_states?.length) {
+            updateSceneCharPanel(d.char_states);
+            wrapCharNamesInOutput(d.char_states);
+            if (typeof updateDebugCharStates === "function") updateDebugCharStates(d.char_states);
+          } else {
+            _needCharFallback = true;
+          }
+          if (auditData?.status === 'done') {
+            window._lastAuditStatus = auditData;
+            if (!window._lastEpisodeMeta) window._lastEpisodeMeta = {};
+          }
+        }).catch(() => { _needCharFallback = true; });
       } else {
-        // DB에 에피소드 없으면 1화부터 시작
         currentEpisode = 1;
+        if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
       }
     }
   } catch (e) { console.error(e); }
@@ -462,6 +482,9 @@ async function selectBook(book) {
     }
   } catch (_) {}
 
+  // char-states fallback: charGenderMap이 채워진 후 실행
+  if (_needCharFallback) _applyCharGenderFallback();
+
   // 사이드바 업데이트
   updateEpisodeListUI();
   updateArcUI(currentEpisode - 1 || 0);
@@ -484,10 +507,8 @@ let _bookListManuallyOpen = false;
 function _collapseBookList(activeTitle) {
   const wrap   = document.getElementById("bookListWrap");
   const toggle = document.getElementById("bookListToggle");
-  const label  = document.getElementById("bookListActiveLabel");
   if (!wrap || !toggle) return;
   toggle.style.display = "flex";
-  if (label) label.textContent = activeTitle || "";
   // 사용자가 수동으로 열었으면 접지 않음 (연속 삭제 등 작업 편의)
   if (_bookListManuallyOpen) return;
   wrap.classList.add("collapsed");
@@ -500,7 +521,8 @@ function toggleBookList() {
   if (!wrap || !toggle) return;
   const isCollapsed = wrap.classList.toggle("collapsed");
   toggle.classList.toggle("collapsed", isCollapsed);
-  // 수동으로 펼쳤으면 플래그 on, 수동으로 접었으면 off
+  const labelEl = toggle.querySelector(".book-list-toggle-label");
+  if (labelEl) labelEl.textContent = isCollapsed ? "서재 펼치기" : "서재 닫기";
   _bookListManuallyOpen = !isCollapsed;
 }
 
@@ -537,7 +559,10 @@ function renderBookList(books, activeId) {
   const list = document.getElementById("bookList");
   if (!list) return;
   list.innerHTML = "";
-  books.forEach((b, idx) => {
+  // 시스템/테스트 책 필터링: [DPO_, [EXP_ 등 자동 생성 접두어 패턴
+  const _SYS_BOOK_RE = /^\[(DPO|EXP|BENCH|TEST|SOAK)[\[_ ]/i;
+  const userBooks = books.filter(b => !_SYS_BOOK_RE.test(b.title ?? ""));
+  userBooks.forEach((b, idx) => {
     const item = document.createElement("div");
     item.className = "book-item" + (b.id === activeId ? " active" : "");
     item.dataset.id = b.id;
@@ -648,7 +673,7 @@ function updateEpisodeListUI() {
       updateEpisodeUI();
       updateEpisodeListUI();
       updateOutputHeader();
-      _reapplyCharUI?.();
+      _loadAndApplyCharStates?.(n);
     };
     list.appendChild(btn);
   });
@@ -657,14 +682,18 @@ function updateEpisodeListUI() {
 // ── 출력 헤더 (화 라벨 + 글자 수) ────────────────────────
 
 function updateOutputHeader() {
-  const header   = document.getElementById("outputHeader");
-  const epLabel  = document.getElementById("outputEpLabel");
+  const header    = document.getElementById("outputHeader");
+  const bookTitleEl = document.getElementById("outputBookTitle");
+  const epSepEl   = document.getElementById("outputEpSep");
+  const epLabel   = document.getElementById("outputEpLabel");
   const charCount = document.getElementById("outputCharCount");
   if (!header) return;
 
   if (displayedEpisode && episodeCache[displayedEpisode]) {
     header.style.display = "flex";
-    if (epLabel)  epLabel.textContent  = `${displayedEpisode}화`;
+    if (bookTitleEl) bookTitleEl.textContent = activeBookTitle || "";
+    if (epSepEl)    epSepEl.style.display = activeBookTitle ? "" : "none";
+    if (epLabel)    epLabel.textContent    = `${displayedEpisode}화`;
     if (charCount) {
       const len = episodeCache[displayedEpisode].replace(/\s/g, "").length;
       charCount.textContent = `${len.toLocaleString()}자`;
@@ -836,50 +865,145 @@ function _setupHexTooltip(svg) {
 
 // ── 아크 진행 ────────────────────────────────────────────
 
+function _computeAct(ep, total) {
+  // total: 예상 총 화수 (storyConfig.totalEpisodes)
+  const t = Math.max(total || 20, ep);  // ep가 total 초과해도 마지막 막 유지
+  let acts;
+  if (t <= 6) {
+    acts = [{ n: "전반", end: Math.ceil(t / 2) }, { n: "후반", end: t }];
+  } else if (t <= 20) {
+    // 3막: 발단(30%) / 전개+위기(40%) / 결말(30%)
+    acts = [
+      { n: "1막", end: Math.ceil(t * 0.30) },
+      { n: "2막", end: Math.ceil(t * 0.70) },
+      { n: "3막", end: t },
+    ];
+  } else {
+    // 4막: 발단(20%) / 전개(30%) / 위기(30%) / 결말(20%)
+    acts = [
+      { n: "1막", end: Math.ceil(t * 0.20) },
+      { n: "2막", end: Math.ceil(t * 0.50) },
+      { n: "3막", end: Math.ceil(t * 0.80) },
+      { n: "4막", end: t },
+    ];
+  }
+  let actStart = 1;
+  for (let i = 0; i < acts.length; i++) {
+    const actEnd = acts[i].end;
+    if (ep <= actEnd) {
+      const span = actEnd - actStart + 1;
+      const pct  = Math.min(100, Math.round(((ep - actStart) / span) * 100));
+      return { name: `제${i + 1}막`, range: `${actStart}–${actEnd}화`, pct, arcStart: actStart, arcEnd: actEnd };
+    }
+    actStart = acts[i].end + 1;
+  }
+  const last = acts[acts.length - 1];
+  return { name: `제${acts.length}막`, range: `${actStart}–${last.end}화`, pct: 100, arcStart: actStart, arcEnd: last.end };
+}
+
+const _openActIndices = new Set();  // 사용자가 펼친 막 인덱스 기억
+let _arcSeeded = false;             // 최초 1회만 현재 막 자동 펼침
+
 function updateArcUI(ep) {
   const section = document.getElementById("arcSection");
   if (!section || !ep || ep < 1) return;
 
-  const ARC_SIZE = 10;
-  const arcNum   = Math.ceil(ep / ARC_SIZE);
-  const arcStart = (arcNum - 1) * ARC_SIZE + 1;
-  const arcEnd   = arcNum * ARC_SIZE;
-  const fillPct  = Math.round(((ep - arcStart) / ARC_SIZE) * 100);
-
+  const total  = storyConfig.totalEpisodes ?? 20;
   section.style.display = "block";
   const divider = document.getElementById("arcDivider");
   if (divider) divider.style.display = "block";
 
-  const arcName  = document.getElementById("arcName");
-  const arcRange = document.getElementById("arcRange");
-  const arcPct   = document.getElementById("arcPct");
-  const fill     = document.getElementById("arcFill");
-  const epRow    = document.getElementById("arcEpRow");
+  // 전체 막 목록 계산
+  const t = Math.max(total, ep);
+  let acts;
+  if (t <= 6)       acts = [{ n:"전반", s:1, e:Math.ceil(t/2) }, { n:"후반", s:Math.ceil(t/2)+1, e:t }];
+  else if (t <= 20) acts = [{ n:"1막", s:1, e:Math.ceil(t*.30) }, { n:"2막", s:Math.ceil(t*.30)+1, e:Math.ceil(t*.70) }, { n:"3막", s:Math.ceil(t*.70)+1, e:t }];
+  else              acts = [{ n:"1막", s:1, e:Math.ceil(t*.20) }, { n:"2막", s:Math.ceil(t*.20)+1, e:Math.ceil(t*.50) }, { n:"3막", s:Math.ceil(t*.50)+1, e:Math.ceil(t*.80) }, { n:"4막", s:Math.ceil(t*.80)+1, e:t }];
 
-  if (arcName)  arcName.textContent  = `제${arcNum}막`;
-  if (arcRange) arcRange.textContent = `${arcStart}–${arcEnd}화`;
-  if (arcPct)   arcPct.textContent   = `${fillPct}%`;
-  if (fill) fill.style.width = `${fillPct}%`;
-  if (epRow) {
-    epRow.innerHTML = "";
-    for (let i = arcStart; i <= arcEnd; i++) {
-      const chip = document.createElement("span");
-      chip.className = "arc-ep-chip" + (i === ep ? " active" : "") + (episodeCache[i] ? " done" : "");
-      chip.textContent = i;
-      if (episodeCache[i]) {
-        chip.title = `${i}화 보기`;
-        chip.onclick = () => {
+  const container = document.getElementById("arcActList");
+  if (!container) return;
+
+  // 재렌더링 전 현재 열린 막 인덱스 저장
+  container.querySelectorAll(".arc-act").forEach((el, i) => {
+    const eps = el.querySelector(".arc-act-eps");
+    if (eps && !eps.hidden) _openActIndices.add(i);
+    else _openActIndices.delete(i);
+  });
+  container.innerHTML = "";
+
+  // 독자가 아직 도달하지 않은 막은 표시하지 않음
+  acts = acts.filter(act => act.s <= ep);
+
+  acts.forEach((act, idx) => {
+    const isCurrentAct = ep >= act.s && ep <= act.e;
+    // 현재 막: ep까지만 카운트, 완료 막: 전체 카운트
+    const visibleEnd = isCurrentAct ? ep : act.e;
+    const doneInAct = [...Array(visibleEnd - act.s + 1)].filter((_, i) => episodeCache[act.s + i]).length;
+    const actTotal  = act.e - act.s + 1;  // 항상 막 전체 화수 기준
+    const pct       = actTotal > 0 ? Math.round((doneInAct / actTotal) * 100) : 0;
+
+    const actEl = document.createElement("div");
+    actEl.className = "arc-act" + (isCurrentAct ? " arc-act-current" : "");
+    actEl.dataset.actIdx = idx;
+
+    const header = document.createElement("div");
+    header.className = "arc-act-header";
+    header.innerHTML = `
+      <span class="arc-act-name">${act.n}</span>
+      <span class="arc-act-range">${act.s}–${act.e}화</span>
+      <span class="arc-act-progress-wrap"><span class="arc-act-progress-fill" style="width:${pct}%"></span></span>
+      <span class="arc-act-pct">${pct}%</span>
+      <span class="arc-act-toggle"></span>
+    `;
+
+    const epList = document.createElement("div");
+    epList.className = "arc-act-eps";
+    // 최초 렌더링 시에만 현재 막 자동 펼침 — 이후엔 사용자 선택만 반영
+    if (!_arcSeeded && isCurrentAct) _openActIndices.add(idx);
+    const shouldOpen = _openActIndices.has(idx);
+    epList.hidden = !shouldOpen;
+    header.querySelector(".arc-act-toggle").textContent = shouldOpen ? "▾" : "▸";
+
+    // 현재 막은 ep까지만, 완료 막은 전체 표시
+    const epEnd = isCurrentAct ? ep : act.e;
+    for (let i = act.s; i <= epEnd; i++) {
+      const epEl = document.createElement("div");
+      const hasContent = !!episodeCache[i];
+      const isCurrent = i === ep;
+      epEl.className = "arc-ep-row-item" + (hasContent ? " done" : "") + (isCurrent ? " current" : "");
+      let epTitle = "";
+      if (hasContent && typeof extractEpTitle === "function") {
+        const parsed = extractEpTitle(episodeCache[i]);
+        epTitle = parsed.title ? parsed.title.replace(/^\d+화\s*[-–—]\s*/, "") : "";
+      }
+      epEl.textContent = epTitle ? `${i}화. ${epTitle}` : `${i}화`;
+      if (hasContent) {
+        epEl.style.cursor = "pointer";
+        epEl.title = `${i}화 보기`;
+        epEl.onclick = () => {
           displayedEpisode = i;
           renderProgressive(episodeCache[i], true);
           updateEpisodeUI();
-          updateEpisodeListUI();
-          updateOutputHeader();
+          updateEpisodeListUI?.();
+          updateOutputHeader?.();
           updateArcUI(currentEpisode - 1);
         };
       }
-      epRow.appendChild(chip);
+      epList.appendChild(epEl);
     }
-  }
+
+    header.onclick = () => {
+      const open = !epList.hidden;
+      epList.hidden = open;
+      header.querySelector(".arc-act-toggle").textContent = open ? "▸" : "▾";
+      if (open) _openActIndices.delete(idx); else _openActIndices.add(idx);
+    };
+
+    actEl.appendChild(header);
+    actEl.appendChild(epList);
+    container.appendChild(actEl);
+  });
+  _arcSeeded = true;
 }
 
 // ── 세션 통계 ────────────────────────────────────────────
@@ -938,6 +1062,7 @@ function _applyCharGenderFallback() {
     visibility_state: "present",
   }));
 
-  // 이름 span wrapping + hover 카드 맵 구성 (패널 표시는 안 함 — 상태 데이터 없음)
+  // 이름 span wrapping + hover 카드 맵 구성 + 패널 표시 (이름/유형 최소 표시)
+  if (typeof updateSceneCharPanel === "function") updateSceneCharPanel(charStates);
   if (typeof seedCharStateMapFromGenderMap === "function") seedCharStateMapFromGenderMap(charStates);
 }

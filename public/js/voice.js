@@ -5,6 +5,7 @@
 
 // ── 상태 ─────────────────────────────────────────────────────
 let _myVoices    = [];
+let _rateDebounce = null;
 let _browseVoices = [];
 let _charMap     = [];         // 현재 책의 캐릭터→보이스 매핑
 let _activeVoiceTab = "mine";
@@ -878,7 +879,11 @@ function _ttsSpeak(text) {
   const pEls = outputEl ? [...outputEl.querySelectorAll("p")] : [];
   if (pEls.length) {
     _tts.domSegments = pEls;
-    _tts.segments = pEls.map(p => ({ text: p.innerText || p.textContent || "", type: "narration" }));
+    _tts.segments = pEls.map(p => {
+      // innerText의 \n(br) → 마침표 없으면 공백으로 교체해 TTS가 붙여읽기 방지
+      const raw = (p.innerText || p.textContent || "").replace(/\n/g, ' ').replace(/\s{2,}/g, ' ').trim();
+      return { text: raw, type: "narration" };
+    });
   } else {
     _tts.domSegments = [];
     _tts.segments = _parseSegments(text);
@@ -898,10 +903,13 @@ function _ttsChangeRate(val) {
   _tts.rate = val;
   const display = document.getElementById("ttsRateVal");
   if (display) display.textContent = val.toFixed(1) + "x";
-  // 재생 중이면 현재 문단부터 새 속도로 재시작
+  // 재생 중이면 250ms 디바운스 후 재시작
   if (_tts.playing && !_tts.paused) {
-    _tts.synth.cancel();
-    _speakNext();
+    clearTimeout(_rateDebounce);
+    _rateDebounce = setTimeout(() => {
+      _tts.synth.cancel();
+      _speakNext();
+    }, 250);
   }
 }
 

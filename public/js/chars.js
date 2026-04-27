@@ -141,6 +141,10 @@ function appendCharCard(container, i, p) {
           <div class="char-personality-preview-box" style="display:${p.personality?'block':'none'}">${esc(p.personality||"")}</div>
           <textarea class="char-input char-personality" placeholder="말투·행동·외형을 구체적으로&#10;예) 말이 없고 눈을 잘 안 마주침. 화날 때 입술을 깨뭄. 키가 크고 손이 크다." style="display:${p.personality?'none':'block'}">${esc(p.personality||"")}</textarea>
         </div>
+        <div class="char-fields-full char-items-row">
+          <div class="char-personality-label">초기 소지품</div>
+          <input class="char-input char-initial-items" type="text" placeholder="쉼표로 구분 · 예) 활, 화살 20개, 단검" value="${esc(p.initialItems||"")}" />
+        </div>
         <hr class="char-divider">
         <div class="char-section">
           <div class="char-section-cell">
@@ -231,6 +235,7 @@ function renderCharCards() {
       typeCustom: c.querySelector(".type-inp")?.value || "",
       gender: c.dataset.gender || "해당없음",
       genderCustom: c.querySelector(".gender-inp")?.value || "",
+      initialItems: c.querySelector(".char-initial-items")?.value || "",
     });
   });
   container.innerHTML = "";

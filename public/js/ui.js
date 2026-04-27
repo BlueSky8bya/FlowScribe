@@ -59,6 +59,24 @@ document.addEventListener("DOMContentLoaded", () => {
     hideTip();
   });
 
+  // 하단 바: 버튼 위 중앙 고정 (overflow:hidden 컨테이너 밖으로)
+  document.querySelector(".bottom-controls")?.addEventListener("mouseover", e => {
+    const el = e.target.closest("[data-tip]");
+    if (!el) return;
+    showTip(el.getAttribute("data-tip"));
+    const rect = el.getBoundingClientRect();
+    tip.style.left = (rect.left + rect.width / 2) + "px";
+    tip.style.top  = (rect.top - 8) + "px";
+    tip.style.transform = "translateX(-50%) translateY(-100%)";
+  });
+  document.querySelector(".bottom-controls")?.addEventListener("mouseout", e => {
+    const el = e.target.closest("[data-tip]");
+    if (!el) return;
+    const to = e.relatedTarget;
+    if (to && el.contains(to)) return;
+    hideTip();
+  });
+
   // 오른쪽 패널: 커서 따라다님 (왼쪽으로 표시 — CSS로 이미 방향 지정)
   document.querySelector(".right-panel")?.addEventListener("mouseover", e => {
     const el = e.target.closest("[data-tip]");
@@ -183,12 +201,16 @@ function setReadMode(mode) {
       p.classList.remove("focus-line", "tts-done");
       delete p.dataset.aloudDone;
     });
+    // 모드 전환 시 대화체 스타일 재적용 (들여쓰기 분류 보장)
+    if (typeof applyDialogueStyle === "function") applyDialogueStyle(document.getElementById("output"));
   } else {
     document.body.classList.add("mode-eye");
     document.querySelectorAll("#output p").forEach(p => {
       p.classList.remove("focus-line", "tts-current");
       delete p.dataset.aloudDone;
     });
+    // 모드 전환 시 대화체 스타일 재적용 (들여쓰기 분류 보장)
+    if (typeof applyDialogueStyle === "function") applyDialogueStyle(document.getElementById("output"));
   }
 }
 
@@ -204,9 +226,11 @@ function applyAloudFormat() {
     if (sentences.length <= 1) return;
     p.innerHTML = sentences
       .map(s => `<span class="aloud-sentence">${s}</span>`)
-      .join("");
+      .join(" ");  // 스팬 사이 공백 유지 — 묵독/청독 전환 시 문장부호 뒤 공백 보존
     p.dataset.aloudDone = "1";
   });
+  // innerHTML 교체로 날아간 char-name-ref 재적용
+  if (typeof window._rewrapCharNamesIfNeeded === "function") window._rewrapCharNamesIfNeeded();
 }
 
 let _focusLineIndex = 0; // 현재 포커스된 단락 인덱스 (DOM 교체 후 복원용)

@@ -8,11 +8,31 @@ let displayedEpisode = null;
 function updateEpisodeUI() {
   epInfo.textContent = displayedEpisode ? `${displayedEpisode}화` : "";
 
-  const regenBtn = document.getElementById("regenBtn");
-  if (regenBtn) regenBtn.style.display = displayedEpisode ? "inline-flex" : "none";
+  const isLatestEp = displayedEpisode !== null && displayedEpisode === currentEpisode - 1;
 
-  const nextEp = (displayedEpisode ?? 0) + 1;
-  if (displayedEpisode !== null && episodeCache[nextEp]) {
+  // 재생성: 최신화에서만
+  const regenBtn = document.getElementById("regenBtn");
+  if (regenBtn) regenBtn.style.display = (displayedEpisode && isLatestEp) ? "inline-flex" : "none";
+  const capToggle = document.getElementById("capToggleWrap");
+  const capBtn    = document.getElementById("captureBtnMain");
+  const capShow   = displayedEpisode ? "inline-flex" : "none";
+  if (capToggle) capToggle.style.display = capShow;
+  if (capBtn)    capBtn.style.display    = capShow;
+
+  // center 구분선: epInfo가 있을 때만
+  const directorSep = document.getElementById("directorSep");
+  if (directorSep) directorSep.style.display = displayedEpisode ? "inline-block" : "none";
+
+  // 작가 개입: 최신화에서만 활성화— 버튼 전체(아이콘+텍스트) opacity 통합 제어
+  const directorBtn = document.getElementById("directorFloatBtn");
+  if (directorBtn) {
+    directorBtn.disabled = !isLatestEp;
+    directorBtn.style.opacity = isLatestEp ? "" : "0.38";
+    directorBtn.style.pointerEvents = isLatestEp ? "" : "none";
+  }
+
+  const nextEp = displayedEpisode !== null ? _nextEpNum?.(displayedEpisode) : null;
+  if (displayedEpisode !== null && nextEp !== null && episodeCache[nextEp]) {
     btn.textContent = "다음화 보기";
     btn.onclick = viewNext;
   } else {
@@ -20,7 +40,7 @@ function updateEpisodeUI() {
     btn.onclick = generate;
   }
 
-  prevBtn.disabled = displayedEpisode === null || displayedEpisode <= 1 || !episodeCache[displayedEpisode - 1];
+  prevBtn.disabled = displayedEpisode === null || !_prevEpNum?.(displayedEpisode);
 
   updateEpisodeListUI?.();
   updateOutputHeader?.();
