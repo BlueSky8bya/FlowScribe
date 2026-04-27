@@ -12,12 +12,13 @@
 // A. Canonical — 사용자 사전 설정 영역
 // ══════════════════════════════════════════════════════════════
 
-/** 인물 canonical profile — 사용자가 직접 설정한 4개 필드만 포함 */
+/** 인물 canonical profile — 사용자가 직접 설정한 필드 */
 export interface CanonicalCharacter {
   name: string;
-  personality: string;   // 성격/특징
-  type: string;          // 인간/동물/기타
-  gender: string;        // 남성/여성/해당없음/기타
+  personality: string;       // 성격/특징
+  type: string;              // 인간/동물/기타
+  gender: string;            // 남성/여성/해당없음/기타
+  initial_items?: ItemEntry[]; // 이야기 시작 시 소지품 (동적 상태가 없을 때 폴백)
 }
 
 /** 작품 기본 설정층 */
@@ -127,6 +128,17 @@ export function createBookArcContract(
 // B. Dynamic — 에이전트 내부 관리 영역
 // ══════════════════════════════════════════════════════════════
 
+/** 소지품 등급 */
+export type ItemGrade = 'S' | 'A' | 'B' | 'C' | 'D';
+
+/** 소지품 (이름 + 등급 + 선택적 상태) */
+export interface ItemEntry {
+  name: string;
+  grade?: ItemGrade;    // S~D 등급 (없으면 미분류)
+  condition?: string;   // 자연어 상태: "화살 15개 남음", "녹이 슬었음"
+  description?: string; // 짧은 설명/용도
+}
+
 /** 인물 동적 상태 (회차별) */
 export interface CharacterDynamicState {
   book_id: string;
@@ -134,7 +146,7 @@ export interface CharacterDynamicState {
   episode_number: number;
   location?: string;
   physical_state?: string;          // 부상/신체 상태 (ForbiddenAction 변환에 사용)
-  items?: string[];
+  items?: ItemEntry[];
   recent_goal?: string;
   relationship_updates?: Record<string, string>; // 상대방 이름 → 관계 상태
   foreshadow_connections?: string[];             // 연관된 미회수 복선 id
@@ -222,6 +234,8 @@ export interface EffectiveContext {
   character_arcs: Record<string, { state: string; key_events: string[] }>;
   rolling_summary: string;
   prev_episode_tail?: string;
+  /** 재생성 시 직전 시도에서 생성된 텍스트 — planner 반복 방지용 */
+  regen_prev_text?: string;
   reader_profile: {
     focus: number; sentiment: number; urgency: number;
     complexity: number; dialogue: number; audio_sync: number;

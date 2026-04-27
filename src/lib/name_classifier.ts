@@ -15,7 +15,7 @@ import type {
   NameAnalysisResult,
   NameEvent,
 } from "../types/character_policy.js";
-import { allowsBackgroundExtra, allowsNamedNewCharacter } from "./character_policy_resolver.js";
+import { allowsBackgroundExtra, allowsNamedNewCharacter } from "../policies/character_policy_resolver.js";
 
 // ── 별칭/호칭 판별 헬퍼 ─────────────────────────────────────────────────
 

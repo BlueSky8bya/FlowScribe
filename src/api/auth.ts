@@ -53,19 +53,29 @@ authRouter.get("/google/callback", async (req: Request, res: Response) => {
       { expiresIn: (process.env.JWT_EXPIRES_IN ?? "7d") as any }
     );
 
-    res.cookie("fs_token", token, {
-      httpOnly: true,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      sameSite: "lax",
-    });
-
+    // sameSite=lax 쿠키는 cross-site redirect(Google→localhost) 중 Chrome이 드롭한다.
+    // /api/auth/set-cookie로 same-origin 리다이렉트 → 거기서 httpOnly 쿠키 세팅 후 /로 이동.
     logInfo("api:auth", "Google 로그인 성공", { email: user.email });
-    res.redirect("/");
+    res.redirect(`/api/auth/set-cookie?t=${encodeURIComponent(token)}`);
   } catch (err: any) {
     logError("api:auth", err, { context: "google callback", message: err?.message, stack: err?.stack?.split("\n")[0] });
     const msg = encodeURIComponent(err?.message ?? "unknown");
     res.redirect(`/?auth_error=1&msg=${msg}`);
   }
+});
+
+// same-origin 경유 쿠키 세팅 — cross-site redirect 후 sameSite=lax 드롭 우회
+// 302 Set-Cookie는 일부 Chrome 버전에서 드롭됨 → HTML + JS document.cookie로 세팅
+authRouter.get("/set-cookie", (req: Request, res: Response) => {
+  const t = req.query.t;
+  if (!t || typeof t !== "string") { res.redirect("/?auth_error=1"); return; }
+  const maxAge = 7 * 24 * 60 * 60;
+  const escaped = String(t).replace(/['"<>]/g, "");
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.send(`<!DOCTYPE html><html><body><script>
+    document.cookie="fs_token=${escaped};path=/;max-age=${maxAge};samesite=lax";
+    location.replace("/");
+  </script></body></html>`);
 });
 
 authRouter.get("/me", requireAuth, async (req: Request, res: Response) => {

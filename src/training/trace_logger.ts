@@ -22,11 +22,11 @@ import { currentSchemaVersions } from "./schema_versions.js";
 export class TraceLogger {
   private trace: Partial<RunTrace>;
 
-  constructor(ctx: EffectiveContext, traceType: "planner" | "legacy" = "planner") {
+  constructor(ctx: EffectiveContext, traceType: "planner" | "legacy" = "planner", bookId?: string) {
     this.trace = {
       trace_id: randomUUID(),
       trace_type: traceType,
-      book_id: (ctx.world_config as unknown as Record<string, unknown>)?.book_id as string ?? null,
+      book_id: bookId ?? (ctx as any).book_id ?? null,
       episode_number: ctx.episode_number,
       created_at: new Date().toISOString(),
       effective_context_snapshot: ctx as unknown as Record<string, unknown>,

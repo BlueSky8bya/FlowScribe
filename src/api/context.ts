@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { redis } from "../lib/redis.js";
 import { pool } from "../lib/db.js";
+import { upsertCanonicalCharacter } from "../services/character_state.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 
 export const contextRouter = Router();
@@ -27,20 +28,36 @@ contextRouter.post("/", async (req: Request, res: Response) => {
       [JSON.stringify(payload), book_id]
     ).catch(() => {}); // books 테이블 없는 book_id면 무시
 
-    // World Bible의 character_defaults를 characters 테이블에 자동 등록
-    const chars: Record<string, string> = worldBible.character_defaults ?? {};
-    const entries = Object.entries(chars);
+    // World Bible의 character_defaults를 characters + canonical_characters 테이블에 자동 등록
+    const charDefs: Record<string, string | { type?: string; gender?: string; description?: string; personality?: string; initial_items?: Array<{name: string; condition?: string}> }> =
+      worldBible.character_defaults ?? {};
+    const entries = Object.entries(charDefs);
     if (entries.length) {
-      await Promise.all(entries.map(([name, desc]) => {
-        const gender = desc.includes("성별: 여") ? "여성"
-          : desc.includes("성별: 남") ? "남성" : null;
-        const role = desc.match(/역할:\s*([^.]+)/)?.[1]?.trim() ?? null;
-        return pool.query(
-          `INSERT INTO characters (book_id, name, role, personality, gender, source)
-           VALUES ($1, $2, $3, $4, $5, 'world_bible')
-           ON CONFLICT (book_id, name) DO NOTHING`,
-          [book_id, name, role, desc, gender]
-        );
+      await Promise.all(entries.map(([name, info]) => {
+        // 문자열/객체 두 형식 모두 처리
+        const desc       = typeof info === "string" ? info : (info.description ?? info.personality ?? "");
+        const type       = typeof info === "object" ? (info.type ?? null)
+          : (info.match(/유형:\s*([^,|\]]+)/)?.[1]?.trim() ?? null);
+        const gender     = typeof info === "object" ? (info.gender ?? null)
+          : (info.includes("성별: 여") ? "여성" : info.includes("성별: 남") ? "남성" : null);
+        const personality = typeof info === "object" ? (info.personality ?? desc) : desc;
+        const role       = typeof info === "string" ? (info.match(/역할:\s*([^.]+)/)?.[1]?.trim() ?? null) : null;
+
+        return Promise.all([
+          // legacy characters 테이블
+          pool.query(
+            `INSERT INTO characters (book_id, name, role, personality, gender, source)
+             VALUES ($1, $2, $3, $4, $5, 'world_bible')
+             ON CONFLICT (book_id, name) DO NOTHING`,
+            [book_id, name, role, desc, gender]
+          ),
+          // canonical_characters 테이블 (type/gender/initial_items 정본)
+          upsertCanonicalCharacter(book_id, {
+            name, personality, type: type ?? "", gender: gender ?? "",
+            initial_items: (typeof info === "object" && Array.isArray(info.initial_items))
+              ? info.initial_items : [],
+          }),
+        ]);
       }));
       logInfo("api:context:save", "World Bible 인물 DB 등록", {
         book_id,

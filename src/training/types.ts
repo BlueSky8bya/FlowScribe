@@ -19,6 +19,7 @@ export interface PlannerTrace {
   fallback_used: boolean;
   fallback_reason?: string;
   elapsed_ms: number;
+  model_used?: string;            // A/B 실험용 — 실제 사용 모델명
   /** planner가 실제로 참조한 계약 — 학습 데이터 필터링/분석용 */
   input_contract?: {
     // Narrative contract
@@ -41,6 +42,10 @@ export interface PlannerTrace {
     character_arcs_count: number;
     has_prev_tail: boolean;
     foreshadow_count: number;
+    // Arc-phase — planner 7-phase (state_extractor 기준)
+    // NOTE: training/types.ts ArcPhase(4종)와 다름 — 혼용 금지. planner_arc_phase로 명시
+    planner_arc_phase?: string;  // "intro"|"early"|"mid"|"late"|"pre_final"|"final"|"unknown"
+    planner_arc_ratio?: number;  // episode_number / resolved_final (0~1)
   };
 }
 
@@ -49,6 +54,7 @@ export interface RendererTrace {
   user_prompt: string;
   generated_text: string;
   elapsed_ms: number;
+  model_used?: string;            // A/B 실험용 — 실제 사용 모델명
 }
 
 export interface RevisionIterationTrace {
@@ -128,6 +134,151 @@ export interface ComputedReward {
   trace_id: string;
   breakdown: RewardBreakdown;
   computed_at: string;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Extended Episode-Level Reward (v2 — backward compat: breakdown preserved)
+// ──────────────────────────────────────────────────────────────
+
+/** episode 단위 확장 점수 (0~1 정규화) */
+export interface EpisodeRewardExtended {
+  // ── Hard Gate flags ──────────────────────────────────────────
+  /** true이면 이 샘플은 DPO chosen/SFT 후보에서 즉시 제외 */
+  hard_gate_failed: boolean;
+  hard_gate_reasons: string[];  // "truncation" | "foreign_char" | "absolute_forbidden" | "json_parse_fail" | "severe_pov" | "invalid_items" | "postprocess_overload"
+
+  // ── Prose Judge 확장 점수 (0~1) ─────────────────────────────
+  state_completeness: number;        // character states fully updated this episode
+  goal_progress: number;             // recent_goal clearly advanced
+  scene_purpose_clarity: number;     // scene has identifiable dramatic purpose
+  dialogue_distinctiveness: number;  // characters sound distinct from each other
+  emotional_causality: number;       // emotional shifts have visible cause
+  consequence_visibility: number;    // events leave traceable consequences
+  narrative_density: number;         // no wasted passages
+  ending_progress: number;           // episode moves toward overall resolution
+
+  // ── Postprocess quality ──────────────────────────────────────
+  postprocess_dependency_penalty: number;  // ≤ 0: heavy postproc correction = worse sample
+
+  // ── Judge uncertainty ────────────────────────────────────────
+  judge_uncertainty: number;         // 0=confident, 1=uncertain (from score variance)
+
+  // ── Aggregate ────────────────────────────────────────────────
+  episode_extended_score: number;    // weighted aggregate of all extended scores
+}
+
+// ──────────────────────────────────────────────────────────────
+// Trajectory Reward — N-episode sliding window
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * TrajectoryArcPhase — trajectory_reward.ts 전용 4-phase (sliding window 태깅용)
+ * ⚠️  pipeline/state_extractor.ts 의 ArcPhase(7종: intro/early/mid/late/pre_final/final/unknown)와
+ *     이름이 같지만 다른 vocabulary다. 혼용 금지.
+ *     planner arc_phase는 input_contract.planner_arc_phase(string) 로 저장됨.
+ */
+export type ArcPhase = "intro" | "rising" | "climax" | "resolution";
+
+export interface TrajectoryWindowScores {
+  // 변화가 좋아야 하는 항목 (diversity/progression 보상)
+  emotional_arc_consistency: number;   // 0~1: emotions change appropriately
+  goal_evolution: number;              // 0~1: recent_goal advances, not stale
+  escalation_curve: number;            // 0~1: plot_momentum trend is rising
+  ending_convergence: number;          // 0~1: remaining_episodes decreasing with good pace
+
+  // 안정이 좋아야 하는 항목 (continuity 보상)
+  item_retention_consistency: number;  // 0~1: items don't vanish/appear mysteriously
+  location_transition_coherence: number; // 0~1: location changes feel logical
+  character_identity_stability: number;  // 0~1: character distinctiveness maintained
+
+  // 해소 패턴 항목 (foreshadow/payoff balance)
+  foreshadow_pressure: number;         // 0~1: foreshadow builds mid, resolves late
+  curiosity_retention: number;         // 0~1: ending_hook scores stay engaging
+  continuity_recall: number;           // 0~1: arc_summaries + rolling_summary signal
+
+  // 비반복 항목
+  state_non_repetition: number;        // 0~1: physical/emotional states don't loop
+}
+
+export interface TrajectoryWindow {
+  window_size: number;
+  start_episode: number;
+  end_episode: number;
+  includes_final_episode: boolean;
+  arc_phase: ArcPhase;
+  scores: TrajectoryWindowScores;
+  window_score: number;             // weighted aggregate
+}
+
+export interface TrajectoryReward {
+  book_id: string;
+  resolved_final_episode: number;
+  windows: TrajectoryWindow[];
+  summary: {
+    mean_window_score: number;
+    best_window_score: number;
+    worst_window_score: number;
+    final_window_score: number | null;   // score of window containing final episode
+    arc_coherence_score: number;         // std_dev-based consistency measure
+    pre_final_convergence_score: number; // avg score of last 3 windows before final
+  };
+  computed_at: string;
+}
+
+// ──────────────────────────────────────────────────────────────
+// Ending / Closure Reward
+// ──────────────────────────────────────────────────────────────
+
+export interface EndingLevelReward {
+  final_episode_number: number;
+  resolved_final_episode: number;
+
+  // ── Positive scores (0~1) ────────────────────────────────────
+  ending_readiness: number;              // was the story ready to end?
+  central_conflict_resolution: number;  // core conflict resolved
+  foreshadow_payoff_coverage: number;   // promises made → promises kept
+  character_arc_resolution: number;     // character arcs closed
+  emotional_resolution: number;         // emotional throughline lands
+  ending_proportionality: number;       // not too rushed, not too dragged
+  ending_surprise_earned: number;       // surprising but retroactively inevitable
+  sequel_open_hook_balance: number;     // open ending done right (0 if fully closed is correct)
+
+  // ── Penalties (≤ 0) ─────────────────────────────────────────
+  unresolved_critical_thread_penalty: number;  // unclosed major promises
+  deus_ex_machina_penalty: number;             // resolution came from nowhere
+  premature_closure_penalty: number;           // ended too early (before resolved_final)
+  overextended_delay_penalty: number;          // still going after resolved_final
+  overexplained_ending_penalty: number;        // over-narrated, kills emotional impact
+
+  // ── Pre-final convergence (scored from windows) ──────────────
+  pre_final_convergence_score: number;   // avg trajectory window score for last 3 ep window
+
+  // ── Aggregate ────────────────────────────────────────────────
+  final_closure_score: number;           // weighted sum including penalties
+
+  // ── LLM judge metadata ──────────────────────────────────────
+  judge_summary: string;
+  computed_at: string;
+  judge_model?: string;
+}
+
+// ──────────────────────────────────────────────────────────────
+// ComputedRewardV2 — episode + trajectory + ending
+// ──────────────────────────────────────────────────────────────
+
+/** run_traces.computed_reward에 저장되는 풀 reward 구조 (v2) */
+export interface ComputedRewardV2 {
+  trace_id: string;
+  // 기존 breakdown 유지 (backward compat)
+  breakdown: RewardBreakdown;
+  // 확장 episode 점수
+  episode_extended?: EpisodeRewardExtended;
+  // 이 episode가 포함된 trajectory windows (book 전체 계산 후 역참조)
+  trajectory_windows?: TrajectoryWindow[];
+  // 최종화인 경우에만 populated
+  ending_level?: EndingLevelReward;
+  computed_at: string;
+  reward_schema_version: string;  // "2.0"
 }
 
 // ──────────────────────────────────────────────────────────────

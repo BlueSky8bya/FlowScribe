@@ -9,9 +9,12 @@
  * - 학습 중: GRPO/DPO trainer에 reward 함수로 전달
  */
 
-import type { RunTrace, RewardBreakdown, ComputedReward } from "./types.js";
+import type {
+  RunTrace, RewardBreakdown, ComputedReward,
+  EpisodeRewardExtended, ComputedRewardV2,
+} from "./types.js";
 import type { PlanValidationResult } from "../types/planner.js";
-import type { ValidationResult } from "../types/canonical.js";
+import type { ValidationResult, QualityScores } from "../types/canonical.js";
 
 // 가중치 설정 — 실험 후 조정 가능
 const WEIGHTS = {
@@ -137,6 +140,200 @@ export function computeReward(trace: RunTrace): ComputedReward {
 /** 배치 reward 계산 */
 export function computeRewardBatch(traces: RunTrace[]): ComputedReward[] {
   return traces.map(computeReward);
+}
+
+// ──────────────────────────────────────────────────────────────
+// Hard Gate — collecting 전 필수 reject 조건
+// ──────────────────────────────────────────────────────────────
+
+// scripts/utils/dpo_utils.ts의 FOREIGN_CHAR_PATTERN과 범위 일치: CJK + 전각 문자만
+const FOREIGN_PATTERN = /[一-鿿぀-ゟ゠-ヿ　-〿]/;
+const UNCLOSED_QUOTE  = /(?<!["“”])"[^"]*$/m;
+
+export interface HardGateResult {
+  failed: boolean;
+  reasons: string[];
+}
+
+/**
+ * computeHardGate — 샘플을 DPO chosen/SFT 후보에서 즉시 제외할 조건 검사.
+ * reward 계산이 아니라 reject gate다.
+ */
+export function computeHardGate(
+  trace: RunTrace,
+  generatedText: string,
+  opts: {
+    ppStats?: { foreignCharsRemoved?: number; quoteMerges?: number; bracketMerges?: number };
+    episodeRole?: string;
+  } = {},
+): HardGateResult {
+  const reasons: string[] = [];
+
+  // ① 텍스트 없음 / JSON 파싱 실패
+  if (!generatedText?.trim()) reasons.push("empty_output");
+
+  // ② 외국어 문자 잔류
+  if (generatedText && FOREIGN_PATTERN.test(generatedText)) reasons.push("foreign_char");
+
+  // ③ 미닫힘 따옴표 (postprocess 이후에도 남은 경우)
+  if (generatedText && UNCLOSED_QUOTE.test(generatedText)) reasons.push("unclosed_quote");
+
+  // ④ 심각한 POV 위반 (critical severity)
+  const criticalPOV = trace.prose_validation?.hard_violations?.filter(
+    v => v.severity === "critical" && v.rule.includes("시점"),
+  );
+  if (criticalPOV?.length) reasons.push("severe_pov_violation");
+
+  // ⑤ absolute_forbidden critical violation
+  const absoluteViolations = trace.prose_validation?.hard_violations?.filter(
+    v => v.severity === "critical",
+  );
+  if (absoluteViolations?.length) reasons.push("absolute_forbidden_violation");
+
+  // ⑥ truncation (no proper ending)
+  if (generatedText) {
+    const trimmed = generatedText.trim();
+    const hasEnd = /\[END\]$/.test(trimmed) || /\[CLIFF\](\s*\[END\])?$/.test(trimmed);
+    const lastChar = trimmed.slice(-1);
+    const properEnd = [".", "!", "?", "。", "！", "？", "…", "」", "』", '"'].includes(lastChar);
+    if (!hasEnd && !properEnd && trimmed.length < 100) reasons.push("truncation");
+  }
+
+  // ⑦ 과도한 postprocess 개입 (외국어 10자 이상 제거 = LLM이 한국어를 못 지킨 것)
+  if ((opts.ppStats?.foreignCharsRemoved ?? 0) >= 10) reasons.push("postprocess_overload");
+
+  // ⑧ final episode인데 결말 신호 없음
+  if (opts.episodeRole === "final" && trace.prose_validation) {
+    const endingHook = trace.prose_validation.quality_scores.ending_hook ?? 100;
+    if (endingHook < 20) reasons.push("final_ep_no_ending");
+  }
+
+  return { failed: reasons.length > 0, reasons };
+}
+
+// ──────────────────────────────────────────────────────────────
+// Extended Episode Reward (v2)
+// ──────────────────────────────────────────────────────────────
+
+/**
+ * computeEpisodeExtended — 기존 breakdown 위에 추가 episode 점수 계산.
+ * quality_scores에서 직접 추출하거나 proxy로 추정.
+ */
+export function computeEpisodeExtended(
+  trace: RunTrace,
+  generatedText: string,
+  opts: {
+    ppStats?: { foreignCharsRemoved?: number; quoteMerges?: number; bracketMerges?: number; dialogueLinesTagged?: number };
+    episodeRole?: string;
+  } = {},
+): EpisodeRewardExtended {
+  const qs: QualityScores = trace.prose_validation?.quality_scores ?? {
+    pov_consistency: 70, scene_clarity: 70, character_consistency: 70, plot_momentum: 70,
+    world_rule_usage: 70, exposition_control: 70, prose_density: 70, ending_hook: 60,
+    style_adherence: 70, intervention_adherence: 70,
+  };
+  const gate = computeHardGate(trace, generatedText, opts);
+
+  // 확장 점수 (prose judge에서 직접 추출하거나 proxy)
+  // state_completeness: 인물 상태 업데이트 여부 — character_consistency를 proxy로 사용
+  const state_completeness = (qs.character_consistency ?? 70) / 100;
+
+  // goal_progress: plot_momentum을 proxy로 사용 (본격 신호는 trajectory에서)
+  const goal_progress = (qs.plot_momentum ?? 70) / 100;
+
+  // scene_purpose_clarity: scene_clarity가 직접 해당
+  const scene_purpose_clarity = (qs.scene_clarity ?? 70) / 100;
+
+  // dialogue_distinctiveness: character_consistency + style_adherence 조합
+  const dialogue_distinctiveness = (
+    (qs.character_consistency ?? 70) * 0.6 +
+    (qs.style_adherence ?? 70) * 0.4
+  ) / 100;
+
+  // emotional_causality: exposition_control (감정 서술의 절제 = 원인 가시성과 상관)
+  const emotional_causality = (
+    (qs.exposition_control ?? 70) * 0.5 +
+    (qs.plot_momentum ?? 70) * 0.5
+  ) / 100;
+
+  // consequence_visibility: plot_momentum + character_consistency
+  const consequence_visibility = (
+    (qs.plot_momentum ?? 70) * 0.6 +
+    (qs.character_consistency ?? 70) * 0.4
+  ) / 100;
+
+  // narrative_density: prose_density가 직접 해당
+  const narrative_density = (qs.prose_density ?? 70) / 100;
+
+  // ending_progress: 이 화의 ending_hook = 다음 화 진입 욕구
+  const ending_progress = (qs.ending_hook ?? 60) / 100;
+
+  // postprocess_dependency_penalty
+  const ppForeign = opts.ppStats?.foreignCharsRemoved ?? 0;
+  const ppQuote   = opts.ppStats?.quoteMerges ?? 0;
+  const postprocess_dependency_penalty = -Math.min(0.4,
+    (ppForeign >= 5 ? 0.2 : ppForeign >= 1 ? 0.05 : 0) +
+    (ppQuote   >= 3 ? 0.1 : ppQuote   >= 1 ? 0.03 : 0),
+  );
+
+  // judge_uncertainty: 점수 분산 기반 (점수들이 들쭉날쭉하면 불확실)
+  const scoreValues = (Object.values(qs) as unknown[]).map(Number).filter(v => !isNaN(v));
+  const mean = scoreValues.length ? scoreValues.reduce((s, v) => s + v, 0) / scoreValues.length : 70;
+  const variance = scoreValues.length > 1
+    ? scoreValues.reduce((s, v) => s + (v - mean) ** 2, 0) / scoreValues.length : 0;
+  const judge_uncertainty = Math.min(1, Math.sqrt(variance) / 30);
+
+  // 집계
+  const episode_extended_score = Math.max(0, Math.min(1,
+    state_completeness        * 0.10 +
+    goal_progress             * 0.12 +
+    scene_purpose_clarity     * 0.12 +
+    dialogue_distinctiveness  * 0.10 +
+    emotional_causality       * 0.10 +
+    consequence_visibility    * 0.10 +
+    narrative_density         * 0.10 +
+    ending_progress           * 0.12 +
+    postprocess_dependency_penalty +
+    (1 - judge_uncertainty)   * 0.14,
+  ));
+
+  return {
+    hard_gate_failed: gate.failed,
+    hard_gate_reasons: gate.reasons,
+    state_completeness:        Math.round(state_completeness * 1000) / 1000,
+    goal_progress:             Math.round(goal_progress * 1000) / 1000,
+    scene_purpose_clarity:     Math.round(scene_purpose_clarity * 1000) / 1000,
+    dialogue_distinctiveness:  Math.round(dialogue_distinctiveness * 1000) / 1000,
+    emotional_causality:       Math.round(emotional_causality * 1000) / 1000,
+    consequence_visibility:    Math.round(consequence_visibility * 1000) / 1000,
+    narrative_density:         Math.round(narrative_density * 1000) / 1000,
+    ending_progress:           Math.round(ending_progress * 1000) / 1000,
+    postprocess_dependency_penalty: Math.round(postprocess_dependency_penalty * 1000) / 1000,
+    judge_uncertainty:         Math.round(judge_uncertainty * 1000) / 1000,
+    episode_extended_score:    Math.round(episode_extended_score * 1000) / 1000,
+  };
+}
+
+/**
+ * computeRewardV2 — 기존 computeReward + episode_extended 확장.
+ * 기존 breakdown은 그대로 유지 (backward compat).
+ */
+export function computeRewardV2(
+  trace: RunTrace,
+  generatedText: string,
+  opts: {
+    ppStats?: { foreignCharsRemoved?: number; quoteMerges?: number; bracketMerges?: number; dialogueLinesTagged?: number };
+    episodeRole?: string;
+  } = {},
+): ComputedRewardV2 {
+  const base = computeReward(trace);
+  const episode_extended = computeEpisodeExtended(trace, generatedText, opts);
+
+  return {
+    ...base,
+    episode_extended,
+    reward_schema_version: "2.0",
+  };
 }
 
 /** reward 통계 요약 */

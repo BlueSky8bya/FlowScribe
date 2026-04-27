@@ -1,6 +1,6 @@
 import { getLLMClient, getStoryModel } from "../lib/llm.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
-import { variantCPovRule, checkPovForService } from "../lib/pov_rules.js";
+import { variantCPovRule, checkPovForService } from "../policies/pov_rules.js";
 import type { Response } from "express";
 import type { ArcSummary, CharacterArc } from "./arc_memory.js";
 
@@ -112,6 +112,15 @@ function buildSystemPrompt(ctx: StoryContext, isFinale: boolean): string {
   const characters  = charEntries.map(([name, desc]) => `${name}: ${desc}`).join("\n") || "없음";
   const charNames   = charEntries.map(([name]) => name).join(", ");
 
+  // 주인공 명시적 선언 — 유형 칩 또는 성격/특성 자유 입력 어느 쪽에 "주인공" 을 써도 탐지
+  const protagonistEntry = charEntries.find(([, desc]) =>
+    desc.includes("유형: 주인공") || desc.includes("유형:주인공") ||
+    /[\]\s,]주인공/.test(desc) // "] 주인공", ", 주인공", " 주인공" 등 자유 입력 케이스
+  );
+  const protagonistDecl = protagonistEntry
+    ? `[★ 주인공: ${protagonistEntry[0]}] 이 이야기의 핵심 주인공은 반드시 ${protagonistEntry[0]}이다. 모든 화에서 ${protagonistEntry[0]}의 시선·감정·행동이 서사를 이끌어야 한다. 다른 인물이 주인공 역할을 대체하는 것은 절대 금지다. ${protagonistEntry[0]} 이외의 인물을 주인공처럼 묘사하거나 그 시점으로 이야기를 전개하는 것은 오류다.`
+    : "";
+
   const pronounRules = charEntries
     .map(([name, desc]) => {
       if (desc.includes("성별: 여") || desc.includes("성별: 여성")) return `${name}→그녀/그녀의`;
@@ -163,7 +172,7 @@ function buildSystemPrompt(ctx: StoryContext, isFinale: boolean): string {
 대화 따옴표는 반드시 " "을 사용한다. 직선 "(ASCII 0x22) 사용 시 채점 0점 처리. 모든 대화는 반드시 " 로 시작해 " 로 닫는다.
 ${!isFinale ? `[필수 출력 형식] 본문을 완성하면 반드시 단독 줄에 [CLIFF]를 출력한다. [CLIFF]를 쓰지 않고 멈추는 것은 오류다.` : ""}
 이번 화에는 반드시 ${mainChars} 중 최소 ${charTarget}명이 직접 등장하거나 대화·행동으로 언급되어야 한다.
-${directorBlock}
+${protagonistDecl ? protagonistDecl + "\n" : ""}${directorBlock}
 [서사 단계] ${arcPhase}
 
 [등장인물 — 아래 인물만 사용, 임의 인물 생성 금지]

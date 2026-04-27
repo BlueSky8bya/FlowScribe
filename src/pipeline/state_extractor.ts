@@ -13,14 +13,17 @@
 import type { EffectiveContext, GenConfig, EpisodeCharBudget } from "../types/canonical.js";
 import { resolveCharBudget } from "../types/canonical.js";
 import type { ForbiddenAction, ItemConstraint } from "../types/planner.js";
-import { variantCPovRule } from "../lib/pov_rules.js";
+import { variantCPovRule } from "../policies/pov_rules.js";
 
 export type EpisodeRole = "mid" | "late" | "pre-final" | "final";
+export type ArcPhase = "intro" | "early" | "mid" | "late" | "pre_final" | "final" | "unknown";
 
 export interface NarrativeContract {
   resolved_final: number;
   remaining_episodes: number;
   episode_role: EpisodeRole;
+  arc_phase: ArcPhase;
+  arc_ratio: number; // 0.0 ~ 1.0, 현재 화 / 최종화
 }
 
 export interface ExtractedStateConstraints {
@@ -134,15 +137,16 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     });
   }
 
-  // must_keep_items: 소지품 있는 인물
+  // must_keep_items: dynamic items 우선, 없으면 canonical initial_items 폴백
   const must_keep_items: ItemConstraint[] = [];
-  for (const s of ctx.character_dynamic_states) {
-    for (const item of s.items ?? []) {
-      must_keep_items.push({
-        character_name: s.character_name,
-        item,
-        must_persist: true,
-      });
+  for (const c of ctx.characters) {
+    const dyn = ctx.character_dynamic_states.find(d => d.character_name === c.name);
+    const entries = (dyn?.items?.length ?? 0) > 0
+      ? dyn!.items!
+      : (c.initial_items?.length ?? 0) > 0 ? c.initial_items! : [];
+    for (const entry of entries) {
+      const itemName = typeof entry === "string" ? entry : entry.name;
+      must_keep_items.push({ character_name: c.name, item: itemName, must_persist: true });
     }
   }
 
@@ -159,7 +163,13 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     const dyn     = ctx.character_dynamic_states.find(d => d.character_name === c.name);
     const loc     = dyn?.location ?? "위치 불명";
     const state   = dyn?.physical_state ?? "정상";
-    const items   = dyn?.items?.join(", ") ?? "없음";
+    // dynamic items 우선, 없으면 canonical initial_items 폴백 (첫 화 또는 상태 미기록 시)
+    const rawItems = (dyn?.items?.length ?? 0) > 0
+      ? dyn!.items!
+      : (c.initial_items?.length ?? 0) > 0 ? c.initial_items! : [];
+    const items = rawItems.length > 0
+      ? rawItems.map(i => typeof i === "string" ? i : (i.condition ? `${i.name}(${i.condition})` : i.name)).join(", ")
+      : "없음";
     const goal    = dyn?.recent_goal ?? "";
     const emotion = dyn?.emotional_state;
     const vis     = dyn?.visibility_state;
@@ -193,6 +203,16 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     : remaining <= 5             ? "late"
     : "mid";
 
+  const arc_ratio = resolvedFinal > 0 ? ctx.episode_number / resolvedFinal : 0;
+  const arc_phase: ArcPhase =
+    resolvedFinal <= 0   ? "unknown"
+    : arc_ratio < 0.15   ? "intro"
+    : arc_ratio < 0.35   ? "early"
+    : arc_ratio < 0.65   ? "mid"
+    : arc_ratio < 0.85   ? "late"
+    : arc_ratio < 0.97   ? "pre_final"
+    : "final";
+
   // rule / intervention contract: 규칙/개입 제약
   const absolute_forbidden = ctx.absolute_forbidden ?? [];
   const episode_forbidden  = cfg.forbidden_elements ?? [];
@@ -212,7 +232,7 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     ending_constraint,
     char_budget,
     absent_characters,
-    narrative_contract: { resolved_final: resolvedFinal, remaining_episodes: remaining, episode_role },
+    narrative_contract: { resolved_final: resolvedFinal, remaining_episodes: remaining, episode_role, arc_phase, arc_ratio },
     absolute_forbidden,
     episode_forbidden,
     episode_required,

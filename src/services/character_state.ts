@@ -16,7 +16,8 @@ import type { CharacterDynamicState, CharacterInferredState, CanonicalCharacter 
 export async function getCanonicalCharacters(bookId: string): Promise<CanonicalCharacter[]> {
   try {
     const res = await pool.query(
-      `SELECT name, personality, type, gender FROM canonical_characters WHERE book_id = $1 ORDER BY created_at ASC`,
+      `SELECT name, personality, type, gender, COALESCE(initial_items, '[]'::jsonb) AS initial_items
+       FROM canonical_characters WHERE book_id = $1 ORDER BY created_at ASC`,
       [bookId]
     );
     return res.rows;
@@ -29,11 +30,12 @@ export async function getCanonicalCharacters(bookId: string): Promise<CanonicalC
 export async function upsertCanonicalCharacter(bookId: string, char: CanonicalCharacter): Promise<void> {
   try {
     await pool.query(
-      `INSERT INTO canonical_characters (book_id, name, personality, type, gender, updated_at)
-       VALUES ($1,$2,$3,$4,$5,NOW())
+      `INSERT INTO canonical_characters (book_id, name, personality, type, gender, initial_items, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,NOW())
        ON CONFLICT (book_id, name) DO UPDATE
-         SET personality=$3, type=$4, gender=$5, updated_at=NOW()`,
-      [bookId, char.name, char.personality, char.type, char.gender]
+         SET personality=$3, type=$4, gender=$5, initial_items=$6, updated_at=NOW()`,
+      [bookId, char.name, char.personality, char.type, char.gender,
+       JSON.stringify(char.initial_items ?? [])]
     );
   } catch (err) {
     logError("service:character_state", err, { context: "upsertCanonicalCharacter", book_id: bookId, name: char.name });
@@ -78,12 +80,13 @@ export async function commitDynamicState(state: CharacterDynamicState): Promise<
       `INSERT INTO character_dynamic_states
          (book_id, character_name, episode_number, location, physical_state,
           items, recent_goal, relationship_updates, foreshadow_connections,
-          behavior_hints, alias_used, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NOW())
+          behavior_hints, alias_used, emotional_state, visibility_state, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NOW())
        ON CONFLICT (book_id, character_name, episode_number) DO UPDATE
          SET location=$4, physical_state=$5, items=$6, recent_goal=$7,
              relationship_updates=$8, foreshadow_connections=$9,
-             behavior_hints=$10, alias_used=$11, updated_at=NOW()`,
+             behavior_hints=$10, alias_used=$11, emotional_state=$12,
+             visibility_state=$13, updated_at=NOW()`,
       [
         state.book_id, state.character_name, state.episode_number,
         state.location ?? null, state.physical_state ?? null,
@@ -93,6 +96,8 @@ export async function commitDynamicState(state: CharacterDynamicState): Promise<
         JSON.stringify(state.foreshadow_connections ?? []),
         state.behavior_hints ?? null,
         JSON.stringify(state.alias_used ?? []),
+        state.emotional_state ?? null,
+        state.visibility_state ?? "present",
       ]
     );
     logInfo("service:character_state", "동적 상태 커밋", {

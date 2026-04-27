@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../lib/db.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
+import { upsertCanonicalCharacter } from "../services/character_state.js";
 
 export const charactersRouter = Router();
 
@@ -49,6 +50,17 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
           JSON.stringify(c.extra ?? {}),
         ]
       );
+    }
+    // canonical_characters에도 initial_items 포함 upsert
+    for (const c of characters) {
+      if (!c.name) continue;
+      await upsertCanonicalCharacter(book_id, {
+        name: c.name,
+        personality: c.personality ?? "",
+        type: c.type ?? "인간",
+        gender: c.gender ?? "해당없음",
+        initial_items: Array.isArray(c.initial_items) ? c.initial_items : [],
+      });
     }
     logInfo("api:characters:save", "인물 upsert 완료", { book_id, count: characters.length });
     res.json({ ok: true, count: characters.length });

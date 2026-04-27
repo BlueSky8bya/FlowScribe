@@ -34,6 +34,8 @@ import { buildEffectiveContext, effectiveContextToStoryContext, saveEpisodeSnaps
 import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
+import { getLatestDynamicStates } from "../services/character_state.js";
+import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { pool } from "../lib/db.js";
 import { logInfo, logError } from "../lib/logger.js";
 import type { GenConfig, EpisodeTask, PrevEpisodeState } from "../types/canonical.js";
@@ -61,6 +63,8 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     use_planner: usePlanner = false,
     skip_render_on_plan_fail: skipRenderOnPlanFail = false,
     enable_trace: enableTrace = false,
+    planner_model: plannerModelOverride,
+    renderer_model: rendererModelOverride,
   } = req.body as {
     book_id: string;
     episode: number;
@@ -73,6 +77,8 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     use_planner?: boolean;
     skip_render_on_plan_fail?: boolean;
     enable_trace?: boolean;
+    planner_model?: string;
+    renderer_model?: string;
   };
 
   if (!bookId || !episode) {
@@ -97,15 +103,22 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     // 스냅샷 저장 (fire-and-forget)
     saveEpisodeSnapshot({ ...ctx, book_id: bookId } as any).catch(() => {});
 
-    // character dynamic state snapshot — done 이벤트에 포함
-    const charStateSnapshot = ctx.character_dynamic_states.map(s => ({
-      character_name:   s.character_name,
-      location:         s.location        ?? null,
-      physical_state:   s.physical_state  ?? null,
-      items:            s.items           ?? [],
-      emotional_state:  s.emotional_state ?? null,
-      visibility_state: s.visibility_state ?? "present",
-    }));
+    // character dynamic state snapshot — done 이벤트에 포함 (generate.ts와 필드 정합)
+    const ctxCanonChars = ctx.characters ?? [];
+    const charStateSnapshot = ctx.character_dynamic_states.map(s => {
+      const canon = ctxCanonChars.find(c => c.name === s.character_name);
+      return {
+        character_name:   s.character_name,
+        type:             canon?.type            ?? null,
+        gender:           canon?.gender          ?? null,
+        location:         s.location             ?? null,
+        physical_state:   s.physical_state       ?? null,
+        items:            s.items                ?? [],
+        emotional_state:  s.emotional_state      ?? null,
+        visibility_state: s.visibility_state     ?? "present",
+        is_new_character: !canon,
+      };
+    });
 
     const t0 = Date.now();
     let fullText = "";
@@ -118,13 +131,34 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
         skipRenderOnPlanFail,
         // enable_trace=true 시 학습 궤적 수집 (run_traces 테이블)
         tracePool: enableTrace ? pool : undefined,
+        bookId: bookId ?? undefined,
+        plannerModelOverride,
+        rendererModelOverride,
       });
 
       fullText = pipelineResult.generated_text;
       clearInterval(heartbeat);
+      // planner path: pipeline이 commitDynamicState를 완료한 후이므로 재조회
+      const wbCtxDefs = ctx?.characters ?? [];
+      const freshCharStates = bookId
+        ? (await getLatestDynamicStates(bookId, episode).catch(() => [])).map(s => {
+            const canon = wbCtxDefs.find(c => c.name === s.character_name);
+            return {
+              character_name:   s.character_name,
+              type:             canon?.type            ?? null,
+              gender:           canon?.gender          ?? null,
+              location:         s.location             ?? null,
+              physical_state:   s.physical_state       ?? null,
+              items:            s.items                ?? [],
+              emotional_state:  s.emotional_state      ?? null,
+              visibility_state: s.visibility_state     ?? "present",
+              is_new_character: !canon,
+            };
+          })
+        : charStateSnapshot;
       send({
         done: true, chars: fullText.length, elapsed_ms: Date.now() - t0,
-        char_states: charStateSnapshot,
+        char_states: freshCharStates,
         episode_meta: {
           plan_verdict:      pipelineResult.plan_validation.verdict,
           final_score:       pipelineResult.final_score,
@@ -158,6 +192,11 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
             send({ revised_text: revisionResult.final_text });
           }
         }
+      }
+
+      // enable_trace=true 시 background_audit로 reward v2 적용 (기존 trace에 UPDATE)
+      if (enableTrace && ctx && bookId) {
+        scheduleBackgroundAudit(ctx, pipelineResult, bookId, pool, pipelineResult.trace_id);
       }
 
       logInfo("api:generate_v2", "플래너 파이프라인 완료", {

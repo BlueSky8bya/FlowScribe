@@ -35,7 +35,7 @@ const DEFAULT_GEN_CONFIG: GenConfig = {
   pov: "3인칭 관찰자",
   style: "균형",
   conflict: 5, foreshadow: 5, emotion: 5, dialogue: 5, direction: 5,
-  episodeLength: 1000, episodeLengthVar: 200,
+  episodeLength: 750, episodeLengthVar: 150,
   totalEpisodes: 20, totalEpisodesVar: 5,
 };
 
@@ -150,14 +150,39 @@ export async function buildEffectiveContext(opts: {
   }
 
   // ── Characters ────────────────────────────────────────────────
-  const canonical = canonicalChars.status === "fulfilled" ? canonicalChars.value : [];
+  const canonicalRaw = canonicalChars.status === "fulfilled" ? canonicalChars.value : [];
+
+  // personality 필드에서 중복 prefix 제거: "[유형: X, 성별: Y] ..." → "..."
+  const canonical = canonicalRaw.map(c => ({
+    ...c,
+    personality: c.personality?.replace(/^\[유형:[^\]]+\]\s*/, "") ?? c.personality,
+  }));
+
+  // 주인공 인물을 배열 맨 앞으로 정렬 (LLM이 첫 번째 인물을 주인공으로 인식하는 경향 대응)
+  canonical.sort((a, b) => {
+    const aIsProtag = /주인공/.test(a.personality ?? "") ? 0 : 1;
+    const bIsProtag = /주인공/.test(b.personality ?? "") ? 0 : 1;
+    return aIsProtag - bIsProtag;
+  });
 
   // 기존 character_defaults에서 canonical이 없으면 변환
   if (!canonical.length && legacyWorldBible.character_defaults) {
-    for (const [name, desc] of Object.entries(legacyWorldBible.character_defaults)) {
-      const gender = desc.includes("성별: 여") ? "여성"
-        : desc.includes("성별: 남") ? "남성" : "해당없음";
-      canonical.push({ name, personality: desc, type: "인간", gender });
+    for (const [name, raw] of Object.entries(legacyWorldBible.character_defaults)) {
+      // 새 형식: 객체 { type, gender, description } 또는 레거시: 문자열
+      if (raw && typeof raw === "object") {
+        const obj = raw as Record<string, string>;
+        canonical.push({
+          name,
+          personality: obj.description ?? obj.personality ?? name,
+          type: obj.type ?? "인간",
+          gender: obj.gender ?? "해당없음",
+        });
+      } else {
+        const desc = raw as string;
+        const gender = desc.includes("성별: 여") ? "여성"
+          : desc.includes("성별: 남") ? "남성" : "해당없음";
+        canonical.push({ name, personality: desc.replace(/^\[유형:[^\]]+\]\s*/, ""), type: "인간", gender });
+      }
     }
   }
 
@@ -205,8 +230,12 @@ export async function buildEffectiveContext(opts: {
   };
 
   // ── Task ───────────────────────────────────────────────────────
+  // task.goal — 세계관·장르 정보를 담아 플래너에 의미 있는 방향 제공
+  const _genre  = (worldConfig as any)?.genre  ? `장르: ${(worldConfig as any).genre}` : "";
+  const _bg     = (worldConfig as any)?.background ? `배경: ${(worldConfig as any).background}` : "";
+  const _goal   = [`${episodeNumber}화`, _genre, _bg].filter(Boolean).join(" / ");
   const task: EpisodeTask = {
-    goal: `${episodeNumber}화 생성`,
+    goal: _goal,
     ...opts.overrideTask,
   };
 

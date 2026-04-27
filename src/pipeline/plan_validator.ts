@@ -18,11 +18,10 @@
  */
 
 import type { ScenePlan, PlanValidationResult, PlanVerdict, PlanIssue, CarryoverEffect, WorldRuleActivation } from "../types/planner.js";
+import { HOOK_TYPES } from "../types/planner.js";
 import type { EffectiveContext } from "../types/canonical.js";
 
-const VALID_HOOK_TYPES = new Set([
-  "immediate_threat", "unexpected_discovery", "new_problem", "unresolved_situation",
-]);
+const VALID_HOOK_TYPES = new Set<string>(HOOK_TYPES);
 
 export function validatePlan(plan: ScenePlan, ctx: EffectiveContext): PlanValidationResult {
   const issues: PlanIssue[] = [];

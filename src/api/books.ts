@@ -12,7 +12,7 @@ booksRouter.get("/", async (req: Request, res: Response) => {
   try {
     const result = await pool.query(
       `SELECT id, title, current_episode, context, created_at
-       FROM books WHERE user_id = $1 ORDER BY updated_at DESC`,
+       FROM books WHERE user_id = $1 AND title NOT LIKE '[DPO%' ORDER BY updated_at DESC`,
       [req.user!.id]
     );
     res.json({ books: result.rows });

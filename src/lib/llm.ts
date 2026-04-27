@@ -6,10 +6,11 @@ export type LLMProvider = "ollama" | "deepseek" | "openai" | "gemini";
 interface ProviderConfig {
   baseURL: string;
   apiKey: string;
-  storyModel: string;   // 소설 본문 생성 — 창의성 + 구조 지시 준수
-  plannerModel: string; // 계획 생성 — JSON 구조 특화 (SFT/LoRA 어댑터 대상)
-  suggestModel: string; // AI 추천 (인물/규칙/장르) — 창의적 제안
-  summaryModel: string; // 요약/압축/분석 — 롤링 요약, 아크 압축, 복선 분석
+  storyModel: string;    // 소설 본문 생성 — 창의성 + 구조 지시 준수
+  plannerModel: string;  // 계획 생성 — JSON 구조 특화 (SFT/LoRA 어댑터 대상)
+  rendererModel: string; // 소설 렌더링 전용 — A/B 실험용 분리 모델
+  suggestModel: string;  // AI 추천 (인물/규칙/장르) — 창의적 제안
+  summaryModel: string;  // 요약/압축/분석 — 롤링 요약, 아크 압축, 복선 분석
 }
 
 const PROVIDERS: Record<LLMProvider, ProviderConfig> = {
@@ -21,6 +22,8 @@ const PROVIDERS: Record<LLMProvider, ProviderConfig> = {
     // plannerModel: JSON 계획 생성 전용. Phase 1 SFT 이후 전용 어댑터로 교체 예정.
     // 기본은 storyModel과 동일하나 환경 변수로 분리 가능.
     plannerModel: process.env.PLANNER_MODEL  ?? process.env.STORY_MODEL ?? "qwen2.5:14b",
+    // rendererModel: 소설 본문 렌더링 전용. 기본은 storyModel과 동일.
+    rendererModel: process.env.RENDERER_MODEL ?? process.env.STORY_MODEL ?? "qwen2.5:14b",
     // gemma3:12b: 창의적 한국어 제안 품질 우수
     suggestModel: process.env.SUGGEST_MODEL  ?? "gemma3:12b",
     // gemma3:12b: 한국어 요약/분석 정확도 우수 (llama3.1:8b 대비)
@@ -29,26 +32,29 @@ const PROVIDERS: Record<LLMProvider, ProviderConfig> = {
   deepseek: {
     baseURL: "https://api.deepseek.com/v1",
     apiKey: process.env.DEEPSEEK_API_KEY ?? "",
-    storyModel:   "deepseek-chat",
-    plannerModel: "deepseek-chat",
-    suggestModel: "deepseek-chat",
-    summaryModel: "deepseek-chat",
+    storyModel:    "deepseek-chat",
+    plannerModel:  "deepseek-chat",
+    rendererModel: "deepseek-chat",
+    suggestModel:  "deepseek-chat",
+    summaryModel:  "deepseek-chat",
   },
   openai: {
     baseURL: "https://api.openai.com/v1",
     apiKey: process.env.OPENAI_API_KEY ?? "",
-    storyModel:   "gpt-4.1",
-    plannerModel: "gpt-4.1-mini",
-    suggestModel: "gpt-4.1-mini",
-    summaryModel: "gpt-4.1-mini",
+    storyModel:    "gpt-4.1",
+    plannerModel:  "gpt-4.1-mini",
+    rendererModel: "gpt-4.1",
+    suggestModel:  "gpt-4.1-mini",
+    summaryModel:  "gpt-4.1-mini",
   },
   gemini: {
     baseURL: "https://generativelanguage.googleapis.com/v1beta/openai/",
     apiKey: process.env.GEMINI_API_KEY ?? "",
-    storyModel:   "gemini-2.5-pro-preview-05-06",
-    plannerModel: "gemini-2.0-flash",
-    suggestModel: "gemini-2.0-flash",
-    summaryModel: "gemini-2.0-flash",
+    storyModel:    "gemini-2.5-pro-preview-05-06",
+    plannerModel:  "gemini-2.0-flash",
+    rendererModel: "gemini-2.5-pro-preview-05-06",
+    suggestModel:  "gemini-2.0-flash",
+    summaryModel:  "gemini-2.0-flash",
   },
 };
 
@@ -88,6 +94,10 @@ export function getStoryModel(): string {
 
 export function getPlannerModel(): string {
   return PROVIDERS[_activeProvider].plannerModel;
+}
+
+export function getRendererModel(): string {
+  return PROVIDERS[_activeProvider].rendererModel;
 }
 
 export function getSuggestModel(): string {

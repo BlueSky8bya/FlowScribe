@@ -17,24 +17,75 @@
 import { logInfo, logWarn } from "../lib/logger.js";
 import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
+import { commitDynamicState, getLatestDynamicStates } from "../services/character_state.js";
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
 import { runCreativePlanner } from "./planner.js";
+
+/**
+ * 인물 이름 정규화 — LLM이 출력한 character_name을 canonical 이름으로 매핑.
+ *
+ * 이벤트 분류 (범용, 모든 책/인물에 공통 적용):
+ *   exact_match        — canonical 완전 일치
+ *   drift_corrected    — prefix 근접 일치로 canonical 교체 (예: "빅토리아" → "빅토리")
+ *   orphan_skipped     — 비한국어 문자 포함, 커밋 스킵
+ *   new_character_allowed — 한국어 신규 인물, 허용
+ */
+type CharNormEvent = "exact_match" | "drift_corrected" | "orphan_skipped" | "new_character_allowed";
+
+function resolveCanonicalCharName(
+  raw: string,
+  canonicalNames: string[],
+): { name: string | null; event: CharNormEvent } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { name: null, event: "orphan_skipped" };
+
+  // 1. 완전 일치
+  if (canonicalNames.includes(trimmed)) return { name: trimmed, event: "exact_match" };
+
+  // 2. 근접 일치: canonical이 raw의 prefix이거나 raw가 canonical의 prefix
+  for (const cname of canonicalNames) {
+    if (trimmed.startsWith(cname) || cname.startsWith(trimmed)) {
+      logWarn("pipeline:charNorm", "drift_corrected — canonical로 정규화", { raw: trimmed, canonical: cname });
+      return { name: cname, event: "drift_corrected" };
+    }
+  }
+
+  // 3. 비한국어 문자 포함 (영문 알파벳 또는 CJK 중국/일본 전용 범위) → orphan 스킵
+  const hasNonKorean = /[A-Za-z]/.test(trimmed) || /[一-鿿㐀-䶿]/.test(trimmed);
+  if (hasNonKorean) {
+    logWarn("pipeline:charNorm", "orphan_skipped — 비한국어 이름", { raw: trimmed });
+    return { name: null, event: "orphan_skipped" };
+  }
+
+  // 4. 한국어 신규 인물 — 허용하되 경고
+  logWarn("pipeline:charNorm", "new_character_allowed — canonical 외 신규 인물", { raw: trimmed });
+  return { name: trimmed, event: "new_character_allowed" };
+}
 import { validatePlan, repairPlan } from "./plan_validator.js";
-import { renderFromPlan } from "./renderer.js";
+import { renderFromPlan, renderFromPlanWithTrace } from "./renderer.js";
 
 export interface PlannerPipelineOptions {
   doRevise?: boolean;
+  /** prose 검증 LLM 호출 여부 (기본 true; false 설정 시 검증 스킵 — 속도 우선 모드) */
+  doValidate?: boolean;
   promptVersion?: "A" | "B";
   /** plan FAIL 시 렌더링 스킵 여부 (기본 false: plan FAIL여도 렌더링 시도) */
   skipRenderOnPlanFail?: boolean;
+  /** A/B 실험용 모델 오버라이드 — 미지정 시 환경변수 기본값 사용 */
+  plannerModelOverride?: string;
+  rendererModelOverride?: string;
   /**
    * 학습 trace 저장 여부.
    * pool을 전달하면 run_traces 테이블에 실행 궤적을 저장한다.
    * 운영 서버에서 데이터 수집 시 사용; 미전달 시 trace 저장 건너뜀.
    */
   tracePool?: import("pg").Pool;
+  /** 캐릭터 상태 커밋용 book_id (없으면 상태 저장 스킵) */
+  bookId?: string;
+  /** 단계별 진행 상황 콜백 — SSE status 이벤트용 */
+  onStatus?: (msg: string) => void;
 }
 
 const EMPTY_QUALITY_SCORES = {
@@ -50,32 +101,41 @@ export async function runPlannerPipeline(
   const t0 = Date.now();
   const {
     doRevise            = true,
+    doValidate          = true,
     promptVersion       = "A",
     skipRenderOnPlanFail = false,
     tracePool,
+    bookId,
+    onStatus,
+    plannerModelOverride,
+    rendererModelOverride,
   } = opts;
+  const notify = (msg: string) => { onStatus?.(msg); };
 
   // TraceLogger — tracePool 전달 시에만 활성화 (운영 중 데이터 수집)
   let tracer: import("../training/trace_logger.js").TraceLogger | null = null;
   if (tracePool) {
     const { TraceLogger } = await import("../training/trace_logger.js");
-    tracer = new TraceLogger(ctx, "planner");
+    tracer = new TraceLogger(ctx, "planner", bookId);
   }
 
   logInfo("pipeline", "파이프라인 시작", { episode: ctx.episode_number, pov: ctx.gen_config.pov });
 
   // ─── Step 1: State Extraction (결정론적, LLM 없음) ───────────
+  notify("이야기 구조와 세계관 제약을 분석하는 중...");
   const stateConstraints = extractStateConstraints(ctx);
 
   // ─── Step 2: Creative Planning (LLM) ─────────────────────────
+  notify("플래너가 장면 비트와 인물 감정선을 설계하는 중...");
   const t_plan0 = Date.now();
-  const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints);
+  const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints, plannerModelOverride);
   const planner_elapsed_ms = Date.now() - t_plan0;
   tracer?.setPlannerTrace({
     raw_llm_output: raw_output ?? "",
     parsed_plan: fallback_used ? null : creativePlan as unknown as import("../types/planner.js").ScenePlan,
     fallback_used,
     elapsed_ms: planner_elapsed_ms,
+    model_used: plannerModelOverride ?? (await import("../lib/llm.js")).getPlannerModel(),
     input_contract: {
       // Narrative
       target_length:      stateConstraints.target_length,
@@ -101,6 +161,9 @@ export async function runPlannerPipeline(
       character_arcs_count:  Object.keys(ctx.character_arcs ?? {}).length,
       has_prev_tail:         !!ctx.prev_episode_tail,
       foreshadow_count:      ctx.foreshadow_memory?.length ?? 0,
+      // Arc-phase (planner 7-phase 기준 — training ArcPhase 4종과 별개)
+      planner_arc_phase:     stateConstraints.narrative_contract.arc_phase,
+      planner_arc_ratio:     stateConstraints.narrative_contract.arc_ratio,
     },
   });
 
@@ -122,9 +185,11 @@ export async function runPlannerPipeline(
     hook_type:            creativePlan.hook_type,
     hook_payload:         creativePlan.hook_payload,
     hook_concrete_event:  creativePlan.hook_concrete_event,
+    character_state_updates: creativePlan.character_state_updates ?? [],
   };
 
   // ─── Step 4: Plan Validation → Auto-Repair (결정론적) ────────
+  notify("계획 논리와 세계관 규칙을 검증하는 중...");
   let planValidation = validatePlan(scenePlan, ctx);
   if (planValidation.verdict !== "PASS") {
     const { plan: repairedPlan, repaired, repairs_applied } = repairPlan(planValidation, ctx);
@@ -165,18 +230,189 @@ export async function runPlannerPipeline(
   }
 
   // ─── Step 5: Rendering (LLM) ─────────────────────────────────
+  notify("대사와 지문을 소설로 렌더링하는 중...");
   const t_render0 = Date.now();
   let generatedText = "";
+  let rawRenderedText = "";
   try {
-    generatedText = await renderFromPlan(scenePlan, ctx);
+    const renderResult = await renderFromPlanWithTrace(scenePlan, ctx, rendererModelOverride);
+    rawRenderedText = renderResult.text;
+    // ── Prose Name Drift Detector: 생성 텍스트에서 canonical name 변형 탐지 (로그만) ──
+    // 교정은 하지 않음 (한국어 조사 경계 파싱이 필요하여 오탐 위험 높음)
+    // DB 저장 전 탐지 결과를 로그로 남겨 DPO 수집 품질 모니터링에 활용.
+    const canonicalNamesForProse = ctx.characters.map(c => c.name);
+    const proseNormLog: { raw: string; canonical: string }[] = [];
+    for (const cname of canonicalNamesForProse) {
+      // 공백·구두점 전후에 나타나는 cname + 한글 1-4자 패턴을 스캔
+      const variantPattern = new RegExp(cname.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "[가-힣]{1,4}", "g");
+      const matches = rawRenderedText.match(variantPattern) ?? [];
+      for (const match of new Set(matches)) {
+        const { event } = resolveCanonicalCharName(match, canonicalNamesForProse);
+        if (event === "drift_corrected") proseNormLog.push({ raw: match, canonical: cname });
+      }
+    }
+    if (proseNormLog.length > 0) {
+      logWarn("pipeline:proseNorm", "prose_drift_detected — 생성 텍스트에 canonical 변형어 발견 (DB 저장은 원본 그대로)", {
+        episode: ctx.episode_number,
+        drifts: proseNormLog,
+      });
+    }
+    generatedText = rawRenderedText;
+    tracer?.setRendererTrace({
+      system_prompt:  renderResult.system_prompt,
+      user_prompt:    renderResult.user_prompt,
+      generated_text: renderResult.text,
+      elapsed_ms:     renderResult.elapsed_ms,
+      model_used:     renderResult.model_used,
+    });
   } catch (err) {
     logWarn("pipeline", "렌더링 오류", { error: String(err) });
   }
   const renderer_elapsed_ms = Date.now() - t_render0;
 
+  // ─── Step 5.5: Character State Commit (planner 예측 → DB) ────
+  const stateUpdates = scenePlan.character_state_updates ?? [];
+  if (stateUpdates.length === 0) {
+    logWarn("pipeline", "character_state_updates 없음 — 상태 커밋 스킵", {
+      episode: ctx.episode_number,
+      plan_fallback: fallback_used,
+    });
+  }
+  if (stateUpdates.length > 0 && bookId && ctx.episode_number) {
+    // canonical 이름 목록 (정규화 기준)
+    const canonicalNames = ctx.characters.map(c => c.name);
+    // normalization 통계
+    const normStats = { exact_match: 0, drift_corrected: 0, orphan_skipped: 0, new_character_allowed: 0 };
+
+    // beat locations fallback: character_state_updates에 location 없을 때 beat에서 추출
+    const beatLocationMap = new Map<string, string>();
+    for (const beat of scenePlan.scene_beats ?? []) {
+      if (beat.location) {
+        for (const charName of (beat as any).characters_involved ?? []) {
+          if (!beatLocationMap.has(charName)) beatLocationMap.set(charName, beat.location);
+        }
+      }
+    }
+
+    // prev state map: name → prev (이전 상태 유지 병합용)
+    const prevMap = new Map(
+      ctx.character_dynamic_states.map(d => [d.character_name, d]),
+    );
+    const canonicalItemMap = new Map(
+      ctx.characters.map(c => [c.name, c.initial_items ?? []]),
+    );
+    for (const upd of stateUpdates) {
+      try {
+        // 이름 정규화 — drift/orphan 차단
+        const { name: resolvedName, event: normEvent } = resolveCanonicalCharName(upd.character_name, canonicalNames);
+        normStats[normEvent]++;
+        if (!resolvedName) continue; // orphan → 커밋 스킵
+
+        const prev = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
+        const canonicalItems = canonicalItemMap.get(resolvedName) ?? [];
+        // items 우선순위: planner 출력 > prev dynamic > canonical initial_items
+        const resolvedItems = (upd.items?.length ?? 0) > 0
+          ? upd.items!
+          : (prev?.items?.length ?? 0) > 0
+            ? prev!.items!
+            : canonicalItems;
+        const resolvedLocation =
+          upd.location ??
+          beatLocationMap.get(upd.character_name) ??
+          beatLocationMap.get(resolvedName) ??
+          prev?.location ?? undefined;
+        await commitDynamicState({
+          book_id:        bookId,
+          character_name: resolvedName,
+          episode_number: ctx.episode_number,
+          location:       resolvedLocation,
+          physical_state: upd.physical_state ?? prev?.physical_state ?? undefined,
+          emotional_state: upd.emotional_state,
+          items:          resolvedItems as import("../types/canonical.js").ItemEntry[],
+          visibility_state: upd.visibility_state ?? prev?.visibility_state ?? "present",
+          recent_goal:    upd.recent_goal      ?? prev?.recent_goal ?? undefined,
+          relationship_updates:   prev?.relationship_updates   ?? {},
+          foreshadow_connections: prev?.foreshadow_connections ?? [],
+          behavior_hints: prev?.behavior_hints ?? undefined,
+          alias_used:     prev?.alias_used     ?? [],
+        });
+      } catch (err) {
+        logWarn("pipeline", "캐릭터 상태 커밋 실패 (skip)", {
+          character: upd.character_name, error: String(err),
+        });
+      }
+    }
+    // 플래너가 언급하지 않은 인물 → 이전 상태 그대로 absent로 커밋
+    // canonical에 속하는 인물만 carry-forward (orphan 전파 방지)
+    const updatedNames = new Set(stateUpdates.map(u => resolveCanonicalCharName(u.character_name, canonicalNames).name).filter(Boolean));
+    for (const prev of ctx.character_dynamic_states) {
+      const { name: resolvedPrevName } = resolveCanonicalCharName(prev.character_name, canonicalNames);
+      if (!resolvedPrevName) continue; // orphan → carry-forward 스킵
+      if (updatedNames.has(resolvedPrevName)) continue;
+      try {
+        await commitDynamicState({
+          book_id:        bookId,
+          character_name: resolvedPrevName,
+          episode_number: ctx.episode_number,
+          location:       prev.location,
+          physical_state: prev.physical_state,
+          emotional_state: prev.emotional_state,
+          items:          prev.items ?? [],
+          visibility_state: "absent",
+          recent_goal:    prev.recent_goal,
+          relationship_updates:   prev.relationship_updates ?? {},
+          foreshadow_connections: prev.foreshadow_connections ?? [],
+          behavior_hints: prev.behavior_hints,
+          alias_used:     prev.alias_used ?? [],
+        });
+      } catch { /* skip */ }
+    }
+    // canonical 인물 중 prev state도 없고 planner 언급도 없는 인물 → absent seed 커밋
+    // (예: 1화에서 적대 세력 인물이 플래너에 포함되지 않는 경우)
+    const prevNames = new Set(ctx.character_dynamic_states.map(d => d.character_name));
+    for (const canonical of ctx.characters) {
+      if (updatedNames.has(canonical.name) || prevNames.has(canonical.name)) continue;
+      try {
+        await commitDynamicState({
+          book_id:        bookId,
+          character_name: canonical.name,
+          episode_number: ctx.episode_number,
+          location:       undefined,
+          physical_state: undefined,
+          emotional_state: undefined,
+          items:          (canonical.initial_items ?? []) as import("../types/canonical.js").ItemEntry[],
+          visibility_state: "absent",
+          recent_goal:    undefined,
+          relationship_updates:   {},
+          foreshadow_connections: [],
+          behavior_hints: undefined,
+          alias_used:     [],
+        });
+      } catch { /* skip */ }
+    }
+    logInfo("pipeline", "캐릭터 상태 커밋 완료", {
+      episode: ctx.episode_number,
+      committed: stateUpdates.map(u => u.character_name),
+      norm_stats: normStats,  // exact_match / drift_corrected / orphan_skipped / new_character_allowed
+    });
+  }
+
   // ─── Step 6: Prose Validation (기존 validator.ts) ────────────
-  const proseValidation = await validate(generatedText, ctx, { promptVersion });
-  tracer?.setProseValidation(proseValidation);
+  let proseValidation: ValidationResult;
+  if (doValidate) {
+    notify("문장 품질과 서사 일관성을 검토하는 중...");
+    proseValidation = await validate(generatedText, ctx, { promptVersion });
+    tracer?.setProseValidation(proseValidation);
+  } else {
+    proseValidation = {
+      verdict: "PASS" as Verdict,
+      hard_violations: [],
+      soft_warnings: [],
+      quality_scores: EMPTY_QUALITY_SCORES,
+      total_score: 80,
+      summary: "검증 스킵 (doValidate=false)",
+    };
+  }
 
   // ─── Step 7: Revision (기존 revision.ts, optional) ───────────
   let finalVerdict: Verdict = proseValidation.verdict;
@@ -184,6 +420,7 @@ export async function runPlannerPipeline(
   let revisionCount          = 0;
 
   if (doRevise && (finalVerdict === "FAIL" || finalVerdict === "WARN")) {
+    notify("퇴고 중... 조금만 더 기다려주세요.");
     const revised = await reviseUntilPass(generatedText, proseValidation, ctx, { promptVersion });
     finalVerdict  = revised.final_verdict;
     finalScore    = revised.final_score;
@@ -192,8 +429,10 @@ export async function runPlannerPipeline(
 
   const totalElapsed = Date.now() - t0;
   tracer?.finalize({ final_verdict: finalVerdict, final_score: finalScore, revision_count: revisionCount, total_elapsed_ms: totalElapsed });
+  let savedTraceId: string | undefined;
   if (tracer && tracePool) {
-    await tracer.save(tracePool);
+    savedTraceId = await tracer.save(tracePool);
+    // reward 계산은 background_audit가 담당 (v2 reward를 같은 trace에 적용)
   }
 
   logInfo("pipeline", "파이프라인 완료", {
@@ -215,6 +454,7 @@ export async function runPlannerPipeline(
     planner_elapsed_ms,
     renderer_elapsed_ms,
     plan_fallback_used: fallback_used,
+    trace_id:          savedTraceId,
   };
 }
 
@@ -222,4 +462,4 @@ export async function runPlannerPipeline(
 export { extractStateConstraints } from "./state_extractor.js";
 export { runCreativePlanner }      from "./planner.js";
 export { validatePlan, repairPlan } from "./plan_validator.js";
-export { renderFromPlan }          from "./renderer.js";
+export { renderFromPlan, renderFromPlanWithTrace } from "./renderer.js";
