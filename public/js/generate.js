@@ -761,7 +761,21 @@ function updateSceneCharPanel(charStates) {
           const itemCategory   = typeof it === 'object' ? (it.category   ?? null) : null;
 
           const { displayName, inferredDesc } = _parseItemName(rawName);
-          const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName);
+          // badge_label/category 기반 범용 설명 fallback
+          const _BADGE_DESC = {
+            '전자':'전자 신호나 데이터를 다루는 장비',
+            '도구':'작업이나 탐색에 쓰이는 실용 도구',
+            '무기':'위협에 대응하기 위한 전투 장비',
+            '방어구':'위험으로부터 사용자를 보호하는 장비',
+            '소모품':'필요한 순간 사용하는 소모성 물품',
+            '문서':'기록이나 분석에 활용되는 정보 장치',
+            '마법':'마력을 담거나 발현하는 도구',
+            '통신':'전파나 신호를 통해 정보를 전달하는 장비',
+            '기타':'인물이 상황에 따라 활용하는 소지품',
+          };
+          const badgeDescFallback = (itemBadgeLabel && _BADGE_DESC[itemBadgeLabel])
+            || (itemCategory && _BADGE_DESC[itemCategory]) || null;
+          const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName) || badgeDescFallback || cond && `상태: ${cond}` || null;
 
           // 비판타지 장르에서는 S/A/B/C/D 뱃지 대신 _qlabel 사용
           const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';

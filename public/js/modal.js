@@ -31,6 +31,31 @@ function goSpread(delta, absolute = false) {
 
 // ── 모달 & 컨텍스트 저장 ──────────────────────────────────────
 
+// 인물 카드 이름 추출 — 편집 모드(input) / 잠금 모드(preview span) 모두 지원
+function getCharCardName(card) {
+  // 1. 편집 모드: .char-name input
+  const inputVal = card.querySelector(".char-name")?.value?.trim();
+  if (inputVal) return inputVal;
+
+  // 2. dataset (잠금/확정 후 저장된 이름)
+  const dataName = (card.dataset.name ?? card.dataset.charName ?? "").trim();
+  if (dataName) return dataName;
+
+  // 3. 헤더 미리보기 텍스트 (.char-card-name-preview — chars.js 기준)
+  const previewEl = card.querySelector(".char-card-name-preview");
+  const previewTxt = previewEl?.textContent?.trim() ?? "";
+  if (previewTxt && !/^이름\s*미입력$/.test(previewTxt) && !/^인물\s*\d*$/.test(previewTxt)) return previewTxt;
+
+  // 4. 그 외 가능한 정적 표시 요소 (방어적 fallback)
+  for (const sel of [".char-card-title", ".char-label", ".char-name-display", ".char-summary-name"]) {
+    const el = card.querySelector(sel);
+    const txt = (el?.textContent ?? "").trim();
+    if (txt && !/^인물\s*\d*$/.test(txt)) return txt;
+  }
+
+  return "";
+}
+
 function getContext() {
   return [
     settingVals.length ? "배경: " + settingVals.join(", ") : "",
@@ -44,13 +69,18 @@ function openModal()  {
   document.getElementById("modalOverlay").classList.add("open");
   goSpread(0, true);
 }
-function closeModal() { document.getElementById("modalOverlay").classList.remove("open"); }
+function closeModal() {
+  const overlay = document.getElementById("modalOverlay");
+  if (!overlay) return;
+  overlay.classList.remove("open");
+  overlay.style.removeProperty("display");
+}
 function closeModalOutside(e) { /* 바깥 클릭으로 닫지 않음 — 저장 후 닫기 버튼만 사용 */ }
 
 async function saveContext() {
   // 이름 미입력 인물카드 검증
   const unnamedCards = [...document.querySelectorAll(".char-card")].filter(
-    card => !card.querySelector(".char-name")?.value?.trim()
+    card => !getCharCardName(card)
   );
   if (unnamedCards.length) {
     unnamedCards.forEach(card => {
@@ -59,6 +89,9 @@ async function saveContext() {
         inp.style.borderColor = "var(--danger-text)";
         inp.placeholder = "이름을 입력해야 저장할 수 있습니다";
         inp.focus();
+      } else {
+        // 잠금/확정 상태 카드: 카드 테두리만 강조
+        card.style.borderColor = "var(--danger-text)";
       }
     });
     showToast(`이름이 비어 있는 인물 카드가 ${unnamedCards.length}개 있습니다`, "err");
@@ -70,7 +103,7 @@ async function saveContext() {
   const characterDefaults = {};
   const characterRows = [];
   document.querySelectorAll(".char-card").forEach(card => {
-    const name        = card.querySelector(".char-name")?.value?.trim() ?? "";
+    const name        = getCharCardName(card);
     const personality = card.querySelector(".char-personality")?.value?.trim() ?? "";
     let type   = card.dataset.type ?? "기타";
     let gender = card.dataset.gender ?? "기타";
