@@ -28,12 +28,13 @@ function _reapplyCharUI() {
 
 // ── 후처리 통계 카운터 ────────────────────────────────────────
 const _ppStats = {
-  quoteMerges: 0,       // 미닫힌 따옴표 병합 횟수
-  bracketMerges: 0,     // 미닫힌 대괄호 병합 횟수
-  dialogueSplits: 0,    // 대화/지문 분리 횟수
-  dialogueLinesTagged: 0, // dialogue-line 클래스 부여된 단락 수
-  foreignCharsRemoved: 0, // 키릴 등 외국어 문자 제거 횟수
-  dialogueSkipped: 0,   // 40% 임계값으로 분리 건너뜀
+  quoteMerges: 0,        // 미닫힌 따옴표 병합 횟수
+  bracketMerges: 0,      // 미닫힌 대괄호 병합 횟수
+  dialogueSplits: 0,     // 대화/지문 혼합 단락 분리 횟수 (인라인 span 생성)
+  dialogueLinesTagged: 0,// DIAL_START로 전체-대화 단락에 dialogue-line 부여 수
+  dialogueSegments: 0,   // 실제 생성된 dialogue-span 개수
+  foreignCharsRemoved: 0,// 키릴 등 외국어 문자 제거 횟수
+  dialogueSkipped: 0,    // 20% 임계값으로 분리 건너뜀
 };
 function _ppReset() { Object.keys(_ppStats).forEach(k => _ppStats[k] = 0); }
 
@@ -52,8 +53,9 @@ function _renderPostprocStats() {
     ${kv2('따옴표 병합', _ppStats.quoteMerges + '회', _ppStats.quoteMerges ? 'warn' : '')}
     ${kv2('대괄호 병합', _ppStats.bracketMerges + '회', _ppStats.bracketMerges ? 'warn' : '')}
     ${kv2('대화/지문 분리', _ppStats.dialogueSplits + '개 단락', '')}
+    ${kv2('dialogue-span', _ppStats.dialogueSegments + '개', (_ppStats.dialogueSegments === 0 && _hasQuotes) ? 'warn' : '')}
     ${kv2('분리 건너뜀(20%↓)', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
-    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄' + (_ppStats.dialogueSplits ? ` (+분리 ${_ppStats.dialogueSplits}개)` : ''), _tagWarn ? 'warn' : '')}
+    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄', _tagWarn ? 'warn' : '')}
     ${_tagWarn ? kv2('⚠ 대화 태깅 0', '따옴표 있음에도 태깅 없음 — 확인 필요', 'warn') : ''}
     ${kv2('외국어 제거', _ppStats.foreignCharsRemoved + '회', _ppStats.foreignCharsRemoved ? 'bad' : '')}
   </div>`;
@@ -145,7 +147,9 @@ function mergeUnclosedQuotes(container) {
     const closes = (text.match(closeRE) || []).length;
     if (opens > closes) {
       const next = paras[i + 1];
-      p.textContent = text.trimEnd() + " " + next.textContent.trimStart();
+      // innerHTML 병합 — <br> 유지해서 다중 줄 대사 구조 보존
+      const nextHtml = next.innerHTML.trimStart();
+      p.innerHTML = p.innerHTML.trimEnd() + '<br>' + nextHtml;
       next.remove();
       paras.splice(i + 1, 1);
       _ppStats.quoteMerges++;
@@ -237,14 +241,18 @@ function splitDialogueNarration(container) {
     const dialLen = parts.filter(pt => pt.type === "dial").reduce((s, pt) => s + pt.text.length, 0);
     if (dialLen < text.length * 0.20) { _ppStats.dialogueSkipped++; return; }
 
-    const frag = document.createDocumentFragment();
-    parts.forEach(pt => {
-      const np = document.createElement("p");
-      np.textContent = pt.text;
-      if (pt.type === "dial") { np.classList.add("dialogue-line"); np.dataset.splitDialogue = "1"; }
-      frag.appendChild(np);
+    // 인라인 span 방식: 단락 분리 없이 대사 구간만 dialogue-span으로 감쌈
+    const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const htmlParts = parts.map(pt => {
+      if (pt.type === 'dial') {
+        _ppStats.dialogueSegments++;
+        return `<span class="dialogue-span">${esc(pt.text)}</span>`;
+      }
+      return esc(pt.text);
     });
-    p.replaceWith(frag);
+    p.innerHTML = htmlParts.join('');
+    p.classList.remove('dialogue-line');
+    delete p.dataset.splitDialogue;
     _ppStats.dialogueSplits++;
   });
 }
@@ -259,12 +267,19 @@ function applyDialogueStyle(container) {
   // 직선 " (U+0022)도 포함 — 모델이 직선 따옴표로 대화를 시작하는 경우 대응
   // 곡선 작은따옴표 ' (U+2018)는 제외 — '스킬명' 등 단어 강조 오탐 방지
   const DIAL_START = /^[\u201C\u300C\u300E"]/;
+  // 순수 대사 단락 (전체가 대화인 경우): dialogue-line + 내용 전체를 dialogue-span으로 감쌈
   container.querySelectorAll("p:not(.dialogue-line)").forEach(p => {
-    if (DIAL_START.test(p.textContent.trimStart())) { p.classList.add("dialogue-line"); _ppStats.dialogueLinesTagged++; }
+    if (!p.querySelector('.dialogue-span') && DIAL_START.test(p.textContent.trimStart())) {
+      p.classList.add("dialogue-line");
+      const esc2 = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      p.innerHTML = `<span class="dialogue-span">${esc2(p.textContent)}</span>`;
+      _ppStats.dialogueLinesTagged++;
+      _ppStats.dialogueSegments++;
+    }
   });
-  // 지문 단락의 불필요한 클래스 정리 (splitDialogue 마커 없고 따옴표로 시작 안 하면 제거)
+  // 지문 단락에 잘못 붙은 dialogue-line 제거 (내부 dialogue-span 없고 따옴표 시작도 아닌 경우)
   container.querySelectorAll("p.dialogue-line").forEach(p => {
-    if (!p.dataset.splitDialogue && !DIAL_START.test(p.textContent.trimStart())) {
+    if (!p.querySelector('.dialogue-span') && !DIAL_START.test(p.textContent.trimStart())) {
       p.classList.remove("dialogue-line");
     }
   });
@@ -605,39 +620,70 @@ function updateSceneCharPanel(charStates) {
         if (!s.items?.length) {
           return row('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>');
         }
+        // 장르 감지: 판타지/이세계/무협/헌터물이면 S/A/B/C/D 등급 뱃지 허용
+        const FANTASY_GENRES = /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i;
+        const isFantasyGenre = (typeof settingVals !== 'undefined' && settingVals.some(v => FANTASY_GENRES.test(v)));
+
         const _qlabel = n => {
           const t = n.toLowerCase();
-          // 위험 계열 (폭탄/폭발류) — 소형 폭탄이 일반으로 오탐되지 않게 최우선
+          // 위험 계열 — 최우선 (소형 폭탄이 일반으로 오탐되지 않게)
           if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
           // 무기 계열
-          if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총/.test(t)) return { label:'무기', color:'#a04060' };
-          // 정보 계열 (수첩/책/문서)
-          if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책/.test(t)) return { label:'정보', color:'#5060a0' };
+          if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프/.test(t)) return { label:'무기', color:'#a04060' };
+          // 방어 계열
+          if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
+          // 의료 계열
+          if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
+          // 정보 계열
+          if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
           // 장비/기기 계열
-          if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너/.test(t)) return { label:'장비', color:'#307080' };
+          if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return { label:'장비', color:'#307080' };
           // 도구 계열
-          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자/.test(t)) return { label:'도구', color:'#607040' };
+          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집/.test(t)) return { label:'도구', color:'#607040' };
           // 품질 계열
-          if (/고급|특제|개조|군용|정밀|희귀|커스텀|첨단/.test(t)) return { label:'고급', color:'#5080c8' };
+          if (/고급|특제|개조|군용|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
           if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
           if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
           if (/범용|표준|기본|일반|휴대용/.test(t)) return { label:'일반', color:'#5a9a6a' };
           return null;
         };
+        const _qlabelBadgeHtml = (ql) => ql
+          ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>`
+          : '';
+        // 소지품 이름에서 상태/위치 설명 파싱: "리볼버 (수첩 아래 숨겨져 있음)" → name + inferred desc
+        const _parseItemName = (rawName) => {
+          const m = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+          if (!m) return { displayName: rawName, inferredDesc: null };
+          const inside = m[2];
+          // 등급 표기면 그대로 (S, A급, B등급 패턴)
+          if (/^[SABCD]$|^[SABCD][급등]\b/.test(inside.trim())) return { displayName: rawName, inferredDesc: null };
+          // 상태/위치 설명이면 분리 (동사/상태어 포함 여부로 판단)
+          if (/있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(inside)) {
+            return { displayName: m[1].trim(), inferredDesc: inside.trim() };
+          }
+          return { displayName: rawName, inferredDesc: null };
+        };
+
         const itemCards = s.items.map((it, idx) => {
-          const name  = typeof it === 'string' ? it : it.name;
+          const rawName = typeof it === 'string' ? it : (it.name ?? '');
           const grade = typeof it === 'object' ? it.grade  : null;
           const cond  = typeof it === 'object' ? it.condition : null;
           const desc  = typeof it === 'object' ? it.description : null;
-          const gradeAttr = grade ? ` data-grade="${grade}"` : '';
-          const gradeHtml = grade
+
+          const { displayName, inferredDesc } = _parseItemName(rawName);
+          const effectiveDesc = desc || inferredDesc;
+
+          // 비판타지 장르에서는 S/A/B/C/D 뱃지 대신 _qlabel 사용
+          const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
+          const gradeHtml = (isFantasyGenre && grade)
             ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
-            : (() => { const ql = _qlabel(name); return ql ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>` : ''; })();
+            : _qlabelBadgeHtml(_qlabel(displayName));
           const bodyRows = [
             cond ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
-            desc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${desc}</span></div>` : '',
+            effectiveDesc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${effectiveDesc}</span></div>` : '',
           ].filter(Boolean).join('');
           const hasDetail = !!bodyRows;
+          const name = displayName;
           return `<div class="item-card${hasDetail ? ' item-card-expandable collapsed' : ''}"${gradeAttr}${hasDetail ? ' onclick="toggleItemCard(this)"' : ''}>
             <div class="item-card-header">${gradeHtml}<span class="item-card-name">${name}</span>${hasDetail ? '<span class="item-card-arrow">▾</span>' : ''}</div>
             ${hasDetail ? `<div class="item-card-body">${bodyRows}</div>` : ''}
@@ -835,9 +881,14 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('회차 역할', _epRole ? (EPISODE_ROLE_KO[_epRole] ?? _epRole) : null);
     // 확정 최종화: audit > SSE meta > gen_config.totalEpisodes 순서로 폴백
     const _resolvedFinal = a?.resolved_final_episode ?? meta?.resolved_final_episode ?? gc?.totalEpisodes;
+    // 설정 범위 (totalEpisodes ± totalEpisodesVar)
+    if (gc?.totalEpisodes != null) {
+      const _var = gc.totalEpisodesVar ?? 0;
+      rows += kv('설정 범위', _var ? `${gc.totalEpisodes} ± ${_var}화` : `${gc.totalEpisodes}화`);
+    }
     if (_resolvedFinal != null) {
       const _curEp = a?.episode_number ?? meta?.episode_number ?? null;
-      const _remaining = a?.remaining_episodes ?? meta?.remaining_episodes;
+      const _remaining = a?.remaining_episodes ?? meta?.remaining_episodes ?? (_curEp && _resolvedFinal ? _resolvedFinal - _curEp : null);
       let _finalTxt = `${_resolvedFinal}화`;
       if (_curEp != null) _finalTxt += ` (현재 ${_curEp}화)`;
       rows += kv('확정 최종화', _finalTxt);
@@ -1453,19 +1504,44 @@ async function captureEpisode(withChars = false) {
                 <span style="color:var(--text4);min-width:1.6rem;flex-shrink:0;">${lbl}</span>
                 <span>${valHtml}</span>
               </div>`;
+            const QLABEL_CAP = n => {
+              const t = n.toLowerCase();
+              if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
+              if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|나이프/.test(t)) return { label:'무기', color:'#a04060' };
+              if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
+              if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
+              if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿/.test(t)) return { label:'정보', color:'#5060a0' };
+              if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return { label:'장비', color:'#307080' };
+              if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집/.test(t)) return { label:'도구', color:'#607040' };
+              if (/고급|특제|개조|군용|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
+              if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
+              if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
+              return { label:'일반', color:'#5a9a6a' };
+            };
+            const isFantasyCap = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
             const itemsHtml = (s.items ?? []).map(it => {
-              const name  = typeof it === 'string' ? it : it.name;
+              const rawName = typeof it === 'string' ? it : (it.name ?? '');
               const grade = typeof it === 'object' ? it.grade : null;
               const cond  = typeof it === 'object' ? it.condition : null;
               const desc  = typeof it === 'object' ? it.description : null;
-              const gc2   = grade ? GRADE_COLOR[grade] ?? '#888' : null;
-              return `<div style="border-left:2px solid ${gc2 ?? 'rgba(128,128,128,.3)'};padding:2px 0 2px 6px;margin-top:3px;">
+              // 이름에서 상태 설명 파싱
+              const _pm = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+              let displayName = rawName, inferredDesc = null;
+              if (_pm && !/^[SABCD]$|^[SABCD][급등]\b/.test(_pm[2].trim()) && /있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(_pm[2])) {
+                displayName = _pm[1].trim(); inferredDesc = _pm[2].trim();
+              }
+              const effectiveDesc = desc || inferredDesc;
+              const showGrade = isFantasyCap && grade;
+              const gc2 = showGrade ? GRADE_COLOR[grade] ?? '#888' : null;
+              const ql  = !showGrade ? QLABEL_CAP(displayName) : null;
+              const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
+              return `<div style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
                 <div style="font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3rem;">
-                  ${grade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : ''}
-                  ${name}
+                  ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
+                  ${displayName}
                 </div>
                 ${cond ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);font-size:1.06em;letter-spacing:.04em;">상태:</span><span style="color:var(--text2);font-size:.95em;">${cond}</span></div>` : ''}
-                ${desc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);font-size:1.06em;letter-spacing:.04em;">설명:</span><span style="color:var(--text2);font-size:.95em;">${desc}</span></div>` : ''}
+                ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);font-size:1.06em;letter-spacing:.04em;">설명:</span><span style="color:var(--text2);font-size:.95em;">${effectiveDesc}</span></div>` : ''}
               </div>`;
             }).join('');
             const _capEmotBadges = (e) => {

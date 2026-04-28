@@ -613,23 +613,35 @@ body.mode-tts #output p.tts-current{background:rgba(80,130,200,.12);border-left:
   line-height:1;align-self:flex-end;padding-bottom:.15rem;
 }
 
-/* 대사 단락 — 묵독/청독: 스타일 없음(일반 단락과 동일), 낭독만 강조 */
-#output p.dialogue-line{ /* class는 항상 추가되지만 CSS는 낭독에서만 활성화 */ }
-
-/* 낭독 모드: 대사 강조 (소리내어 읽을 때 대사 위치 파악 용이) */
-body.mode-aloud #output p.dialogue-line{
-  margin-top:1.2em;margin-bottom:1.2em;
+/* 대사 구간 (dialogue-span) — span 기반 인라인 강조 */
+/* 묵독/TTS: 미약한 시각 단서 */
+#output .dialogue-span{
+  border-left:2px solid rgba(180,100,80,.25);
+  padding-left:.5em;
+  /* 다중 줄 span에서도 배경/보더가 각 줄에 적용 */
+  -webkit-box-decoration-break:clone;
+  box-decoration-break:clone;
+}
+/* 낭독 모드: 대사 구간만 강조 */
+body.mode-aloud #output .dialogue-span{
+  padding:.15em .6em .15em .9em;
+  border-left:3px solid rgba(180,100,80,.75);
+  background:rgba(180,100,80,.10);
+  border-radius:0 4px 4px 0;
+  font-style:italic;
+  -webkit-box-decoration-break:clone;
+  box-decoration-break:clone;
+}
+/* 순수 대화 단락(dialogue-line)은 단락 전체 강조 유지 — span 없는 fallback */
+body.mode-aloud #output p.dialogue-line:not(:has(.dialogue-span)){
   padding:.5em .9em .5em 1.1em;
   border-left:3px solid rgba(180,100,80,.75);
   background:rgba(180,100,80,.10);
   border-radius:0 6px 6px 0;
-  font-style:italic;
 }
-/* 묵독·TTS 모드에서도 대사 단락에 미약한 시각 단서 제공 */
-body:not(.mode-aloud) #output p.dialogue-line{
-  border-left:2px solid rgba(180,100,80,.25);
-  padding-left:.8em;
-}
+/* 묵독 들여쓰기 예외 */
+body.mode-eye #output p.dialogue-line,
+body.mode-tts #output p.dialogue-line{ text-indent:0; }
 
 /* 출력 영역 */
 #output{
@@ -651,9 +663,9 @@ body:not(.mode-aloud) #output p.dialogue-line{
 /* 서사 단락: 전통 소설식 첫 줄 들여쓰기 (묵독·청독 공통) */
 body.mode-eye #output p,
 body.mode-tts #output p{text-indent:1.8em;}
-/* 대사 단락은 들여쓰기 없이 그대로 */
-body.mode-eye #output p.dialogue-line,
-body.mode-tts #output p.dialogue-line{text-indent:0;}
+/* 대사 단락은 들여쓰기 없이 그대로 — dialogue-span 포함 단락도 동일 */
+body.mode-eye #output p:has(.dialogue-span),
+body.mode-tts #output p:has(.dialogue-span){text-indent:0;}
 
 /* ── 낭독 모드 (mode-aloud) ──────────────────────────────── */
 body.read-aloud #output{font-size:calc(0.95rem * var(--main-font-scale));line-height:2.15;padding:2.4rem 3rem;border-radius:14px;}
