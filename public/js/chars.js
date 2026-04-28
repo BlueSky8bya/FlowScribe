@@ -146,39 +146,8 @@ function appendCharCard(container, i, p) {
           <textarea class="char-input char-personality" placeholder="말투·행동·외형을 구체적으로&#10;예) 말이 없고 눈을 잘 안 마주침. 화날 때 입술을 깨뭄. 키가 크고 손이 크다." style="display:${p.personality?'none':'block'}">${esc(p.personality||"")}</textarea>
         </div>
         <div class="char-fields-full char-items-row">
-          <div class="char-personality-label">초기 소지품 <span style="font-size:.75rem;opacity:.55;font-weight:400">Enter로 항목 구분</span></div>
+          <div class="char-personality-label">초기 소지품 <span class="char-items-hint" style="font-size:.75rem;opacity:.55;font-weight:400">Enter 구분 · <code style="font-size:.72rem">이름 :: 설명</code> 또는 <code style="font-size:.72rem">이름(설명)</code></span></div>
           <div class="char-items-tag-wrap" id="charItemsWrap-${i}">
-            ${(()=>{
-              const _gMap={S:'#d4a000',A:'#9b5de0',B:'#3b82c8',C:'#2e8a55',D:'#888'};
-              // 구조화 배열 ({name, grade?, description?, category?, badge_label?})
-              if (Array.isArray(p.initialItems) && p.initialItems.length && typeof p.initialItems[0] === 'object') {
-                return p.initialItems.map(it => {
-                  const nm = it.name || ''; if (!nm) return '';
-                  const gr = it.grade || null;
-                  const gc = gr ? _gMap[gr] : null;
-                  const gBadge = gc ? `<span style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>` : '';
-                  const da = [
-                    `data-item-name="${esc(nm)}"`,
-                    gr ? `data-grade="${gr}"` : '',
-                    it.description ? `data-description="${esc(it.description)}"` : '',
-                    it.category   ? `data-category="${esc(it.category)}"` : '',
-                    it.badge_label ? `data-badge-label="${esc(it.badge_label)}"` : '',
-                  ].filter(Boolean).join(' ');
-                  return `<span class="tag char-item-tag" ${da}>${gBadge}${esc(nm)}<span class="tag-del">×</span></span>`;
-                }).join('');
-              }
-              // 레거시 string 형식
-              const _rawStr = Array.isArray(p.initialItems)
-                ? p.initialItems.map(it=>typeof it==='object'?(it.grade?`${it.grade}:${it.name}`:it.name):String(it)).join(',')
-                : (p.initialItems||'');
-              return _rawStr.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(raw=>{
-                let nm=raw,gr=null;
-                const pm=raw.match(/^([SABCD]):(.+)$/i); if(pm&&['S','A','B','C','D'].includes(pm[1].toUpperCase())){gr=pm[1].toUpperCase();nm=pm[2].trim();}
-                else{const sm=raw.match(/^(.+)\(([SABCD])급?\)$/i);if(sm&&['S','A','B','C','D'].includes(sm[2].toUpperCase())){gr=sm[2].toUpperCase();nm=sm[1].trim();}}
-                const gb=gr?`<span style="font-size:.68rem;font-weight:700;color:${_gMap[gr]};border:1px solid ${_gMap[gr]};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>`:'';
-                return `<span class="tag char-item-tag"${gr?` data-grade="${gr}" data-item-name="${esc(nm)}"`:``}>${gb}${esc(nm)}<span class="tag-del" data-item="${esc(raw)}">×</span></span>`;
-              }).join('');
-            })()}
             <input class="tag-input-field char-items-input" type="text" placeholder="소지품 입력 후 Enter" />
           </div>
         </div>
@@ -224,45 +193,181 @@ function appendCharCard(container, i, p) {
   makeCharChips(card,"type-chips",  "type",  "type-wrap",  "type-inp");
   makeCharChips(card,"gender-chips","gender","gender-wrap","gender-inp");
 
-  // 초기 소지품 multi-entry
+  // ── 초기 소지품 multi-entry ────────────────────────────────
   const itemsWrap = card.querySelector(".char-items-tag-wrap");
   const itemsInp  = card.querySelector(".char-items-input");
   if (itemsWrap && itemsInp) {
-    // 등급 파싱: "S:검" 또는 "검(S)" 또는 "검(S급)" 형식 지원
     const ITEM_GRADES = ['S','A','B','C','D'];
     const GRADE_COLOR_MAP = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
-    function _parseGrade(raw) {
-      let name = raw.trim(), grade = null;
-      const prefixM = name.match(/^([SABCD]):(.+)$/i);
-      if (prefixM && ITEM_GRADES.includes(prefixM[1].toUpperCase())) { grade = prefixM[1].toUpperCase(); name = prefixM[2].trim(); }
-      else {
-        const suffixM = name.match(/^(.+)\(([SABCD])급?\)$/i);
-        if (suffixM && ITEM_GRADES.includes(suffixM[2].toUpperCase())) { grade = suffixM[2].toUpperCase(); name = suffixM[1].trim(); }
-      }
-      return { name, grade };
+
+    // 태그 HTML 재생성 (grade badge + name span + desc dot + × 버튼)
+    function _refreshTagDisplay(tag) {
+      const nm = tag.dataset.itemName || "";
+      const gr = tag.dataset.grade || null;
+      const gc = gr ? GRADE_COLOR_MAP[gr] : null;
+      const gBadge = gc ? `<span class="char-item-grade-badge" style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>` : '';
+      const desc = tag.dataset.description || "";
+      const descDot = desc ? `<span class="char-item-desc-dot" title="${esc(desc)}">·</span>` : '';
+      tag.innerHTML = `${gBadge}<span class="char-item-tag-name">${esc(nm)}</span>${descDot}<span class="tag-del">×</span>`;
     }
-    function _addItemTag(val) {
-      val = val.trim();
-      if (!val) return;
-      const { name, grade } = _parseGrade(val);
+
+    // 구조화 데이터로 태그 요소 생성
+    function _buildItemTag(data) {
+      // data: { name, grade?, description?, category?, badge_label? } 또는 string
+      const norm = _normalizeItem(data);
+      if (!norm.name) return null;
       const tag = document.createElement("span");
       tag.className = "tag char-item-tag";
-      const gc = grade ? GRADE_COLOR_MAP[grade] : null;
-      const gBadge = grade ? `<span class="char-item-grade-badge" style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${grade}</span>` : '';
-      tag.innerHTML = `${gBadge}${esc(name)}<span class="tag-del">×</span>`;
-      if (grade) tag.dataset.grade = grade;
-      tag.dataset.itemName = name;
-      tag.querySelector(".tag-del").addEventListener("click", () => tag.remove());
-      itemsWrap.insertBefore(tag, itemsInp);
+      tag.dataset.itemName = norm.name;
+      if (norm.grade)       tag.dataset.grade       = norm.grade;
+      if (norm.description) tag.dataset.description = norm.description;
+      if (norm.category)    tag.dataset.category    = norm.category;
+      if (norm.badge_label) tag.dataset.badgeLabel  = norm.badge_label;
+      _refreshTagDisplay(tag);
+      return tag;
     }
-    // 기존 태그 del 핸들러 바인딩
-    itemsWrap.querySelectorAll(".char-item-tag .tag-del").forEach(del => {
-      del.addEventListener("click", () => del.closest(".char-item-tag").remove());
+
+    // item 입력 파싱: "이름 :: 설명" / "이름(설명)" / "이름" / 등급 접두 형식
+    function _parseItemInput(raw) {
+      raw = raw.trim();
+      // :: 문법 우선 (가장 명확)
+      const colonIdx = raw.indexOf("::");
+      if (colonIdx > 0) {
+        return { name: raw.slice(0, colonIdx).trim(), description: raw.slice(colonIdx + 2).trim() };
+      }
+      // 등급 prefix: S:이름
+      const prefM = raw.match(/^([SABCD]):(.+)$/i);
+      if (prefM && ITEM_GRADES.includes(prefM[1].toUpperCase())) {
+        return { name: prefM[2].trim(), grade: prefM[1].toUpperCase() };
+      }
+      // 괄호 suffix: 등급(S급) vs 설명(텍스트)
+      const parenM = raw.match(/^(.+?)\((.+)\)$/);
+      if (parenM) {
+        const inner = parenM[2].trim().replace(/급$/, "");
+        if (ITEM_GRADES.includes(inner.toUpperCase())) {
+          return { name: parenM[1].trim(), grade: inner.toUpperCase() };
+        }
+        return { name: parenM[1].trim(), description: parenM[2].trim() };
+      }
+      return { name: raw };
+    }
+
+    // string 또는 object → 정규화된 item object
+    function _normalizeItem(it) {
+      if (typeof it === "string") {
+        const parsed = _parseItemInput(it);
+        return parsed;
+      }
+      return {
+        name:        it.name        || "",
+        grade:       it.grade       || null,
+        description: it.description || "",
+        category:    it.category    || "",
+        badge_label: it.badge_label || "",
+      };
+    }
+
+    // 태그 추가 (Enter 입력 또는 초기 로딩)
+    function _addItemTag(val) {
+      if (!val || !val.trim()) return;
+      const parsed = _parseItemInput(val.trim());
+      if (!parsed.name) return;
+      const tag = _buildItemTag(parsed);
+      if (tag) itemsWrap.insertBefore(tag, itemsInp);
+    }
+
+    // ── 인라인 에디터 패널 ──────────────────────────────────
+    const editorPanel = document.createElement("div");
+    editorPanel.className = "char-item-editor-panel";
+    editorPanel.innerHTML = `
+      <div class="item-ed-row">
+        <label class="item-ed-label">이름</label>
+        <input class="item-ed-name tag-input-field" type="text" placeholder="소지품 이름" />
+      </div>
+      <div class="item-ed-row">
+        <label class="item-ed-label">설명</label>
+        <input class="item-ed-desc tag-input-field" type="text" placeholder="간단한 설명 (선택, 직접 입력하면 AI가 채우지 않습니다)" />
+      </div>
+      <div class="item-ed-row">
+        <label class="item-ed-label">카테고리</label>
+        <input class="item-ed-cat tag-input-field" type="text" placeholder="무기, 마법, 도구, 의복 등" />
+      </div>
+      <div class="item-ed-btns">
+        <button class="item-ed-ok btn-xs btn-primary">확인</button>
+        <button class="item-ed-cancel btn-xs">취소</button>
+      </div>
+    `;
+    itemsWrap.insertAdjacentElement("afterend", editorPanel);
+
+    let _editingTag = null;
+
+    function _openEditor(tag) {
+      _editingTag = tag;
+      editorPanel.querySelector(".item-ed-name").value = tag.dataset.itemName || "";
+      editorPanel.querySelector(".item-ed-desc").value = tag.dataset.description || "";
+      editorPanel.querySelector(".item-ed-cat").value  = tag.dataset.category    || "";
+      editorPanel.classList.add("open");
+      editorPanel.querySelector(".item-ed-name").focus();
+    }
+
+    function _applyEditor() {
+      if (!_editingTag) return;
+      const name = editorPanel.querySelector(".item-ed-name").value.trim();
+      const desc = editorPanel.querySelector(".item-ed-desc").value.trim();
+      const cat  = editorPanel.querySelector(".item-ed-cat").value.trim();
+      if (!name) { _closeEditor(); return; }
+      _editingTag.dataset.itemName = name;
+      if (desc) _editingTag.dataset.description = desc;
+      else delete _editingTag.dataset.description;
+      if (cat) { _editingTag.dataset.category = cat; _editingTag.dataset.badgeLabel = cat; }
+      else { delete _editingTag.dataset.category; delete _editingTag.dataset.badgeLabel; }
+      _refreshTagDisplay(_editingTag);
+      _closeEditor();
+    }
+
+    function _closeEditor() {
+      editorPanel.classList.remove("open");
+      _editingTag = null;
+    }
+
+    editorPanel.querySelector(".item-ed-ok").addEventListener("click", _applyEditor);
+    editorPanel.querySelector(".item-ed-cancel").addEventListener("click", _closeEditor);
+    editorPanel.querySelector(".item-ed-name").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); _applyEditor(); }
+      if (e.key === "Escape") _closeEditor();
     });
+    editorPanel.querySelector(".item-ed-desc").addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); _applyEditor(); }
+      if (e.key === "Escape") _closeEditor();
+    });
+
+    // ── 이벤트 위임 ──────────────────────────────────────────
+    itemsWrap.addEventListener("click", e => {
+      const del = e.target.closest(".tag-del");
+      if (del) { del.closest(".char-item-tag").remove(); return; }
+      const nameSpan = e.target.closest(".char-item-tag-name, .char-item-desc-dot");
+      if (nameSpan) { _openEditor(nameSpan.closest(".char-item-tag")); return; }
+      // 태그 자체 클릭 (name span 아닌 여백) → 에디터
+      const tag = e.target.closest(".char-item-tag");
+      if (tag) { _openEditor(tag); return; }
+      itemsInp.focus();
+    });
+
+    // Enter 키 입력
     itemsInp.addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); _addItemTag(itemsInp.value); itemsInp.value = ""; }
     });
-    itemsWrap.addEventListener("click", () => itemsInp.focus());
+
+    // 초기 소지품 복원
+    if (Array.isArray(p.initialItems) && p.initialItems.length) {
+      p.initialItems.forEach(it => {
+        const norm = _normalizeItem(it);
+        if (norm.name) {
+          const tag = _buildItemTag(norm);
+          if (tag) itemsWrap.insertBefore(tag, itemsInp);
+        }
+      });
+    }
   }
   const nameInp = card.querySelector(".char-name");
   nameInp.addEventListener("input", e => {
@@ -331,27 +436,29 @@ function renderCharCards() {
 }
 
 // AI 추천 소지품을 카드에 적용 (structured item array 지원)
+// 태그 이벤트는 itemsWrap 위임 리스너가 처리하므로 직접 바인딩 불필요
 function applyItemsToCard(card, items) {
   if (!items || !items.length) return;
   const wrap = card.querySelector(".char-items-tag-wrap");
   const inp  = card.querySelector(".char-items-input");
   if (!wrap || !inp) return;
   const GRADE_COLOR_MAP = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
-  items.forEach(item => {
-    const nm = typeof item === "string" ? item : (item.name || "");
+  items.forEach(rawItem => {
+    const nm = typeof rawItem === "string" ? rawItem : (rawItem.name || "");
     if (!nm) return;
-    const grade = typeof item === "object" ? (item.grade || null) : null;
+    const item = typeof rawItem === "string" ? { name: rawItem } : rawItem;
     const tag = document.createElement("span");
     tag.className = "tag char-item-tag";
     tag.dataset.itemName = nm;
-    if (grade) tag.dataset.grade = grade;
+    if (item.grade)       tag.dataset.grade       = item.grade;
     if (item.description) tag.dataset.description = item.description;
     if (item.category)    tag.dataset.category    = item.category;
     if (item.badge_label) tag.dataset.badgeLabel  = item.badge_label;
-    const gc = grade ? GRADE_COLOR_MAP[grade] : null;
-    const gBadge = gc ? `<span style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${grade}</span>` : '';
-    tag.innerHTML = `${gBadge}${esc(nm)}<span class="tag-del">×</span>`;
-    tag.querySelector(".tag-del").addEventListener("click", () => tag.remove());
+    // HTML 구성: grade badge + name span + desc dot + ×
+    const gc = item.grade ? GRADE_COLOR_MAP[item.grade] : null;
+    const gBadge = gc ? `<span class="char-item-grade-badge" style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${item.grade}</span>` : '';
+    const descDot = item.description ? `<span class="char-item-desc-dot" title="${esc(item.description)}">·</span>` : '';
+    tag.innerHTML = `${gBadge}<span class="char-item-tag-name">${esc(nm)}</span>${descDot}<span class="tag-del">×</span>`;
     wrap.insertBefore(tag, inp);
   });
 }

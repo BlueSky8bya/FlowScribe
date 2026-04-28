@@ -407,6 +407,39 @@ async function auditForeshadows(bookId, arcEnd, arcEpisodes):
 
 ---
 
+### Phase 1.5 — Structured Initial Items UI ✅ 완료
+
+**목표**: 아이템 입력 시 설명을 함께 구조화할 수 있는 UI 지원. AI 추천 items 구조 보존. LLM desc job 최소화.
+
+**완료일**: 2026-04-29
+
+**수정 파일**:
+- `public/js/chars.js` — `_parseItemInput`, `_buildItemTag`, `_refreshTagDisplay`, `_normalizeItem`, `_addItemTag`, `_openEditor`, `_applyEditor`, `_closeEditor` 함수 추가; 인라인 에디터 패널 추가; `applyItemsToCard` desc dot 지원
+- `public/css/modal.css` — `.char-item-desc-dot`, `.char-item-tag-name`, `.char-item-editor-panel`, `.item-ed-*`, `.btn-xs` 추가
+- `public/js/suggest.js` — `getCharacterDataForSuggest()` full item object 보존
+- `scripts/verify_structured_initial_items.mjs` — 67개 테스트 (신규)
+- `scripts/verify_ai_suggest_v2.mjs` — 1개 테스트 조건 수정 (html attr → dataset prop)
+
+**지원 문법**:
+| 입력 | 결과 |
+|---|---|
+| `마법 지팡이 :: 오래된 엘프 지팡이` | name + description |
+| `엘프 망토(숲의 기척을 흐리게 하는 망토)` | name + description |
+| `암흑 검(S)` / `암흑 검(S급)` | name + grade (description 아님) |
+| `S:전투 도끼` | grade prefix + name |
+| `단순 소지품` | name only |
+| `{name, description, category, badge_label}` object | 전체 보존 |
+
+**효과**:
+- description 있는 item → `item_desc` LLM job 대상 제외 (이미 `item_desc.ts`에 구현됨)
+- AI suggest `initial_items` 구조체 `{name, description, category, badge_label}` → UI 태그 → saveContext payload 전 구간 보존
+- 설명 있는 태그에 `.char-item-desc-dot` (6px accent 원) 표시
+- 태그 클릭 시 인라인 에디터 (이름/설명/카테고리) 팝업
+
+**DoD**: `node scripts/verify_structured_initial_items.mjs` → 67/67 PASS
+
+---
+
 ### Phase 1 — Hard Bug Fix (character_dynamic_states 누락)
 
 **목표**: stateUpdates=[] 시에도 carry-forward 실행 보장

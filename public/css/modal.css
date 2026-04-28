@@ -151,6 +151,35 @@ textarea.char-input{resize:none;line-height:1.6;min-height:3rem;overflow:hidden;
 .char-items-tag-wrap:focus-within{border-color:var(--accent);}
 .char-item-tag{font-size:.82rem;}
 
+/* 소지품 태그 이름 영역 — 클릭 가능 */
+.char-item-tag-name{cursor:pointer;}
+.char-item-tag-name:hover{text-decoration:underline;text-decoration-color:var(--accent);}
+
+/* 설명 있음 표시 dot */
+.char-item-desc-dot{
+  display:inline-block;width:6px;height:6px;border-radius:50%;
+  background:var(--accent);margin-left:.25rem;margin-right:.1rem;
+  vertical-align:middle;cursor:pointer;flex-shrink:0;
+  opacity:.7;
+}
+.char-item-desc-dot:hover{opacity:1;}
+
+/* 인라인 소지품 에디터 패널 */
+.char-item-editor-panel{
+  display:none;background:var(--bg);border:1px solid var(--border2);
+  border-radius:8px;padding:.6rem .8rem;margin-top:.35rem;
+  flex-direction:column;gap:.35rem;
+}
+.char-item-editor-panel.open{display:flex;}
+.item-ed-row{display:flex;align-items:center;gap:.45rem;}
+.item-ed-label{font-size:.75rem;color:var(--text-sub);white-space:nowrap;min-width:3.5rem;flex-shrink:0;}
+.item-ed-row .tag-input-field{flex:1;font-size:.82rem;padding:.3rem .6rem;min-width:0;}
+.item-ed-btns{display:flex;gap:.4rem;margin-top:.15rem;}
+.btn-xs{font-size:.78rem;padding:.22rem .65rem;border-radius:5px;cursor:pointer;border:1px solid var(--border2);background:var(--bg2);color:var(--text);}
+.btn-xs:hover{background:var(--bg3);}
+.btn-xs.btn-primary{background:var(--accent);color:#fff;border-color:var(--accent);}
+.btn-xs.btn-primary:hover{opacity:.88;}
+
 /* 구분선 */
 .char-divider{border:none;height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:.65rem 0;}
 

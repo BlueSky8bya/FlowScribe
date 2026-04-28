@@ -148,7 +148,7 @@ check("applyItemsToCard data-category 저장",
 check("applyItemsToCard data-badge-label 저장",
   charsJs.includes("tag.dataset.badgeLabel"));
 check("appendCharCard structured items data attrs",
-  charsJs.includes("data-description="));
+  charsJs.includes("dataset.description"));
 check("renderCharCards structured item object 저장",
   charsJs.includes("obj.description = t.dataset.description"));
 

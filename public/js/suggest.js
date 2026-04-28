@@ -447,9 +447,16 @@ function getCharacterDataForSuggest() {
     gender:      card.dataset.gender || "",
     type:        card.dataset.type   || "",
     personality: card.querySelector(".char-personality")?.value?.trim() || "",
-    initial_items: Array.from(card.querySelectorAll(".char-item-tag")).map(t => ({
-      name: t.dataset.itemName || t.textContent.replace("×", "").trim(),
-    })),
+    initial_items: Array.from(card.querySelectorAll(".char-item-tag")).map(t => {
+      const nm = t.dataset.itemName || t.querySelector(".char-item-tag-name")?.textContent?.trim() || "";
+      if (!nm) return null;
+      const obj = { name: nm };
+      if (t.dataset.grade)       obj.grade       = t.dataset.grade;
+      if (t.dataset.description) obj.description = t.dataset.description;
+      if (t.dataset.category)    obj.category    = t.dataset.category;
+      if (t.dataset.badgeLabel)  obj.badge_label = t.dataset.badgeLabel;
+      return obj;
+    }).filter(Boolean),
   })).filter(c => c.name);
 }
 
