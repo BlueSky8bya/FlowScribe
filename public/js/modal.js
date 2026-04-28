@@ -120,10 +120,12 @@ async function saveContext() {
     }
   } catch {
     showToast("서버 연결 실패 — 설정은 로컬에 유지됩니다", "warning");
+  } finally {
+    const sb = document.getElementById("settingsBtn");
+    if (sb) {
+      sb.classList.add("active");
+      sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`;
+    }
+    closeModal();
   }
-
-  const sb = document.getElementById("settingsBtn");
-  sb.classList.add("active");
-  sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`;
-  closeModal();
 }

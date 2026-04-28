@@ -386,13 +386,14 @@ function renderProgressive(text, done) {
   renderProgressiveRaw(text, false);
 }
 
-function _loadAndApplyCharStates(episodeNum) {
+async function _loadAndApplyCharStates(episodeNum) {
   if (!bookId) return;
-  _loadItemVocab(bookId); // book 전환 감지 시에만 실제 fetch 수행
-  Promise.all([
-    fetch(`/api/generate/char-states?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
-    fetch(`/api/generate/audit-status?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
-  ]).then(([charData, auditData]) => {
+  await _loadItemVocab(bookId); // vocab 먼저 로드 완료 후 패널 렌더링 (race condition 방지)
+  try {
+    const [charData, auditData] = await Promise.all([
+      fetch(`/api/generate/char-states?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
+      fetch(`/api/generate/audit-status?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
+    ]);
     // 생성 중이면 패널을 건드리지 않음 — _clearDebugPanels 효과 보존
     if (_generating) return;
     if (charData.char_states) {
@@ -405,7 +406,7 @@ function _loadAndApplyCharStates(episodeNum) {
       window._lastEpisodeMeta = window._lastEpisodeMeta || {};
       updateDebugMeta(window._lastEpisodeMeta, auditData);
     }
-  }).catch(() => {});
+  } catch { /* 조용히 무시 */ }
 }
 
 function _prevEpNum(from) {
@@ -912,7 +913,7 @@ function updateDebugMeta(meta, auditStatus = null) {
   const sc = s => s == null ? '' : s >= 70 ? 'ok' : s >= 40 ? 'warn' : 'bad';
   const ms = v => v != null ? (Math.round(v / 100) / 10) + 's' : null;
   const kv = (k, v, cls) => v != null && v !== ''
-    ? `<div class="eq-info-item"><span class="eq-info-label">${k}</span><span class="eq-info-value${cls ? ' '+cls : ''}">${v}</span></div>` : '';
+    ? `<div class="eq-kv"><span class="eq-kv-key">${k}</span><span class="eq-kv-val${cls ? ' '+cls : ''}">${v}</span></div>` : '';
   const kv2 = (k, v, cls) => v != null && v !== ''
     ? `<div class="eq-kv"><span class="eq-kv-key">${k}</span><span class="eq-kv-val${cls ? ' '+cls : ''}">${v}</span></div>` : '';
   const show = id => { const el = document.getElementById(id); if (el) el.hidden = false; };
@@ -938,7 +939,7 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('커스텀 분량 설정', userRange);
     rows += kv('본문 목표 분량', rendererTarget);   // 범위 중간점, 실제 프롬프트 전달값
     rows += kv('허용 범위', budgetRange);              // min~max
-    rows += `<div class="eq-info-item"><span class="eq-info-label">실제 분량</span><span class="eq-info-value" id="eqActualChars">${a?.actual_chars ? a.actual_chars + '자 (후처리 전)' : '—'}</span></div>`;
+    rows += `<div class="eq-kv"><span class="eq-kv-key">실제 분량</span><span class="eq-kv-val" id="eqActualChars">${a?.actual_chars ? a.actual_chars + '자 (후처리 전)' : '—'}</span></div>`;
     rows += kv('생성 모델', a?.renderer_model ?? null);
     rows += kv('플래너 모델', a?.planner_model ?? null);
     // 회차 역할 / 서사 국면 한글 레이블 매핑
