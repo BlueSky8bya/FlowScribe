@@ -3,6 +3,7 @@ import { Worker } from "bullmq";
 import { redis } from "../lib/redis.js";
 import { writeLog } from "../services/logger.js";
 import { updateProfileFromLog } from "../services/profile.js";
+import { generateAndSaveItemDescriptions } from "../services/item_desc.js";
 import { logInfo, logError } from "../lib/logger.js";
 
 const connection = redis;
@@ -36,6 +37,20 @@ profileWorker.on("failed", (job, err) => {
   logError("worker:profile_update", err, { job_id: job?.id });
 });
 
+// ── item_desc 워커 (소지품 설명 LLM 자동 생성) ───────────────
+const itemDescWorker = new Worker(
+  "item_desc",
+  async job => {
+    if (job.name === "generate-item-desc") {
+      await generateAndSaveItemDescriptions(job.data);
+    }
+  },
+  { connection, concurrency: 2 }
+);
+itemDescWorker.on("failed", (job, err) => {
+  logError("worker:item_desc", err, { job_id: job?.id, char: job?.data?.char_name });
+});
+
 // ── audio_sync 워커 (stub — Phase 2에서 구현) ───────────────
 const audioWorker = new Worker(
   "audio_sync",
@@ -48,10 +63,10 @@ audioWorker.on("failed", (job, err) => {
   logError("worker:audio_sync", err, { job_id: job?.id });
 });
 
-logInfo("worker:startup", "FlowScribe workers started", { queues: ["log_save", "profile_update", "audio_sync"] });
+logInfo("worker:startup", "FlowScribe workers started", { queues: ["log_save", "profile_update", "item_desc", "audio_sync"] });
 
 process.on("SIGTERM", async () => {
   logInfo("worker:startup", "SIGTERM 수신 — workers 종료 중");
-  await Promise.all([logWorker.close(), profileWorker.close(), audioWorker.close()]);
+  await Promise.all([logWorker.close(), profileWorker.close(), itemDescWorker.close(), audioWorker.close()]);
   process.exit(0);
 });

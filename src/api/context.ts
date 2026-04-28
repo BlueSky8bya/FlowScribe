@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { redis } from "../lib/redis.js";
 import { pool } from "../lib/db.js";
 import { upsertCanonicalCharacter } from "../services/character_state.js";
+import { itemDescQueue } from "../queues/index.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 
 export const contextRouter = Router();
@@ -172,6 +173,33 @@ contextRouter.post("/", async (req: Request, res: Response) => {
         count: entries.length,
         names: entries.map(([n]) => n),
       });
+
+      // description 없는 아이템이 있으면 LLM 설명 생성 잡 enqueue (백그라운드)
+      for (const [name, info] of entries) {
+        const rawItems: Array<any> = (typeof info === "object" && Array.isArray((info as any).initial_items))
+          ? (info as any).initial_items : [];
+        const missing = rawItems.filter((it: any) => {
+          const parsed = typeof it === "string" ? { name: it } : it;
+          return !parsed.description;
+        });
+        if (!missing.length) continue;
+        const desc       = typeof info === "string" ? info : ((info as any).description ?? (info as any).personality ?? "");
+        const type       = typeof info === "object" ? ((info as any).type ?? "") : "";
+        const gender     = typeof info === "object" ? ((info as any).gender ?? "") : "";
+        itemDescQueue.add("generate-item-desc", {
+          book_id,
+          char_name: name,
+          char_personality: desc.slice(0, 100),
+          char_type: type,
+          char_gender: gender,
+          items_without_desc: missing.map((it: any) => ({
+            name: typeof it === "string" ? it : it.name,
+            grade: it.grade ?? null,
+            condition: it.condition ?? null,
+          })),
+        }, { attempts: 3, backoff: { type: "exponential", delay: 5000 },
+             removeOnComplete: 100, removeOnFail: 50 }).catch(() => {});
+      }
     }
 
     res.json({ ok: true });

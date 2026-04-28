@@ -415,20 +415,33 @@ ok('강철의 연옥 badge: no null return', ['강철 의수','진혼의 종','�
 // ─── I2. item description fallback ──────────────────────────────────────────
 console.log('\n[I2] Item description fallback');
 
+// _qlabelFull 반환값(영문 키) → 한글 레이블 매핑
+const _QLABEL_KEY_TO_LABEL = {
+  danger:'위험', weapon:'무기', shield:'방어', medical:'의료', info:'정보',
+  ritual:'의식', spiritual:'영적', sound:'음향', mech:'기계', military:'군용',
+  gear:'장비', tool:'도구', high:'고급', broken:'파손', worn:'낡음', normal:null,
+};
+const _QLABEL_DESC = {
+  '위험':'위험한 폭발물 또는 유해 물질',
+  '무기':'전투에 사용하는 무기',
+  '방어':'방어 및 보호용 장비',
+  '의료':'치료 및 의료에 사용하는 도구',
+  '정보':'정보 저장 및 처리 장치',
+  '의식':'의식 및 제례에 사용하는 도구',
+  '영적':'영적 존재와 관련된 도구',
+  '음향':'소리를 감지하거나 발생시키는 장치',
+  '기계':'기계식 보조 장치',
+  '군용':'군사 목적의 장비',
+  '장비':'전문 기술 장비',
+  '도구':'범용 작업 도구',
+  '고급':'고급 또는 특수 제작 장비',
+  '파손':'손상된 장비',
+  '낡음':'오래되거나 노후화된 물품',
+};
 function _itemDescFallback(name) {
-  const t = (name ?? '').toLowerCase();
-  if (/은탄|은총알|은환/.test(t))   return '초자연적 존재에 특효인 은 재질 탄환';
-  if (/연소 램프|오일 램프|석유 램프|가스 램프|연소등|램프|랜턴|등불|등잔|촛불|횃불/.test(t)) return '어둠을 밝히는 연료식 조명 도구';
-  if (/리볼버|권총|피스톨|핸드건/.test(t)) return '전투에 사용하는 휴대용 화기';
-  if (/소총|기관총|산탄총|저격총/.test(t)) return '전투에 사용하는 장거리 화기';
-  if (/탄약|탄환|총알|총탄/.test(t)) return '화기에 장전하는 탄약류';
-  if (/의수|의족|기계팔/.test(t))  return '잃어버린 지체를 대체하는 기계식 보조 장치';
-  if (/진혼/.test(t))             return '망자의 넋을 달래는 의식용 도구';
-  if (/향로/.test(t))             return '향을 태우는 의식용 기구';
-  if (/심령/.test(t))             return '영적 존재의 기운을 감지하는 도구';
-  if (/청음기|청음/.test(t))      return '미세한 소리나 파동을 포착하는 감청 장치';
-  if (/강령|영매|초혼/.test(t))   return '영계와 소통하는 의식 도구';
-  return null;
+  const key = _qlabelFull(name); // e.g. 'military', 'weapon'
+  const label = _QLABEL_KEY_TO_LABEL[key];
+  return (label && _QLABEL_DESC[label]) ?? null;
 }
 
 ok('강철 의수 → desc fallback 존재', !!_itemDescFallback('강철 의수'));
@@ -559,9 +572,9 @@ ok('generate.js: 음향 category added',   genJs.includes("label:'음향'"));
 ok('generate.js: 기계 category added',   genJs.includes("label:'기계'"));
 ok('generate.js: 군용 category added',   genJs.includes("label:'군용'"));
 ok('generate.js: _itemDescFallback exists', genJs.includes('_itemDescFallback'));
-ok('generate.js: 의수|의족 in mech',     genJs.includes('의수|의족'));
-ok('generate.js: 진혼|향로 in ritual',   genJs.includes('진혼|향로'));
-ok('generate.js: 심령|강령 in spiritual',genJs.includes('심령|강령'));
+ok('generate.js: _QLABEL_DESC category map', genJs.includes('_QLABEL_DESC'));
+ok('generate.js: 군용 in _QLABEL_DESC', genJs.includes("'군용'"));
+ok('generate.js: _qlabel used in itemDescFallback', genJs.includes('const ql = _qlabel(name)'));
 
 // D: debug labels renamed
 ok('generate.js: 이번 화 역할',          genJs.includes('이번 화 역할'));
@@ -624,9 +637,9 @@ ok('generate.js: 범위 밖 warning text',         genJs.includes('범위 밖'))
 ok('generate.js: HOOK_TYPE_KO in scene beats',  genJs.includes('HOOK_TYPE_KO[a.hook_type]'));
 ok('generate.js: p.replaceWith in dialogue',    genJs.includes('p.replaceWith'));
 ok('generate.js: dialogue-line class on block', genJs.includes("newP.classList.add('dialogue-line')"));
-ok('generate.js: 은탄|은총알 in descFallback',  genJs.includes('은탄|은총알'));
-ok('generate.js: 램프|랜턴 in descFallback',    genJs.includes('램프|랜턴'));
-ok('generate.js: 리볼버 in descFallback',       genJs.includes('리볼버|권총|피스톨'));
+ok('generate.js: _QLABEL_DESC in generate.js', genJs.includes('_QLABEL_DESC'));
+ok('generate.js: _CAP_DESC in hover card', genJs.includes('_CAP_DESC'));
+ok('generate.js: QLABEL_CAP used in capDescFallback', genJs.includes('const ql = QLABEL_CAP(name)'));
 ok('generate.js: _compact continuation only',   genJs.includes('const rest = text.slice(maxLen)'));
 ok('context.ts: range validation for existingRf', ctxTs.includes('existingRf >= min && existingRf <= max'));
 

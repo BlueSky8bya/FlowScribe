@@ -3,6 +3,7 @@ import { pool } from "../lib/db.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { upsertCanonicalCharacter } from "../services/character_state.js";
 import { parseItemEntry } from "./context.js";
+import { itemDescQueue } from "../queues/index.js";
 
 export const charactersRouter = Router();
 
@@ -65,6 +66,30 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
           : [],
       });
     }
+    // description 없는 아이템 → LLM 설명 생성 잡 enqueue (백그라운드)
+    for (const c of characters) {
+      if (!c.name) continue;
+      const rawItems: Array<any> = Array.isArray(c.initial_items) ? c.initial_items : [];
+      const missing = rawItems.filter((it: any) => {
+        const parsed = typeof it === "string" ? { name: it } : it;
+        return !parsed.description;
+      });
+      if (!missing.length) continue;
+      itemDescQueue.add("generate-item-desc", {
+        book_id,
+        char_name: c.name,
+        char_personality: (c.personality ?? "").slice(0, 100),
+        char_type: c.type ?? "",
+        char_gender: c.gender ?? "",
+        items_without_desc: missing.map((it: any) => ({
+          name: typeof it === "string" ? it : it.name,
+          grade: it.grade ?? null,
+          condition: it.condition ?? null,
+        })),
+      }, { attempts: 3, backoff: { type: "exponential", delay: 5000 },
+           removeOnComplete: 100, removeOnFail: 50 }).catch(() => {});
+    }
+
     logInfo("api:characters:save", "인물 upsert 완료", { book_id, count: characters.length });
     res.json({ ok: true, count: characters.length });
   } catch (err) {

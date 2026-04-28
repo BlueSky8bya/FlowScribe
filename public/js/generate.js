@@ -656,20 +656,27 @@ function updateSceneCharPanel(charStates) {
           return { label:'일반', color:'#5a9a6a' };
         };
         // 이름만 있는 소지품에 대한 규칙 기반 fallback 설명 (20~60자, LLM 호출 없음)
+        // 배지 카테고리 → generic 설명 매핑 (새 카테고리 추가 시 자동 확장)
+        const _QLABEL_DESC = {
+          '위험':'위험한 폭발물 또는 유해 물질',
+          '무기':'전투에 사용하는 무기',
+          '방어':'방어 및 보호용 장비',
+          '의료':'치료 및 의료에 사용하는 도구',
+          '정보':'정보 저장 및 처리 장치',
+          '의식':'의식 및 제례에 사용하는 도구',
+          '영적':'영적 존재와 관련된 도구',
+          '음향':'소리를 감지하거나 발생시키는 장치',
+          '기계':'기계식 보조 장치',
+          '군용':'군사 목적의 장비',
+          '장비':'전문 기술 장비',
+          '도구':'범용 작업 도구',
+          '고급':'고급 또는 특수 제작 장비',
+          '파손':'손상된 장비',
+          '낡음':'오래되거나 노후화된 물품',
+        };
         const _itemDescFallback = name => {
-          const t = (name ?? '').toLowerCase();
-          if (/은탄|은총알|은환/.test(t))   return '초자연적 존재에 특효인 은 재질 탄환';
-          if (/연소 램프|오일 램프|석유 램프|가스 램프|연소등|램프|랜턴|등불|등잔|촛불|횃불/.test(t)) return '어둠을 밝히는 연료식 조명 도구';
-          if (/리볼버|권총|피스톨|핸드건/.test(t)) return '전투에 사용하는 휴대용 화기';
-          if (/소총|기관총|산탄총|저격총/.test(t)) return '전투에 사용하는 장거리 화기';
-          if (/탄약|탄환|총알|총탄/.test(t)) return '화기에 장전하는 탄약류';
-          if (/의수|의족|기계팔/.test(t))   return '잃어버린 지체를 대체하는 기계식 보조 장치';
-          if (/진혼/.test(t))              return '망자의 넋을 달래는 의식용 도구';
-          if (/향로/.test(t))              return '향을 태우는 의식용 기구';
-          if (/심령/.test(t))              return '영적 존재의 기운을 감지하는 도구';
-          if (/청음기|청음/.test(t))       return '미세한 소리나 파동을 포착하는 감청 장치';
-          if (/강령|영매|초혼/.test(t))    return '영계와 소통하는 의식 도구';
-          return null;
+          const ql = _qlabel(name);
+          return (ql && _QLABEL_DESC[ql.label]) ?? null;
         };
         const _qlabelBadgeHtml = (ql) => ql
           ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>`
@@ -1559,20 +1566,27 @@ async function captureEpisode(withChars = false) {
               if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
               return { label:'일반', color:'#5a9a6a' };
             };
+            // hover card도 동일 카테고리 매핑 사용 (QLABEL_CAP 기반)
+            const _CAP_DESC = {
+              '위험':'위험한 폭발물 또는 유해 물질',
+              '무기':'전투에 사용하는 무기',
+              '방어':'방어 및 보호용 장비',
+              '의료':'치료 및 의료에 사용하는 도구',
+              '정보':'정보 저장 및 처리 장치',
+              '의식':'의식 및 제례에 사용하는 도구',
+              '영적':'영적 존재와 관련된 도구',
+              '음향':'소리를 감지하거나 발생시키는 장치',
+              '기계':'기계식 보조 장치',
+              '군용':'군사 목적의 장비',
+              '장비':'전문 기술 장비',
+              '도구':'범용 작업 도구',
+              '고급':'고급 또는 특수 제작 장비',
+              '파손':'손상된 장비',
+              '낡음':'오래되거나 노후화된 물품',
+            };
             const _capDescFallback = name => {
-              const t = (name ?? '').toLowerCase();
-              if (/은탄|은총알|은환/.test(t))   return '초자연적 존재에 특효인 은 재질 탄환';
-              if (/연소 램프|오일 램프|석유 램프|가스 램프|연소등|램프|랜턴|등불|등잔|촛불|횃불/.test(t)) return '어둠을 밝히는 연료식 조명 도구';
-              if (/리볼버|권총|피스톨|핸드건/.test(t)) return '전투에 사용하는 휴대용 화기';
-              if (/소총|기관총|산탄총|저격총/.test(t)) return '전투에 사용하는 장거리 화기';
-              if (/탄약|탄환|총알|총탄/.test(t)) return '화기에 장전하는 탄약류';
-              if (/의수|의족|기계팔/.test(t))  return '잃어버린 지체를 대체하는 기계식 보조 장치';
-              if (/진혼/.test(t))             return '망자의 넋을 달래는 의식용 도구';
-              if (/향로/.test(t))             return '향을 태우는 의식용 기구';
-              if (/심령/.test(t))             return '영적 존재의 기운을 감지하는 도구';
-              if (/청음기|청음/.test(t))      return '미세한 소리나 파동을 포착하는 감청 장치';
-              if (/강령|영매|초혼/.test(t))   return '영계와 소통하는 의식 도구';
-              return null;
+              const ql = QLABEL_CAP(name);
+              return (ql && _CAP_DESC[ql.label]) ?? null;
             };
             const isFantasyCap = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
             const itemsHtml = (s.items ?? []).map(it => {
