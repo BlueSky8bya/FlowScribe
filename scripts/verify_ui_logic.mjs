@@ -3,7 +3,11 @@
  * Run: node scripts/verify_ui_logic.mjs
  */
 import { readFileSync } from 'fs';
-import { join } from 'path';
+import { join, dirname } from 'path';
+import { fileURLToPath } from 'url';
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const fs = { readFileSync };
+const path = { join };
 
 let PASS = 0, FAIL = 0;
 function ok(label, cond) {
@@ -741,6 +745,77 @@ console.log('\n[F2] Dialogue fixture 2 — attached 기계 소리?');
     ok('F: ?” not in narr', !narrF.some(p => p.text.includes('?”')));
     ok('F: .”그는 not in narr', !narrF.some(p => p.text.includes('.”')));
   }
+}
+
+// ── Viewer mode lock ──────────────────────────────────────────
+{
+  console.log("\n── Viewer Mode Lock (source checks) ────────────────────────");
+  const authJs = fs.readFileSync(path.join(__dirname, "../public/js/auth.js"), "utf-8");
+  ok("lockCharCardFields: personality readOnly", authJs.includes("ta.readOnly = lock"));
+  ok("lockCharCardFields: itemsInp disabled",    authJs.includes("itemsInp.disabled = lock"));
+  ok("lockCharCardFields: items-viewer-locked",  authJs.includes("items-viewer-locked"));
+  ok("lockCharCardFields: refineBtn disabled",   authJs.includes("refineBtn.disabled = lock"));
+  ok("lockCharCardFields: aiBtn disabled in lock", authJs.includes("aiBtn.disabled = lock"));
+  ok("lockCharCardFields: edPanel close on lock", authJs.includes('edPanel && lock'));
+  const charsJs = fs.readFileSync(path.join(__dirname, "../public/js/chars.js"), "utf-8");
+  ok("chars.js: viewerLocked guard in delegation", charsJs.includes("viewerLocked"));
+}
+
+// ── New book sidebar reset ────────────────────────────────────
+{
+  console.log("\n── New Book Sidebar Reset (source checks) ──────────────────");
+  const authJs = fs.readFileSync(path.join(__dirname, "../public/js/auth.js"), "utf-8");
+  ok("selectBook: updateEpisodeListUI immediate call", authJs.includes("updateEpisodeListUI()"));
+  ok("selectBook: arcSection hidden on switch",        authJs.includes('arcSection.style.display = "none"'));
+  ok("selectBook: arcActList cleared",                 authJs.includes("arcActList.innerHTML"));
+}
+
+// ── system-note-line ──────────────────────────────────────────
+{
+  console.log("\n── System Note Line (source checks) ────────────────────────");
+  const genJs  = fs.readFileSync(path.join(__dirname, "../public/js/generate.js"), "utf-8");
+  const layCSS = fs.readFileSync(path.join(__dirname, "../public/css/layout.css"), "utf-8");
+  ok("generate.js: SYSTEM_BRACKET_RE defined",          genJs.includes("SYSTEM_BRACKET_RE"));
+  ok("generate.js: system-note-line class assigned",    genJs.includes("system-note-line"));
+  ok("layout.css: system-note-line text-indent:0",      layCSS.includes("system-note-line") && layCSS.includes("text-indent:0"));
+}
+
+// ── malformed quote repair ────────────────────────────────────
+{
+  console.log("\n── Malformed Quote Repair (source checks) ──────────────────");
+  const genJs = fs.readFileSync(path.join(__dirname, "../public/js/generate.js"), "utf-8");
+  ok("generate.js: malformed quote repair present",  genJs.includes("malformed quote repair"));
+  ok("generate.js: Case A pattern (leading quote + space)",  genJs.includes("Case A"));
+  ok("generate.js: Case B pattern (narr+dial split)", genJs.includes("Case B"));
+}
+
+// ── item AI suggest button ────────────────────────────────────
+{
+  console.log("\n── Item AI Suggest Button (source checks) ──────────────────");
+  const charsJs   = fs.readFileSync(path.join(__dirname, "../public/js/chars.js"), "utf-8");
+  const suggestJs = fs.readFileSync(path.join(__dirname, "../public/js/suggest.js"), "utf-8");
+  ok("chars.js: item-ai-suggest-btn present",         charsJs.includes("item-ai-suggest-btn"));
+  ok("chars.js: suggestItemDetail call",               charsJs.includes("suggestItemDetail"));
+  ok("suggest.js: suggestItemDetail function",         suggestJs.includes("async function suggestItemDetail"));
+  ok("suggest.js: existing desc not overwritten",      suggestJs.includes("if (!descInput.value.trim()"));
+}
+
+// ── character AI suggest preserves existing fields ───────────
+{
+  console.log("\n── Char AI Suggest Preserves Fields (source checks) ────────");
+  const suggestJs = fs.readFileSync(path.join(__dirname, "../public/js/suggest.js"), "utf-8");
+  ok("suggest.js: existing name check before overwrite", suggestJs.includes("existingName"));
+  ok("suggest.js: personality only if empty",            suggestJs.includes("if (!taEl.value.trim())"));
+  ok("suggest.js: new items only (existingNames set)",   suggestJs.includes("existingNames"));
+}
+
+// ── save loading messages ─────────────────────────────────────
+{
+  console.log("\n── Save Loading Messages (source checks) ───────────────────");
+  const modalJs = fs.readFileSync(path.join(__dirname, "../public/js/modal.js"), "utf-8");
+  ok("modal.js: _SAVE_MSGS array with 100 msgs",   (modalJs.match(/"[^"]+…"/g) ?? []).length >= 50);
+  ok("modal.js: _startMsgCycle function",           modalJs.includes("_startMsgCycle"));
+  ok("modal.js: clearInterval on restore",          modalJs.includes("clearInterval(_msgInterval)"));
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────────────

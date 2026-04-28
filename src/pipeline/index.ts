@@ -329,7 +329,7 @@ export async function runPlannerPipeline(
       plan_fallback: fallback_used,
     });
   }
-  if (stateUpdates.length > 0 && bookId && ctx.episode_number) {
+  if (bookId && ctx.episode_number) {
     // canonical 이름 목록 (정규화 기준)
     const canonicalNames = ctx.characters.map(c => c.name);
     // normalization 통계
@@ -352,50 +352,58 @@ export async function runPlannerPipeline(
     const canonicalItemMap = new Map(
       ctx.characters.map(c => [c.name, c.initial_items ?? []]),
     );
-    for (const upd of stateUpdates) {
-      try {
-        // 이름 정규화 — drift/orphan 차단
-        const { name: resolvedName, event: normEvent } = resolveCanonicalCharName(upd.character_name, canonicalNames);
-        normStats[normEvent]++;
-        if (!resolvedName) continue; // orphan → 커밋 스킵
 
-        const prev = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
-        const canonicalItems = canonicalItemMap.get(resolvedName) ?? [];
-        // items 우선순위: planner 출력 > prev dynamic > canonical initial_items
-        const resolvedItems = (upd.items?.length ?? 0) > 0
-          ? upd.items!
-          : (prev?.items?.length ?? 0) > 0
-            ? prev!.items!
-            : canonicalItems;
-        const resolvedLocation =
-          upd.location ??
-          beatLocationMap.get(upd.character_name) ??
-          beatLocationMap.get(resolvedName) ??
-          prev?.location ?? undefined;
-        await commitDynamicState({
-          book_id:        bookId,
-          character_name: resolvedName,
-          episode_number: ctx.episode_number,
-          location:       resolvedLocation,
-          physical_state: upd.physical_state ?? prev?.physical_state ?? undefined,
-          emotional_state: upd.emotional_state,
-          items:          resolvedItems as import("../types/canonical.js").ItemEntry[],
-          visibility_state: upd.visibility_state ?? prev?.visibility_state ?? "present",
-          recent_goal:    upd.recent_goal      ?? prev?.recent_goal ?? undefined,
-          relationship_updates:   prev?.relationship_updates   ?? {},
-          foreshadow_connections: prev?.foreshadow_connections ?? [],
-          behavior_hints: prev?.behavior_hints ?? undefined,
-          alias_used:     prev?.alias_used     ?? [],
-        });
-      } catch (err) {
-        logWarn("pipeline", "캐릭터 상태 커밋 실패 (skip)", {
-          character: upd.character_name, error: String(err),
-        });
+    // ── direct commit: planner가 명시한 상태 업데이트 ──────────
+    if (stateUpdates.length > 0) {
+      for (const upd of stateUpdates) {
+        try {
+          // 이름 정규화 — drift/orphan 차단
+          const { name: resolvedName, event: normEvent } = resolveCanonicalCharName(upd.character_name, canonicalNames);
+          normStats[normEvent]++;
+          if (!resolvedName) continue; // orphan → 커밋 스킵
+
+          const prev = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
+          const canonicalItems = canonicalItemMap.get(resolvedName) ?? [];
+          // items 우선순위: planner 출력 > prev dynamic > canonical initial_items
+          const resolvedItems = (upd.items?.length ?? 0) > 0
+            ? upd.items!
+            : (prev?.items?.length ?? 0) > 0
+              ? prev!.items!
+              : canonicalItems;
+          const resolvedLocation =
+            upd.location ??
+            beatLocationMap.get(upd.character_name) ??
+            beatLocationMap.get(resolvedName) ??
+            prev?.location ?? undefined;
+          await commitDynamicState({
+            book_id:        bookId,
+            character_name: resolvedName,
+            episode_number: ctx.episode_number,
+            location:       resolvedLocation,
+            physical_state: upd.physical_state ?? prev?.physical_state ?? undefined,
+            emotional_state: upd.emotional_state,
+            items:          resolvedItems as import("../types/canonical.js").ItemEntry[],
+            visibility_state: upd.visibility_state ?? prev?.visibility_state ?? "present",
+            recent_goal:    upd.recent_goal      ?? prev?.recent_goal ?? undefined,
+            relationship_updates:   prev?.relationship_updates   ?? {},
+            foreshadow_connections: prev?.foreshadow_connections ?? [],
+            behavior_hints: prev?.behavior_hints ?? undefined,
+            alias_used:     prev?.alias_used     ?? [],
+          });
+        } catch (err) {
+          logWarn("pipeline", "캐릭터 상태 커밋 실패 (skip)", {
+            character: upd.character_name, error: String(err),
+          });
+        }
       }
     }
-    // 플래너가 언급하지 않은 인물 → 이전 상태 그대로 absent로 커밋
-    // canonical에 속하는 인물만 carry-forward (orphan 전파 방지)
-    const updatedNames = new Set(stateUpdates.map(u => resolveCanonicalCharName(u.character_name, canonicalNames).name).filter(Boolean));
+
+    // ── carry-forward + absent-seed: stateUpdates 여부와 무관하게 항상 실행 ──
+    const updatedNames = new Set(
+      stateUpdates.map(u => resolveCanonicalCharName(u.character_name, canonicalNames).name).filter(Boolean)
+    );
+    // 플래너가 언급하지 않은 인물 → 이전 상태 그대로 absent로 carry-forward
+    // canonical에 속하는 인물만 (orphan 전파 방지)
     for (const prev of ctx.character_dynamic_states) {
       const { name: resolvedPrevName } = resolveCanonicalCharName(prev.character_name, canonicalNames);
       if (!resolvedPrevName) continue; // orphan → carry-forward 스킵
@@ -418,8 +426,7 @@ export async function runPlannerPipeline(
         });
       } catch { /* skip */ }
     }
-    // canonical 인물 중 prev state도 없고 planner 언급도 없는 인물 → absent seed 커밋
-    // (예: 1화에서 적대 세력 인물이 플래너에 포함되지 않는 경우)
+    // canonical 인물 중 prev state도 없고 planner 언급도 없는 인물 → absent seed
     const prevNames = new Set(ctx.character_dynamic_states.map(d => d.character_name));
     for (const canonical of ctx.characters) {
       if (updatedNames.has(canonical.name) || prevNames.has(canonical.name)) continue;
@@ -444,7 +451,8 @@ export async function runPlannerPipeline(
     logInfo("pipeline", "캐릭터 상태 커밋 완료", {
       episode: ctx.episode_number,
       committed: stateUpdates.map(u => u.character_name),
-      norm_stats: normStats,  // exact_match / drift_corrected / orphan_skipped / new_character_allowed
+      state_source: stateUpdates.length > 0 ? "planner" : "carried_forward",
+      norm_stats: normStats,
     });
   }
 

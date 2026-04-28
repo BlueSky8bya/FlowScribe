@@ -206,16 +206,45 @@ function restoreContextUI(ctx) {
 }
 
 function lockCharCardFields(card, lock) {
+  // 이름 입력
   const nameInp = card.querySelector(".char-name");
   if (nameInp) {
     nameInp.readOnly = lock;
     nameInp.style.pointerEvents = lock ? "none" : "";
     nameInp.style.opacity = lock ? ".5" : "";
   }
+  // 유형·성별 칩 드롭다운
   card.querySelectorAll(".char-chip-label").forEach(el => {
     el.style.pointerEvents = lock ? "none" : "";
     el.style.opacity = lock ? ".5" : "";
   });
+  // 성격·특성 textarea 및 preview box
+  const ta = card.querySelector(".char-personality");
+  if (ta) { ta.readOnly = lock; ta.style.pointerEvents = lock ? "none" : ""; ta.style.opacity = lock ? ".7" : ""; }
+  const preview = card.querySelector(".char-personality-preview-box");
+  if (preview) { preview.style.pointerEvents = lock ? "none" : ""; }
+  // 구체화 버튼
+  const refineBtn = card.querySelector(".char-refine-btn");
+  if (refineBtn) { refineBtn.disabled = lock; refineBtn.style.opacity = lock ? ".25" : ""; refineBtn.style.pointerEvents = lock ? "none" : ""; }
+  // AI 추천 버튼
+  const aiBtn = card.querySelector(".char-ai-btn");
+  if (aiBtn) { aiBtn.disabled = lock; aiBtn.style.opacity = lock ? ".25" : ""; aiBtn.style.pointerEvents = lock ? "none" : ""; }
+  // 소지품 입력창 (Enter 추가 금지)
+  const itemsInp = card.querySelector(".char-items-input");
+  if (itemsInp) { itemsInp.disabled = lock; itemsInp.style.display = lock ? "none" : ""; }
+  // 소지품 태그 삭제 버튼 + 에디터 패널 진입 잠금
+  card.classList.toggle("items-viewer-locked", lock);
+  // 소지품 에디터 패널 닫기
+  const edPanel = card.querySelector(".char-item-editor-panel");
+  if (edPanel && lock) edPanel.classList.remove("open");
+  // 소지품 AI 추천 버튼 (에디터 내)
+  const itemAiBtn = card.querySelector(".item-ai-suggest-btn");
+  if (itemAiBtn) { itemAiBtn.disabled = lock; itemAiBtn.style.opacity = lock ? ".25" : ""; itemAiBtn.style.pointerEvents = lock ? "none" : ""; }
+  // hint 텍스트 숨김
+  const hint = card.querySelector(".char-items-hint");
+  if (hint) hint.style.display = lock ? "none" : "";
+  // 뷰어 모드 배지
+  card.dataset.viewerLocked = lock ? "true" : "";
 }
 
 function applySettingsLock(lock) {
@@ -475,6 +504,18 @@ async function selectBook(book) {
   // 이전 책 잔상 즉시 제거 (async 로드 전 동기 초기화)
   if (typeof _clearDebugPanels === "function") _clearDebugPanels();
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
+
+  // 에피소드 목록·아크·출력 헤더 즉시 초기화 (책 전환 시 이전 정보 표시 방지)
+  if (typeof updateEpisodeListUI === "function") updateEpisodeListUI();
+  if (typeof updateOutputHeader   === "function") updateOutputHeader();
+  const arcSection = document.getElementById("arcSection");
+  if (arcSection) arcSection.style.display = "none";
+  const arcDivider = document.getElementById("arcDivider");
+  if (arcDivider) arcDivider.style.display = "none";
+  const arcActList = document.getElementById("arcActList");
+  if (arcActList) arcActList.innerHTML = "";
+  const epListCount = document.getElementById("epListCount");
+  if (epListCount) epListCount.textContent = "";
   ["statTotalSessions","statAvgCompletion","statAvgTime"].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = "—";
   });

@@ -52,26 +52,44 @@ async function suggestCharacter(btn) {
       if (!c) throw new Error("empty");
 
       const nameInp = card.querySelector(".char-name");
-      const nameLocked = nameInp.readOnly;
-      if (!nameLocked) {
+      const existingName = nameInp.value.trim();
+      // 이름이 비어 있을 때만 AI 추천 이름 적용 (기존 입력 보호)
+      if (!existingName) {
         nameInp.value = c.name || "";
         card.querySelector(".char-card-name-preview").textContent = c.name || "이름 미입력";
-        if (c.type) {
-          const typeChip = card.querySelector(`.type-chips .char-chip[data-val="${c.type}"]`);
-          if (typeChip) typeChip.click();
-        }
-        if (c.gender) {
-          const genderChip = card.querySelector(`.gender-chips .char-chip[data-val="${c.gender}"]`);
-          if (genderChip) genderChip.click();
-        }
       }
+      // 유형·성별은 기본값("인간"/"해당없음")이면 AI 추천 적용
+      const existingType   = card.dataset.type   || "인간";
+      const existingGender = card.dataset.gender || "해당없음";
+      if (c.type && (existingType === "인간" || existingType === "기타")) {
+        const typeChip = card.querySelector(`.type-chips .char-chip[data-val="${c.type}"]`);
+        if (typeChip) typeChip.click();
+      }
+      if (c.gender && (existingGender === "해당없음" || existingGender === "기타")) {
+        const genderChip = card.querySelector(`.gender-chips .char-chip[data-val="${c.gender}"]`);
+        if (genderChip) genderChip.click();
+      }
+      // 성격·특성 — 비어 있을 때만 적용
       const taEl = card.querySelector(".char-personality");
-      taEl.value = c.personality || "";
-      taEl.style.height = "auto";
-      taEl.style.height = taEl.scrollHeight + "px";
+      if (!taEl.value.trim()) {
+        taEl.value = c.personality || "";
+        taEl.style.height = "auto";
+        taEl.style.height = taEl.scrollHeight + "px";
+      }
 
+      // 소지품 — 기존 태그를 보존하고 새 항목만 추가 (동명 항목은 추가 금지)
       if (c.initial_items?.length && typeof applyItemsToCard === "function") {
-        applyItemsToCard(card, c.initial_items);
+        const wrap = card.querySelector(".char-items-tag-wrap");
+        const existingNames = new Set(
+          Array.from(wrap?.querySelectorAll(".char-item-tag") ?? [])
+            .map(t => (t.dataset.itemName || "").trim().toLowerCase())
+            .filter(Boolean)
+        );
+        const newItems = c.initial_items.filter(it => {
+          const nm = (typeof it === "string" ? it : it.name || "").trim().toLowerCase();
+          return nm && !existingNames.has(nm);
+        });
+        if (newItems.length) applyItemsToCard(card, newItems);
       }
     } catch(e) {
       console.error("[suggest char]", e);
@@ -510,6 +528,67 @@ function applyWorldSuggestResult(data, locked) {
   }
 
   showToast("AI 추천이 반영됐습니다", "info");
+}
+
+// ── 소지품 상세 AI 추천 (item_detail) ────────────────────────
+async function suggestItemDetail(editorPanel, card) {
+  if (!editorPanel) return;
+  const nameVal = editorPanel.querySelector(".item-ed-name").value.trim();
+  if (!nameVal) { showToast("소지품 이름을 먼저 입력해주세요.", "warn"); return; }
+
+  const btn = editorPanel.querySelector(".item-ai-suggest-btn");
+  const origHtml = btn?.innerHTML || "✨ 설명 추천";
+  if (btn) { btn.disabled = true; btn.textContent = "⟳"; }
+
+  try {
+    const charName    = card.querySelector(".char-name")?.value?.trim() || "";
+    const charType    = card.dataset.type   || "";
+    const charGender  = card.dataset.gender || "";
+    const personality = card.querySelector(".char-personality")?.value?.trim() || "";
+
+    const existingDesc = editorPanel.querySelector(".item-ed-desc").value.trim();
+    const existingCat  = editorPanel.querySelector(".item-ed-cat").value.trim();
+
+    const body = {
+      book_id: typeof bookId !== "undefined" ? bookId : null,
+      target: "item_detail",
+      item_name: nameVal,
+      char_name: charName,
+      char_type: charType,
+      char_gender: charGender,
+      personality,
+      existing_description: existingDesc,
+      existing_category:    existingCat,
+      context: {
+        settings: typeof settingVals !== "undefined" ? [...settingVals] : [],
+        moods:    typeof moodVals    !== "undefined" ? [...moodVals]    : [],
+        rules:    typeof ruleEntries !== "undefined" ? ruleEntries.map(e => e.val) : [],
+      },
+    };
+    if (!body.book_id) { showToast("책을 먼저 선택해 주세요", "warning"); return; }
+
+    const res = await fetch("/api/suggest/world-setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`suggest API ${res.status}`);
+    const data = await res.json();
+    const item = data.item;
+    if (!item) throw new Error("empty item");
+
+    // 사용자가 이미 입력한 값은 덮어쓰지 않음
+    const descInput = editorPanel.querySelector(".item-ed-desc");
+    const catInput  = editorPanel.querySelector(".item-ed-cat");
+    if (!descInput.value.trim() && item.description) descInput.value = item.description;
+    if (!catInput.value.trim() && item.category)    catInput.value  = item.category;
+    showToast("소지품 정보가 추천됐습니다", "info");
+  } catch (e) {
+    console.error("[suggestItemDetail]", e);
+    showToast("소지품 추천에 실패했습니다.", "err", 3000);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+  }
 }
 
 function applySuggestion(section, data) {

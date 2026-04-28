@@ -295,6 +295,7 @@ function appendCharCard(container, i, p) {
       <div class="item-ed-btns">
         <button class="item-ed-ok btn-xs btn-primary">확인</button>
         <button class="item-ed-cancel btn-xs">취소</button>
+        <button class="item-ai-suggest-btn btn-xs" style="margin-left:auto">✨ 설명 추천</button>
       </div>
     `;
     itemsWrap.insertAdjacentElement("afterend", editorPanel);
@@ -332,6 +333,9 @@ function appendCharCard(container, i, p) {
 
     editorPanel.querySelector(".item-ed-ok").addEventListener("click", _applyEditor);
     editorPanel.querySelector(".item-ed-cancel").addEventListener("click", _closeEditor);
+    editorPanel.querySelector(".item-ai-suggest-btn").addEventListener("click", () => {
+      if (typeof suggestItemDetail === "function") suggestItemDetail(editorPanel, card);
+    });
     editorPanel.querySelector(".item-ed-name").addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); _applyEditor(); }
       if (e.key === "Escape") _closeEditor();
@@ -343,14 +347,24 @@ function appendCharCard(container, i, p) {
 
     // ── 이벤트 위임 ──────────────────────────────────────────
     itemsWrap.addEventListener("click", e => {
+      const viewerLocked = card.classList.contains("items-viewer-locked");
       const del = e.target.closest(".tag-del");
-      if (del) { del.closest(".char-item-tag").remove(); return; }
+      if (del) {
+        if (viewerLocked) return;
+        del.closest(".char-item-tag").remove(); return;
+      }
       const nameSpan = e.target.closest(".char-item-tag-name, .char-item-desc-dot");
-      if (nameSpan) { _openEditor(nameSpan.closest(".char-item-tag")); return; }
+      if (nameSpan) {
+        if (!viewerLocked) _openEditor(nameSpan.closest(".char-item-tag"));
+        return;
+      }
       // 태그 자체 클릭 (name span 아닌 여백) → 에디터
       const tag = e.target.closest(".char-item-tag");
-      if (tag) { _openEditor(tag); return; }
-      itemsInp.focus();
+      if (tag) {
+        if (!viewerLocked) _openEditor(tag);
+        return;
+      }
+      if (!viewerLocked) itemsInp.focus();
     });
 
     // Enter 키 입력

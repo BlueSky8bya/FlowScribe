@@ -512,4 +512,29 @@ async function main() {
   if (verdict === "NOT READY") process.exit(1);
 }
 
+// ── Phase 1 carry-forward 소스 검증 ──────────────────────────
+import { readFileSync as _rf2 } from 'fs';
+import { join as _j2, dirname as _d2 } from 'path';
+import { fileURLToPath as _fu2 } from 'url';
+{
+  const __d = _d2(_fu2(import.meta.url));
+  const pipelineTs = _rf2(_j2(__d, "../src/pipeline/index.ts"), "utf-8");
+  let passed = 0, failed = 0;
+  function chk(label, cond) {
+    if (cond) { console.log(`  ✓ ${label}`); passed++; }
+    else { console.error(`  ✗ ${label}`); failed++; }
+  }
+  console.log("\n── Phase 1: carry-forward source checks ─────────────────────");
+  chk("outer condition is bookId only (not stateUpdates.length)",
+    /if\s*\(\s*bookId\s*&&\s*ctx\.episode_number\s*\)/.test(pipelineTs));
+  chk("stateUpdates.length guard only wraps direct commit",
+    /if\s*\(\s*stateUpdates\.length\s*>\s*0\s*\)\s*\{/.test(pipelineTs));
+  chk("carry-forward runs unconditionally (for ... character_dynamic_states)",
+    pipelineTs.includes("carry-forward + absent-seed: stateUpdates"));
+  chk("state_source logged",
+    pipelineTs.includes("state_source"));
+  console.log(`  ${failed ? `❌ ${failed} FAILED / ${passed} passed` : `✅ ALL ${passed} carry-forward checks PASS`}`);
+  if (failed) process.exit(1);
+}
+
 main().catch(err => { console.error(err); process.exit(1); });

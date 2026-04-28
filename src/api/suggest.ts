@@ -1220,12 +1220,21 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
 
 // ── /world-setup ─────────────────────────────────────────────
 
-type SuggestTarget = "world_setup" | "settings" | "moods" | "rules" | "characters_all" | "character_one" | "style" | "direction";
+type SuggestTarget = "world_setup" | "settings" | "moods" | "rules" | "characters_all" | "character_one" | "style" | "direction" | "item_detail";
 
 interface WorldSuggestRequest {
   book_id: string;
   target: SuggestTarget;
   character_index?: number;
+  // item_detail 전용 필드
+  item_name?: string;
+  char_name?: string;
+  char_type?: string;
+  char_gender?: string;
+  personality?: string;
+  existing_description?: string;
+  existing_category?: string;
+  context?: { settings?: string[]; moods?: string[]; rules?: string[] };
   locked: {
     settings: string[];
     moods: string[];
@@ -1285,6 +1294,7 @@ interface WorldSuggestResponse {
   };
   style?: string | null;
   direction?: Record<string, number> | null;
+  item?: { name: string; description: string; category: string; badge_label: string } | null;
   notes?: string[];
   provider?: string;
   target?: string;
@@ -1517,6 +1527,36 @@ function getDirectionPrompt(req: WorldSuggestRequest): string {
 {"direction": {"conflict": 7, "foreshadow": 5, "emotion": 7, "dialogue": 5, "direction": 7}}`;
 }
 
+function getItemDetailPrompt(req: WorldSuggestRequest): string {
+  const settings = req.current?.settings?.join(", ") || req.context?.settings?.join(", ") || "없음";
+  const moods    = req.current?.moods?.join(", ")    || req.context?.moods?.join(", ")    || "없음";
+  const rules    = (req.current?.rules ?? req.context?.rules ?? []).slice(0, 3).join(" / ") || "없음";
+  const existDesc = req.existing_description ? `현재 설명: ${req.existing_description}` : "";
+  const existCat  = req.existing_category    ? `현재 카테고리: ${req.existing_category}` : "";
+  return `당신은 한국 소설 세계관 설정 AI입니다.
+
+배경/세계관: ${settings}
+장르/분위기: ${moods}
+세계관 규칙: ${rules}
+인물 이름: ${req.char_name || "없음"}
+인물 유형: ${req.char_type || "없음"}
+인물 성별: ${req.char_gender || "없음"}
+인물 성격: ${req.personality?.slice(0, 150) || "없음"}
+소지품 이름: ${req.item_name}
+${existDesc}
+${existCat}
+
+위 세계관과 인물에 어울리는 소지품 정보를 추천해 주세요.
+- description: 20~40자 내외, 이 소지품의 서사적 의미나 용도
+- category: 무기/방어구/마법/의복/도구/소모품/귀중품/문서 중 적합한 것
+- badge_label: category와 같거나 더 짧은 1~3자 표시 레이블
+- 이미 입력된 값(있으면 위에 표시됨)은 그대로 두고 빈 항목만 채워주세요.
+- 절대 name은 바꾸지 마세요.
+
+반드시 아래 JSON 형식으로만 응답:
+{"item": {"name": "${req.item_name}", "description": "설명", "category": "도구", "badge_label": "도구"}}`;
+}
+
 function getSuggestPromptByTarget(req: WorldSuggestRequest, retrySuffix = ""): string {
   switch (req.target) {
     case "settings":       return getSettingsSuggestPrompt(req, retrySuffix);
@@ -1526,6 +1566,7 @@ function getSuggestPromptByTarget(req: WorldSuggestRequest, retrySuffix = ""): s
     case "character_one":  return getCharacterOnePrompt(req);
     case "style":          return getStylePrompt(req);
     case "direction":      return getDirectionPrompt(req);
+    case "item_detail":    return getItemDetailPrompt(req);
     default:               return getWorldSuggestPrompt(req);
   }
 }
@@ -1682,6 +1723,21 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
           emotion:    clamp(dir.emotion),
           dialogue:   clamp(dir.dialogue),
           direction:  clamp(dir.direction),
+        },
+      };
+    }
+    case "item_detail": {
+      let parsed: any = null;
+      try { parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}"); } catch {}
+      if (!parsed?.item?.name) return { ...base };
+      const item = parsed.item;
+      return {
+        ...base,
+        item: {
+          name:        String(item.name        || req.item_name || ""),
+          description: String(item.description || ""),
+          category:    String(item.category    || ""),
+          badge_label: String(item.badge_label || item.category || ""),
         },
       };
     }

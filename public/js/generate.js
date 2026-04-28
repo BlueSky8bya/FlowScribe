@@ -327,6 +327,14 @@ function applyDialogueStyle(container) {
       p.classList.remove("dialogue-line");
     }
   });
+
+  // 시스템/스킬/상태 대괄호 문구 처리: [고유 스킬:], [상태:], [알림:] 등
+  // → .system-note-line 클래스 부여 (text-indent 없는 별도 스타일)
+  const SYSTEM_BRACKET_RE = /^\[(?:고유\s*스킬|스킬|상태|알림|시스템|System|STATUS|SKILL|NOTICE)\s*:/i;
+  container.querySelectorAll("p:not(.dialogue-line)").forEach(p => {
+    const txt = p.textContent.trimStart();
+    if (SYSTEM_BRACKET_RE.test(txt)) p.classList.add("system-note-line");
+  });
 }
 
 function renderProgressiveRaw(text, done) {
@@ -342,6 +350,20 @@ function renderProgressiveRaw(text, done) {
   text = text.replace(/[◉◆◇■□●○▶▷◀◁★☆]/g, "");
   // 문장 끝 부호 바로 뒤에 공백 없이 한글·영문자가 이어지는 경우 공백 삽입
   text = text.replace(/([.!?。!?])([가-힣A-Za-z])/g, '$1 $2');
+  // malformed quote repair:
+  // Case A: 줄 시작 '" 지문' — 여는 따옴표 뒤 공백+지문, 닫는 따옴표 없는 줄 → 따옴표 제거 (지문 간주)
+  text = text.replace(/^["“”]s+([^"“”
+]{3,})$/mg, (m, body) => {
+    if (/["“”]/.test(body)) return m; // 닫는 따옴표 있으면 유지
+    return body.trim();
+  });
+  // Case B: '지문."대사"' 형태로 붙어있는 경우 → 단락 분리
+  text = text.replace(/([가-힣.!?]{2,})(["“])([^"“”
+]+["”])/g, (_m, narr, oq, dial) => {
+    return narr + '
+
+' + oq + dial;
+  });
   // 직선 따옴표 → 곡선 따옴표 변환 (모델이 " 사용 시 교정)
   // 1단계: 완전한 쌍 변환 (straight-straight 또는 straight-curlyclose)
   text = text.replace(/^"([^"\u201D\n]+)[\u201D"]$/mg, "\u201C$1\u201D")  // 단락 전체

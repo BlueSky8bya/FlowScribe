@@ -666,6 +666,10 @@ body.mode-tts #output p{text-indent:1.8em;}
 /* 대사 단락은 들여쓰기 없이 그대로 — dialogue-span 포함 단락도 동일 */
 body.mode-eye #output p:has(.dialogue-span),
 body.mode-tts #output p:has(.dialogue-span){text-indent:0;}
+/* 시스템/스킬/상태 알림 단락 — 들여쓰기 없이, 별도 스타일 */
+#output p.system-note-line,
+body.mode-eye #output p.system-note-line,
+body.mode-tts #output p.system-note-line{text-indent:0;opacity:.82;font-size:.93em;letter-spacing:.01em;}
 
 /* ── 낭독 모드 (mode-aloud) ──────────────────────────────── */
 body.read-aloud #output{font-size:calc(0.95rem * var(--main-font-scale));line-height:2.15;padding:2.4rem 3rem;border-radius:14px;}

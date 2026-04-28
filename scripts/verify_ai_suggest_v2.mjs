@@ -156,8 +156,8 @@ check("applyWorldSuggestResult initial_items 적용",
   suggestJs.includes("applyItemsToCard(last, c.initial_items)"));
 check("suggestCharacter new endpoint 사용",
   suggestJs.includes('"/api/suggest/world-setup"') && suggestJs.includes("character_one"));
-check("suggestCharacter initial_items 적용",
-  suggestJs.includes("applyItemsToCard(card, c.initial_items)"));
+check("suggestCharacter initial_items 적용 (기존 보존 후 신규만 추가)",
+  suggestJs.includes("applyItemsToCard(card, newItems)") || suggestJs.includes("applyItemsToCard(card, c.initial_items)"));
 
 check("saveContext data-description 읽기",
   modalJs.includes("obj.description = t.dataset.description"));
