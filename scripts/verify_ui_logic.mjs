@@ -417,6 +417,11 @@ console.log('\n[I2] Item description fallback');
 
 function _itemDescFallback(name) {
   const t = (name ?? '').toLowerCase();
+  if (/은탄|은총알|은환/.test(t))   return '초자연적 존재에 특효인 은 재질 탄환';
+  if (/연소 램프|오일 램프|석유 램프|가스 램프|연소등|램프|랜턴|등불|등잔|촛불|횃불/.test(t)) return '어둠을 밝히는 연료식 조명 도구';
+  if (/리볼버|권총|피스톨|핸드건/.test(t)) return '전투에 사용하는 휴대용 화기';
+  if (/소총|기관총|산탄총|저격총/.test(t)) return '전투에 사용하는 장거리 화기';
+  if (/탄약|탄환|총알|총탄/.test(t)) return '화기에 장전하는 탄약류';
   if (/의수|의족|기계팔/.test(t))  return '잃어버린 지체를 대체하는 기계식 보조 장치';
   if (/진혼/.test(t))             return '망자의 넋을 달래는 의식용 도구';
   if (/향로/.test(t))             return '향을 태우는 의식용 기구';
@@ -430,8 +435,11 @@ ok('강철 의수 → desc fallback 존재', !!_itemDescFallback('강철 의수'
 ok('진혼의 종 → desc fallback 존재', !!_itemDescFallback('진혼의 종'));
 ok('향로 지팡이 → desc fallback 존재', !!_itemDescFallback('향로 지팡이'));
 ok('심령 청음기 → desc fallback 존재', !!_itemDescFallback('심령 청음기'));
-ok('desc fallback ≤60자', ['강철 의수','진혼의 종','향로 지팡이','심령 청음기'].every(n => (_itemDescFallback(n) ?? '').length <= 60));
-ok('사용자 입력 desc 있으면 fallback 쓰지 않음', (_itemDescFallback('강철 의수') !== null) === true); // fallback은 존재하지만 렌더 시 desc||inferredDesc||fallback 순서
+ok('군용 연소 램프 → desc fallback 존재', !!_itemDescFallback('군용 연소 램프'));
+ok('은탄 리볼버 → desc fallback 존재', !!_itemDescFallback('은탄 리볼버'));
+ok('리볼버 → desc fallback 존재', !!_itemDescFallback('리볼버'));
+ok('desc fallback ≤60자', ['강철 의수','진혼의 종','향로 지팡이','심령 청음기','군용 연소 램프','은탄 리볼버'].every(n => (_itemDescFallback(n) ?? '').length <= 60));
+ok('사용자 입력 desc 있으면 fallback 쓰지 않음', (_itemDescFallback('강철 의수') !== null) === true);
 
 // ─── I3. 대화 tokenizer fixture ─────────────────────────────────────────────
 console.log('\n[I3] Dialogue tokenizer — long fixture');
@@ -579,11 +587,11 @@ ok('generate.js: "combined" 제거됨',     !genJs.includes("kv('combined'"));
 ok('generate.js: _compact function',      genJs.includes('_compact'));
 ok('generate.js: <details> for long warnings', genJs.includes('<details'));
 
-// E: font sizes increased
-ok('components.css: eq-info-label ≥ .74rem', compCss.includes('eq-info-label{font-size:.74rem'));
-ok('components.css: eq-info-value ≥ .82rem', compCss.includes('eq-info-value{font-size:.82rem'));
-ok('components.css: eq-kv-key ≥ .78rem',     compCss.includes('eq-kv-key{min-width:80px;font-size:.78rem'));
-ok('components.css: eq-warn-item .8rem in rp-debug', compCss.includes('eq-warn-item{font-size:.8rem'));
+// E: font sizes unified (0.82-0.95rem range)
+ok('components.css: eq-info-label .84rem', compCss.includes('eq-info-label{font-size:.84rem'));
+ok('components.css: eq-info-value .90rem', compCss.includes('eq-info-value{font-size:.90rem'));
+ok('components.css: eq-kv-key .84rem',     compCss.includes('eq-kv-key{min-width:80px;font-size:.84rem'));
+ok('components.css: eq-warn-item .84rem in rp-debug', compCss.includes('eq-warn-item{font-size:.84rem'));
 
 // F: dialogue threshold
 ok('generate.js: hasCurlyQuote threshold', genJs.includes('hasCurlyQuote'));
@@ -609,6 +617,118 @@ ok('generate.js: 위치 label in item body rows',           genJs.includes('위�
 // G: debug panel shows 확정 최종화
 ok('generate.js: 확정 최종화 in debug',  genJs.includes('확정 최종화'));
 ok('generate.js: 설정 범위 in debug',    genJs.includes('설정 범위'));
+
+// New: range validation + hook mapping + block dialogue + item fallback + warning dedup
+ok('generate.js: _rfOutOfRange range check',    genJs.includes('_rfOutOfRange'));
+ok('generate.js: 범위 밖 warning text',         genJs.includes('범위 밖'));
+ok('generate.js: HOOK_TYPE_KO in scene beats',  genJs.includes('HOOK_TYPE_KO[a.hook_type]'));
+ok('generate.js: p.replaceWith in dialogue',    genJs.includes('p.replaceWith'));
+ok('generate.js: dialogue-line class on block', genJs.includes("newP.classList.add('dialogue-line')"));
+ok('generate.js: 은탄|은총알 in descFallback',  genJs.includes('은탄|은총알'));
+ok('generate.js: 램프|랜턴 in descFallback',    genJs.includes('램프|랜턴'));
+ok('generate.js: 리볼버 in descFallback',       genJs.includes('리볼버|권총|피스톨'));
+ok('generate.js: _compact continuation only',   genJs.includes('const rest = text.slice(maxLen)'));
+ok('context.ts: range validation for existingRf', ctxTs.includes('existingRf >= min && existingRf <= max'));
+
+// ─── B. Debug consistency fixture ────────────────────────────────────────────
+console.log('\n[B] Debug consistency — resolved_final_episode range');
+{
+  function isRfValid(totalEpisodes, totalEpisodesVar, resolved) {
+    const v = totalEpisodesVar ?? 0;
+    return resolved >= totalEpisodes - v && resolved <= totalEpisodes + v;
+  }
+  ok('B: 30±5, resolved=51 → invalid', !isRfValid(30, 5, 51));
+  ok('B: 50±5, resolved=51 → valid',    isRfValid(50, 5, 51));
+  ok('B: 30±0, resolved=51 → invalid', !isRfValid(30, 0, 51));
+  ok('B: 30±5, resolved=30 → valid',    isRfValid(30, 5, 30));
+  ok('B: 30±5, resolved=35 → valid (boundary)', isRfValid(30, 5, 35));
+  ok('B: 30±5, resolved=36 → invalid (over)',  !isRfValid(30, 5, 36));
+  ok('B: remaining = resolved - episode', ((resolved, ep) => resolved - ep)(31, 1) === 30);
+}
+
+// ─── C. Warning duplicate fixture ────────────────────────────────────────────
+console.log('\n[C] Warning compact — no duplicate text in details');
+{
+  function _compactSim(text, maxLen = 50) {
+    if (text.length <= maxLen) return text;
+    const summary = text.slice(0, maxLen);
+    const rest = text.slice(maxLen);
+    return `<details><summary>${summary}…</summary>${rest}</details>`;
+  }
+  const warnText = "3인칭 관찰자 시점에서 '그는 다시 그날의 참혹한 광경을 목격하는 듯한 기분을 느꼈다'는 한스의 내면 감정을 직접 서술하여 시점 규칙을 위반했습니다.";
+  const compact = _compactSim(warnText);
+  const summaryM = compact.match(/<summary>(.+?)…<\/summary>/);
+  const restM    = compact.match(/<\/summary>(.+)<\/details>/);
+  const summaryPart = summaryM?.[1] ?? '';
+  const restPart    = restM?.[1]    ?? '';
+  ok('C: compact creates <details>', compact.includes('<details>'));
+  ok('C: summary is first 50 chars', summaryPart === warnText.slice(0, 50));
+  ok('C: details is continuation only (not full repeat)', restPart === warnText.slice(50));
+  ok('C: full text reconstructed = summary+…+rest', summaryPart + '…' + restPart === warnText.slice(0,50) + '…' + warnText.slice(50));
+  ok('C: short text not wrapped', _compactSim('짧은 경고') === '짧은 경고');
+}
+
+// ─── D. Hook mapping fixture ─────────────────────────────────────────────────
+console.log('\n[D] Hook label mapping (16종)');
+{
+  const HOOK_MAP = {
+    immediate_threat:'즉각적 위협', unexpected_discovery:'예상 밖 발견',
+    new_problem:'새로운 문제 발생', unresolved_situation:'미완 상황',
+    revelation:'충격적 폭로', betrayal_hint:'배신 암시',
+    emotional_break:'감정 폭발', ironic_reversal:'아이러니한 반전',
+    cliffhanger_choice:'선택 기로', tender_moment:'감동적 연결',
+    ominous_calm:'불길한 고요', memory_trigger:'과거 기억 촉발',
+    last_moment_failure:'마지막 순간 좌절', sudden_loss:'갑작스러운 상실',
+    alliance_shift:'동맹 관계 역전', time_pressure:'시간 압박',
+  };
+  ok('D: 16종 매핑 완성', Object.keys(HOOK_MAP).length === 16);
+  ok('D: ominous_calm → 불길한 고요', HOOK_MAP['ominous_calm'] === '불길한 고요');
+  ok('D: immediate_threat → 즉각적 위협', HOOK_MAP['immediate_threat'] === '즉각적 위협');
+  ok('D: unknown fallback = raw string', (HOOK_MAP['unknown_xyz'] ?? 'unknown_xyz') === 'unknown_xyz');
+  ok('D: raw ominous_calm not in mapped output', (HOOK_MAP['ominous_calm'] ?? '') !== 'ominous_calm');
+  // file check: all 16 in generate.js
+  ['immediate_threat','unexpected_discovery','new_problem','unresolved_situation',
+   'revelation','betrayal_hint','emotional_break','ironic_reversal',
+   'cliffhanger_choice','tender_moment','ominous_calm','memory_trigger',
+   'last_moment_failure','sudden_loss','alliance_shift','time_pressure',
+  ].forEach(k => ok(`D: ${k} in HOOK_TYPE_KO`, genJs.includes(k)));
+}
+
+// ─── E. Dialogue fixture 1 ───────────────────────────────────────────────────
+console.log('\n[E] Dialogue fixture 1 — attached 저기요…');
+{
+  const E1 = `그녀는 그 노이즈를 따라 천천히 발걸음을 옮겼다."저기요…"엘라는 조심스럽게 말을 걸었다."혹시… 괜찮으세요?"그녀의 목소리는 마치 깨진 유리 조각을 잇는 듯, 섬세하고 날카로웠다.`;
+  const rE = simulateDialogueTokenizer(E1);
+  ok('E: dialogueSegments = 2', rE.spans === 2);
+  ok('E: skipped=false (curly quote)', !rE.skipped);
+  if (rE.parts) {
+    const dialE = rE.parts.filter(p => p.type === 'dial');
+    const narrE = rE.parts.filter(p => p.type === 'narr');
+    ok('E: narration segments ≥ 2', narrE.length >= 2);
+    ok('E: 저기요 in dial block', dialE.some(p => p.text.includes('저기요')));
+    ok('E: 괜찮으세요 in dial block', dialE.some(p => p.text.includes('괜찮으세요')));
+    ok('E: 옮겼다." not in any narr', !narrE.some(p => p.text.includes('옮겼다.“')));
+    ok('E: 에 따옴표 not appended to narr', !narrE.some(p => /[“”]$/.test(p.text)));
+  }
+}
+
+// ─── F. Dialogue fixture 2 ───────────────────────────────────────────────────
+console.log('\n[F2] Dialogue fixture 2 — attached 기계 소리?');
+{
+  const F1 = `“기계 소리?”한스는 잠시 멈춰 서서 그녀를 바라보았다.“그저 뉴 바벨의 소음일 뿐이오.”그는 다시 리볼버를 집어 들었다.“불편하면 떠나시면 되오.”`;
+  const rF = simulateDialogueTokenizer(F1);
+  ok('F: dialogueSegments = 3', rF.spans === 3);
+  ok('F: skipped=false', !rF.skipped);
+  if (rF.parts) {
+    const dialF = rF.parts.filter(p => p.type === 'dial');
+    const narrF = rF.parts.filter(p => p.type === 'narr');
+    ok('F: narration segments ≥ 2', narrF.length >= 2);
+    ok('F: 기계 소리 in dial block', dialF.some(p => p.text.includes('기계 소리')));
+    ok('F: 불편하면 in dial block', dialF.some(p => p.text.includes('불편하면')));
+    ok('F: ?” not in narr', !narrF.some(p => p.text.includes('?”')));
+    ok('F: .”그는 not in narr', !narrF.some(p => p.text.includes('.”')));
+  }
+}
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(55)}`);

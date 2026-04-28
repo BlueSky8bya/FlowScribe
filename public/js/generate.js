@@ -244,18 +244,21 @@ function splitDialogueNarration(container) {
     if (dialLen < text.length * threshold) { _ppStats.dialogueSkipped++; return; }
     _ppStats.attachedDialogueSplits = (_ppStats.attachedDialogueSplits || 0) + 1;
 
-    // 인라인 span 방식: 단락 분리 없이 대사 구간만 dialogue-span으로 감쌈
+    // 블록 분리 방식: 대사/지문 각각 별도 <p>로 분리 — 인라인 혼합 방지
     const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-    const htmlParts = parts.map(pt => {
+    const newNodes = [];
+    for (const pt of parts) {
+      const newP = document.createElement('p');
       if (pt.type === 'dial') {
+        newP.classList.add('dialogue-line');
+        newP.innerHTML = `<span class="dialogue-span">${esc(pt.text)}</span>`;
         _ppStats.dialogueSegments++;
-        return `<span class="dialogue-span">${esc(pt.text)}</span>`;
+      } else {
+        newP.textContent = pt.text;
       }
-      return esc(pt.text);
-    });
-    p.innerHTML = htmlParts.join('');
-    p.classList.remove('dialogue-line');
-    delete p.dataset.splitDialogue;
+      newNodes.push(newP);
+    }
+    p.replaceWith(...newNodes);
     _ppStats.dialogueSplits++;
   });
 }
@@ -655,6 +658,11 @@ function updateSceneCharPanel(charStates) {
         // 이름만 있는 소지품에 대한 규칙 기반 fallback 설명 (20~60자, LLM 호출 없음)
         const _itemDescFallback = name => {
           const t = (name ?? '').toLowerCase();
+          if (/은탄|은총알|은환/.test(t))   return '초자연적 존재에 특효인 은 재질 탄환';
+          if (/연소 램프|오일 램프|석유 램프|가스 램프|연소등|램프|랜턴|등불|등잔|촛불|횃불/.test(t)) return '어둠을 밝히는 연료식 조명 도구';
+          if (/리볼버|권총|피스톨|핸드건/.test(t)) return '전투에 사용하는 휴대용 화기';
+          if (/소총|기관총|산탄총|저격총/.test(t)) return '전투에 사용하는 장거리 화기';
+          if (/탄약|탄환|총알|총탄/.test(t)) return '화기에 장전하는 탄약류';
           if (/의수|의족|기계팔/.test(t))   return '잃어버린 지체를 대체하는 기계식 보조 장치';
           if (/진혼/.test(t))              return '망자의 넋을 달래는 의식용 도구';
           if (/향로/.test(t))              return '향을 태우는 의식용 기구';
@@ -907,9 +915,13 @@ function updateDebugMeta(meta, auditStatus = null) {
     if (_resolvedFinal != null) {
       const _curEp = a?.episode_number ?? meta?.episode_number ?? null;
       const _remaining = a?.remaining_episodes ?? meta?.remaining_episodes ?? (_curEp && _resolvedFinal ? _resolvedFinal - _curEp : null);
+      const _rfMin = gc?.totalEpisodes != null ? (gc.totalEpisodes - (gc.totalEpisodesVar ?? 0)) : null;
+      const _rfMax = gc?.totalEpisodes != null ? (gc.totalEpisodes + (gc.totalEpisodesVar ?? 0)) : null;
+      const _rfOutOfRange = _rfMin != null && (_resolvedFinal < _rfMin || _resolvedFinal > _rfMax);
       let _finalTxt = `${_resolvedFinal}화`;
+      if (_rfOutOfRange) _finalTxt += ` ⚠ 범위 밖 (허용: ${_rfMin}~${_rfMax}화)`;
       if (_curEp != null) _finalTxt += ` (현재 ${_curEp}화)`;
-      rows += kv('확정 최종화', _finalTxt);
+      rows += kv('확정 최종화', _finalTxt, _rfOutOfRange ? 'warn' : '');
       if (_remaining != null) rows += kv('남은 화수', _remaining + '화');
     } else {
       rows += kv('남은 화수', a?.remaining_episodes != null ? a.remaining_episodes + '화' : null);
@@ -1030,7 +1042,9 @@ function updateDebugMeta(meta, auditStatus = null) {
   if (warnEl && (a?.soft_warnings?.length || a?.revision_hints?.length)) {
     const _compact = (text, maxLen = 50) => {
       if (text.length <= maxLen) return text;
-      return `<details style="display:inline;cursor:pointer;"><summary style="display:inline;list-style:none;">${text.slice(0, maxLen)}…</summary><div style="margin-top:3px;white-space:pre-wrap;">${text}</div></details>`;
+      const summary = text.slice(0, maxLen);
+      const rest = text.slice(maxLen);
+      return `<details style="display:inline;cursor:pointer;"><summary style="display:inline;list-style:none;">${summary}…</summary>${rest}</details>`;
     };
     let items = '';
     (a.soft_warnings || []).forEach(w => {
@@ -1095,7 +1109,7 @@ function updateDebugMeta(meta, auditStatus = null) {
       </div>`).join('');
     if (a?.hook_payload || a?.hook_concrete_event) {
       beatsEl.innerHTML += `<div class="eq-beat-item eq-beat-hook">
-        <div class="eq-beat-num">Hook · ${a.hook_type ?? ''}</div>
+        <div class="eq-beat-num">Hook · ${HOOK_TYPE_KO[a.hook_type] ?? a.hook_type ?? ''}</div>
         ${a.hook_payload ? `<div class="eq-beat-summary">${a.hook_payload}</div>` : ''}
         ${a.hook_concrete_event ? `<div class="eq-beat-loc">${a.hook_concrete_event}</div>` : ''}
       </div>`;
@@ -1547,6 +1561,11 @@ async function captureEpisode(withChars = false) {
             };
             const _capDescFallback = name => {
               const t = (name ?? '').toLowerCase();
+              if (/은탄|은총알|은환/.test(t))   return '초자연적 존재에 특효인 은 재질 탄환';
+              if (/연소 램프|오일 램프|석유 램프|가스 램프|연소등|램프|랜턴|등불|등잔|촛불|횃불/.test(t)) return '어둠을 밝히는 연료식 조명 도구';
+              if (/리볼버|권총|피스톨|핸드건/.test(t)) return '전투에 사용하는 휴대용 화기';
+              if (/소총|기관총|산탄총|저격총/.test(t)) return '전투에 사용하는 장거리 화기';
+              if (/탄약|탄환|총알|총탄/.test(t)) return '화기에 장전하는 탄약류';
               if (/의수|의족|기계팔/.test(t))  return '잃어버린 지체를 대체하는 기계식 보조 장치';
               if (/진혼/.test(t))             return '망자의 넋을 달래는 의식용 도구';
               if (/향로/.test(t))             return '향을 태우는 의식용 기구';

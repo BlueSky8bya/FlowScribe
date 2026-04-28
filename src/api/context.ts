@@ -96,7 +96,19 @@ contextRouter.post("/", async (req: Request, res: Response) => {
         } catch { /* 조회 실패 시 신규 생성으로 진행 */ }
 
         if (existingRf) {
-          sc.resolved_final_episode = existingRf;
+          // Validate existing rf is within current range; re-sample if out of range
+          const variance: number = sc.totalEpisodesVar ?? 0;
+          const min = (sc.totalEpisodes as number) - variance;
+          const max = (sc.totalEpisodes as number) + variance;
+          if (existingRf >= min && existingRf <= max) {
+            sc.resolved_final_episode = existingRf;
+          } else {
+            const delta = variance > 0 ? Math.round((Math.random() * 2 - 1) * variance) : 0;
+            sc.resolved_final_episode = (sc.totalEpisodes as number) + delta;
+            logInfo("api:context:save", "resolved_final_episode 범위 밖 → 재확정", {
+              book_id, existingRf, newRf: sc.resolved_final_episode, min, max
+            });
+          }
         } else {
           const variance: number = sc.totalEpisodesVar ?? 0;
           const delta = variance > 0
