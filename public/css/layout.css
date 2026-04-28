@@ -619,11 +619,16 @@ body.mode-tts #output p.tts-current{background:rgba(80,130,200,.12);border-left:
 /* 낭독 모드: 대사 강조 (소리내어 읽을 때 대사 위치 파악 용이) */
 body.mode-aloud #output p.dialogue-line{
   margin-top:1.2em;margin-bottom:1.2em;
-  padding:.45em .85em .45em 1em;
-  border-left:2px solid rgba(180,100,80,.55);
-  background:rgba(180,100,80,.07);
+  padding:.5em .9em .5em 1.1em;
+  border-left:3px solid rgba(180,100,80,.75);
+  background:rgba(180,100,80,.10);
   border-radius:0 6px 6px 0;
   font-style:italic;
+}
+/* 묵독·TTS 모드에서도 대사 단락에 미약한 시각 단서 제공 */
+body:not(.mode-aloud) #output p.dialogue-line{
+  border-left:2px solid rgba(180,100,80,.25);
+  padding-left:.8em;
 }
 
 /* 출력 영역 */

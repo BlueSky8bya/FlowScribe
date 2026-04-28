@@ -572,6 +572,7 @@ generateRouter.get("/audit-status", async (req: Request, res: Response) => {
     //  이전 생성의 stale 데이터를 반환하는 문제가 생김)
     const result = await pool.query(
       `SELECT trace_id, final_verdict, final_score, revision_count,
+              episode_number,
               computed_reward, audit_elapsed_ms, created_at,
               planner_trace, plan_validation, renderer_trace,
               prose_validation, revision_traces,
@@ -665,7 +666,7 @@ generateRouter.get("/audit-status", async (req: Request, res: Response) => {
       plan_passed_checks:  pval?.passed_checks ?? [],
       // 연재 계약 (episode_role은 저장값이 낡을 수 있으므로 fresh 재계산)
       ...(() => {
-        const _ep  = (ctx?.episode_number as number) ?? null;
+        const _ep  = (row.episode_number as number) ?? null;
         const _rf  = ic?.resolved_final ?? (ctx?.gen_config as any)?.resolved_final_episode ?? (ctx?.gen_config as any)?.totalEpisodes ?? null;
         const _ar  = (_ep && _rf && _rf > 0) ? _ep / _rf : null;
         const _role = (_ep && _rf && _rf > 0)

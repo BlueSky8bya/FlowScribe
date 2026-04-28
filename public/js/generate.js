@@ -44,14 +44,16 @@ function _renderPostprocStats() {
   const kv2 = (k, v, cls) => `<div class="eq-kv"><span class="eq-kv-key">${k}</span><span class="eq-kv-val${cls ? ' '+cls : ''}">${v}</span></div>`;
   const any = Object.values(_ppStats).some(v => v > 0);
   const _outputText = document.getElementById('output')?.textContent ?? '';
-  const _hasQuotes = /[“「『"]/.test(_outputText);
-  const _tagWarn = _hasQuotes && _ppStats.dialogueLinesTagged === 0;
-  el.innerHTML = `<div class="eq-kv-list">
+  const _hasQuotes = /[“「『”]/.test(_outputText);
+  // dialogueSplits로 생긴 dialogue-line은 dialogueLinesTagged에 안 잡힘 — 둘 다 0일 때만 경고
+  const _totalDialogue = _ppStats.dialogueLinesTagged + _ppStats.dialogueSplits;
+  const _tagWarn = _hasQuotes && _totalDialogue === 0;
+  el.innerHTML = `<div class=”eq-kv-list”>
     ${kv2('따옴표 병합', _ppStats.quoteMerges + '회', _ppStats.quoteMerges ? 'warn' : '')}
     ${kv2('대괄호 병합', _ppStats.bracketMerges + '회', _ppStats.bracketMerges ? 'warn' : '')}
     ${kv2('대화/지문 분리', _ppStats.dialogueSplits + '개 단락', '')}
     ${kv2('분리 건너뜀(20%↓)', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
-    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄', _tagWarn ? 'warn' : '')}
+    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄' + (_ppStats.dialogueSplits ? ` (+분리 ${_ppStats.dialogueSplits}개)` : ''), _tagWarn ? 'warn' : '')}
     ${_tagWarn ? kv2('⚠ 대화 태깅 0', '따옴표 있음에도 태깅 없음 — 확인 필요', 'warn') : ''}
     ${kv2('외국어 제거', _ppStats.foreignCharsRemoved + '회', _ppStats.foreignCharsRemoved ? 'bad' : '')}
   </div>`;
@@ -603,6 +605,14 @@ function updateSceneCharPanel(charStates) {
         if (!s.items?.length) {
           return row('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>');
         }
+        const _qlabel = n => {
+          const t = n.toLowerCase();
+          if (/고급|특제|개조|군용|정밀|강화|희귀|커스텀|개인화|첨단/.test(t)) return { label:'고급', color:'#5080c8' };
+          if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
+          if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
+          if (/범용|표준|기본|일반|휴대용|소형/.test(t)) return { label:'일반', color:'#5a9a6a' };
+          return null;
+        };
         const itemCards = s.items.map((it, idx) => {
           const name  = typeof it === 'string' ? it : it.name;
           const grade = typeof it === 'object' ? it.grade  : null;
@@ -611,7 +621,7 @@ function updateSceneCharPanel(charStates) {
           const gradeAttr = grade ? ` data-grade="${grade}"` : '';
           const gradeHtml = grade
             ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
-            : '';
+            : (() => { const ql = _qlabel(name); return ql ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>` : ''; })();
           const bodyRows = [
             cond ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
             desc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${desc}</span></div>` : '',
@@ -810,13 +820,13 @@ function updateDebugMeta(meta, auditStatus = null) {
     };
     rows += kv('POV', gc?.pov ?? null);
     rows += kv('문체', gc?.style ?? null);
-    const _epRole = a?.episode_role ?? null;
+    const _epRole = a?.episode_role ?? meta?.episode_role ?? null;
     rows += kv('회차 역할', _epRole ? (EPISODE_ROLE_KO[_epRole] ?? _epRole) : null);
-    // 확정 최종화: resolved_final_episode 우선, 없으면 gen_config.totalEpisodes
-    const _resolvedFinal = a?.resolved_final_episode ?? gc?.totalEpisodes;
+    // 확정 최종화: audit > SSE meta > gen_config.totalEpisodes 순서로 폴백
+    const _resolvedFinal = a?.resolved_final_episode ?? meta?.resolved_final_episode ?? gc?.totalEpisodes;
     if (_resolvedFinal != null) {
-      const _curEp = a?.episode_number ?? null;
-      const _remaining = a?.remaining_episodes;
+      const _curEp = a?.episode_number ?? meta?.episode_number ?? null;
+      const _remaining = a?.remaining_episodes ?? meta?.remaining_episodes;
       let _finalTxt = `${_resolvedFinal}화`;
       if (_curEp != null) _finalTxt += ` (현재 ${_curEp}화)`;
       rows += kv('확정 최종화', _finalTxt);
