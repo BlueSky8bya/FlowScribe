@@ -529,10 +529,18 @@ body.mode-tts span.char-name-ref { cursor:help; }
 /* ── 잠금 칩 (AI 세계관 추천) ── */
 .chip.chip-locked {
   border: 2px solid var(--accent, #7c6af0);
+  background: color-mix(in srgb, var(--accent, #7c6af0) 18%, transparent);
+  color: var(--accent, #7c6af0);
+  font-weight: 600;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent, #7c6af0) 40%, transparent);
   opacity: 1;
 }
+.chip.chip-locked:hover {
+  background: color-mix(in srgb, var(--accent, #7c6af0) 25%, transparent);
+}
 .chip-lock-icon {
-  font-size: 0.7em;
-  margin-left: 2px;
+  font-size: 0.72em;
+  margin-left: 3px;
   pointer-events: none;
+  filter: none;
 }

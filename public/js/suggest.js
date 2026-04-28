@@ -206,6 +206,188 @@ async function suggestRules() {
 
 // ── AI 세계관 추천 (world-setup) ──────────────────────────────
 
+// ── v2 공통 헬퍼 ─────────────────────────────────────────────
+
+function _buildWorldSetupBody(target, extra) {
+  return {
+    book_id: typeof bookId !== "undefined" ? bookId : null,
+    target,
+    locked: {
+      settings:   [...(typeof lockedSettings !== "undefined" ? lockedSettings : [])],
+      moods:      [...(typeof lockedMoods    !== "undefined" ? lockedMoods    : [])],
+      characters: getLockedCharacterNames(),
+    },
+    current: {
+      settings:   typeof settingVals !== "undefined" ? [...settingVals]  : [],
+      moods:      typeof moodVals    !== "undefined" ? [...moodVals]     : [],
+      rules:      typeof ruleEntries !== "undefined" ? ruleEntries.map(e => e.val) : [],
+      characters: getCharacterDataForSuggest(),
+      style:      typeof storyConfig !== "undefined" ? (storyConfig.style || "") : "",
+      direction:  typeof storyConfig !== "undefined" ? {
+        conflict:   storyConfig.conflict   ?? 5,
+        foreshadow: storyConfig.foreshadow ?? 5,
+        emotion:    storyConfig.emotion    ?? 5,
+        dialogue:   storyConfig.dialogue   ?? 5,
+        direction:  storyConfig.direction  ?? 5,
+      } : {},
+    },
+    limits: {
+      settingsMax: 3,
+      moodsMax: 3,
+      charactersMax: 10,
+      characterCount: typeof charCount !== "undefined" ? charCount : 1,
+      ...(extra || {}),
+    },
+  };
+}
+
+async function _callWorldSetupTarget(target, extra) {
+  const body = _buildWorldSetupBody(target, extra);
+  if (!body.book_id) { showToast("책을 먼저 선택해 주세요", "warning"); return null; }
+  const res = await fetch("/api/suggest/world-setup", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`suggest API ${res.status}`);
+  return res.json();
+}
+
+function _withBtnLoading(btn, loadingText, asyncFn) {
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = loadingText;
+  asyncFn()
+    .catch(err => {
+      console.error("[suggest v2]", err);
+      showToast("AI 추천 실패 — 다시 시도해 주세요", "warning");
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+    });
+}
+
+function _isSectionLocked(fieldId) {
+  const field = document.getElementById(fieldId);
+  return field ? field.classList.contains("section-locked") : false;
+}
+
+async function runSettingsSuggest() {
+  if (_isSectionLocked("sectionFieldI")) return;
+  const btn = document.getElementById("settingsAiBtn");
+  if (!btn) return;
+  const remaining = 3 - (typeof settingVals !== "undefined" ? settingVals.length : 0);
+  if (remaining <= 0) { showToast("배경/세계관 선택 슬롯이 가득 찼습니다 (최대 3개)", "warn"); return; }
+  _withBtnLoading(btn, "AI 추천 중...", async () => {
+    const data = await _callWorldSetupTarget("settings");
+    if (!data) return;
+    const toAdd = data.settingsToAdd ?? [];
+    if (!toAdd.length) { showToast("AI가 추천할 새 항목을 찾지 못했습니다", "warn"); return; }
+    toAdd.forEach(item => addChipDirect("settingGrid", settingVals, 3, item.label));
+    showToast(`배경/세계관 ${toAdd.length}개 추천됐습니다`, "info");
+  });
+}
+
+async function runMoodsSuggest() {
+  if (_isSectionLocked("sectionFieldII")) return;
+  const btn = document.getElementById("moodsAiBtn");
+  if (!btn) return;
+  const remaining = 3 - (typeof moodVals !== "undefined" ? moodVals.length : 0);
+  if (remaining <= 0) { showToast("장르/분위기 선택 슬롯이 가득 찼습니다 (최대 3개)", "warn"); return; }
+  _withBtnLoading(btn, "AI 추천 중...", async () => {
+    const data = await _callWorldSetupTarget("moods");
+    if (!data) return;
+    const toAdd = data.moodsToAdd ?? [];
+    if (!toAdd.length) { showToast("AI가 추천할 새 항목을 찾지 못했습니다", "warn"); return; }
+    toAdd.forEach(item => addChipDirect("moodGrid", moodVals, 3, item.label));
+    showToast(`장르/분위기 ${toAdd.length}개 추천됐습니다`, "info");
+  });
+}
+
+async function runRulesSuggestV2() {
+  if (_isSectionLocked("sectionFieldIII")) return;
+  const hasContext = (typeof settingVals !== "undefined" && settingVals.length > 0)
+                  || (typeof moodVals    !== "undefined" && moodVals.length    > 0);
+  if (!hasContext) { showToast("배경/세계관과 장르/분위기를 먼저 선택해 주세요", "warn"); return; }
+  const btn = document.getElementById("rulesAiBtn");
+  if (!btn) return;
+  const origHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = "⟳";
+  btn.classList.add("loading");
+  startLoadingOverlay("rulesLoadingBar", RULES_LOADING_MSGS);
+  _callWorldSetupTarget("rules")
+    .then(data => {
+      if (!data) return;
+      const rules = data.rulesToAdd ?? [];
+      if (!rules.length) { showToast("AI가 생성한 규칙이 없습니다", "warn"); return; }
+      if (typeof addRuleTagDirect === "function") {
+        rules.forEach(r => { if (r.text?.trim()) addRuleTagDirect(r.text.trim(), !!r.hard); });
+      }
+      showToast(`규칙 ${rules.length}개가 추가됐습니다`, "info");
+    })
+    .catch(err => {
+      console.error("[runRulesSuggestV2]", err);
+      showToast("규칙 생성에 실패했습니다. 잠시 후 다시 시도하세요.", "err", 4000);
+    })
+    .finally(() => {
+      btn.disabled = false;
+      btn.innerHTML = origHtml;
+      btn.classList.remove("loading");
+      stopLoadingOverlay("rulesLoadingBar");
+    });
+}
+
+async function runStyleSuggest() {
+  if (_isSectionLocked("sectionFieldVI")) return;
+  if (!(typeof settingVals !== "undefined" && (settingVals.length || moodVals.length))) {
+    showToast("배경/세계관 또는 장르/분위기를 먼저 선택해 주세요", "warn"); return;
+  }
+  const btn = document.getElementById("styleAiBtn");
+  if (!btn) return;
+  _withBtnLoading(btn, "AI 추천 중...", async () => {
+    const data = await _callWorldSetupTarget("style");
+    if (!data || !data.style) { showToast("AI가 문체를 추천하지 못했습니다", "warn"); return; }
+    const styleGrid = document.getElementById("styleGrid");
+    if (styleGrid) {
+      const chip = styleGrid.querySelector(`.radio-chip[data-val="${data.style}"]`);
+      if (chip) chip.click();
+    }
+    showToast(`문체 "${data.style}" 추천됐습니다`, "info");
+  });
+}
+
+async function runDirectionSuggest() {
+  if (_isSectionLocked("sectionFieldVIII")) return;
+  if (!(typeof settingVals !== "undefined" && (settingVals.length || moodVals.length))) {
+    showToast("배경/세계관 또는 장르/분위기를 먼저 선택해 주세요", "warn"); return;
+  }
+  const btn = document.getElementById("directionAiBtn");
+  if (!btn) return;
+  _withBtnLoading(btn, "AI 추천 중...", async () => {
+    const data = await _callWorldSetupTarget("direction");
+    if (!data || !data.direction) { showToast("AI가 연출 수치를 추천하지 못했습니다", "warn"); return; }
+    const dir = data.direction;
+    [
+      { key: "conflict",   sliderId: "conflictSlider",   valId: "conflictVal"   },
+      { key: "foreshadow", sliderId: "foreshadowSlider", valId: "foreshadowVal" },
+      { key: "emotion",    sliderId: "emotionSlider",    valId: "emotionVal"    },
+      { key: "dialogue",   sliderId: "dialogueSlider",   valId: "dialogueVal"   },
+      { key: "direction",  sliderId: "directionSlider",  valId: "directionVal"  },
+    ].forEach(({ key, sliderId }) => {
+      if (dir[key] == null) return;
+      const slider = document.getElementById(sliderId);
+      if (slider) {
+        slider.value = dir[key];
+        slider.dispatchEvent(new Event("input"));
+      }
+      if (typeof storyConfig !== "undefined") storyConfig[key] = dir[key];
+    });
+    showToast("연출 조율 수치가 업데이트됐습니다", "info");
+  });
+}
+
 function selectOrAddChip(group, label) {
   const gridId = group === "settings" ? "settingGrid" : "moodGrid";
   const arr    = group === "settings" ? settingVals : moodVals;
@@ -213,7 +395,7 @@ function selectOrAddChip(group, label) {
 }
 
 async function runWorldSetupSuggest() {
-  const btn = document.getElementById("aiSuggestBtn");
+  const btn = document.getElementById("settingsAiBtn") || document.getElementById("aiSuggestBtn");
   if (!btn) return;
 
   const origHtml = btn.innerHTML;

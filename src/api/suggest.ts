@@ -1220,9 +1220,12 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
 
 // ── /world-setup ─────────────────────────────────────────────
 
+type SuggestTarget = "world_setup" | "settings" | "moods" | "rules" | "characters_all" | "character_one" | "style" | "direction";
+
 interface WorldSuggestRequest {
   book_id: string;
-  target: "world_setup";
+  target: SuggestTarget;
+  character_index?: number;
   locked: {
     settings: string[];
     moods: string[];
@@ -1239,12 +1242,15 @@ interface WorldSuggestRequest {
       personality: string;
       initial_items: Array<{ name: string }>;
     }>;
+    style?: string;
+    direction?: Record<string, number>;
   };
   limits: {
     settingsMax: number;
     moodsMax: number;
-    rulesMax: number;
+    rulesMax?: number;
     charactersMax: number;
+    characterCount?: number;
   };
 }
 
@@ -1255,18 +1261,50 @@ interface WorldSuggestSettingItem {
 }
 
 interface WorldSuggestResponse {
-  settings: WorldSuggestSettingItem[];
-  moods: WorldSuggestSettingItem[];
-  rulesToAdd: Array<{ text: string; hard: boolean }>;
-  characters: Array<{
+  // legacy world_setup fields
+  settings?: WorldSuggestSettingItem[];
+  moods?: WorldSuggestSettingItem[];
+  // target-specific fields
+  settingsToAdd?: WorldSuggestSettingItem[];
+  moodsToAdd?: WorldSuggestSettingItem[];
+  rulesToAdd?: Array<{ text: string; hard: boolean }>;
+  characters?: Array<{
     name: string;
     gender: string;
     type: string;
     personality: string;
     initial_items: Array<{ name: string; description: string; category: string; badge_label: string }>;
   }>;
-  notes: string[];
+  character?: {
+    name: string;
+    gender: string;
+    type: string;
+    personality: string;
+    initial_items: Array<{ name: string; description: string; category: string; badge_label: string }>;
+  };
+  style?: string | null;
+  direction?: Record<string, number> | null;
+  notes?: string[];
   provider?: string;
+  target?: string;
+}
+
+const STYLE_OPTIONS = ["간결·담백", "서정·감성", "묘사풍부", "균형"] as const;
+type StyleOption = typeof STYLE_OPTIONS[number];
+
+function normalizeStyle(raw: string): StyleOption {
+  const clean = raw.trim();
+  if ((STYLE_OPTIONS as readonly string[]).includes(clean)) return clean as StyleOption;
+  const map: [string, StyleOption][] = [
+    ["간결", "간결·담백"], ["담백", "간결·담백"],
+    ["서정", "서정·감성"], ["감성", "서정·감성"],
+    ["묘사", "묘사풍부"], ["풍부", "묘사풍부"],
+    ["균형", "균형"],
+  ];
+  for (const [key, val] of map) {
+    if (clean.includes(key)) return val;
+  }
+  return "균형";
 }
 
 function getWorldSuggestPrompt(req: WorldSuggestRequest): string {
@@ -1297,6 +1335,161 @@ function getWorldSuggestPrompt(req: WorldSuggestRequest): string {
   "characters": [{"name": "이름", "gender": "남성|여성|중성", "type": "주인공|조연|빌런|기타", "personality": "성격 설명", "initial_items": [{"name": "소지품명", "description": "짧은 설명", "category": "무기|도구|전자|통신|마법|기타", "badge_label": "배지"}]}],
   "notes": []
 }`;
+}
+
+function getSettingsSuggestPrompt(req: WorldSuggestRequest): string {
+  const remaining = Math.max(0, req.limits.settingsMax - req.current.settings.length);
+  const moodCtx = req.current.moods.length ? `장르/분위기: ${req.current.moods.join(", ")}` : "";
+  return `당신은 한국 소설 세계관 구성 보조 AI입니다.
+
+현재 선택된 배경/세계관: ${req.current.settings.join(", ") || "없음"}
+${moodCtx}
+잠긴 항목(절대 포함 금지): ${req.locked.settings.join(", ") || "없음"}
+
+추가 가능한 슬롯: ${remaining}개
+기존 UI에 없는 참신한 배경/세계관 키워드를 최대 ${remaining}개 추천해 주세요.
+이미 선택된 항목, 잠긴 항목은 절대 포함하지 마세요.
+키워드는 짧고 구체적으로 (2~8자), 장르에 어울리는 독창적 배경이어야 합니다.
+
+반드시 아래 JSON 형식으로만 응답:
+{"settingsToAdd": [{"label": "키워드", "source": "custom"}]}`;
+}
+
+function getMoodsSuggestPrompt(req: WorldSuggestRequest): string {
+  const remaining = Math.max(0, req.limits.moodsMax - req.current.moods.length);
+  const settingCtx = req.current.settings.length ? `배경/세계관: ${req.current.settings.join(", ")}` : "";
+  return `당신은 한국 소설 세계관 구성 보조 AI입니다.
+
+현재 선택된 장르/분위기: ${req.current.moods.join(", ") || "없음"}
+${settingCtx}
+잠긴 항목(절대 포함 금지): ${req.locked.moods.join(", ") || "없음"}
+
+추가 가능한 슬롯: ${remaining}개
+기존 UI에 없는 참신한 장르/분위기 키워드를 최대 ${remaining}개 추천해 주세요.
+이미 선택된 항목, 잠긴 항목은 절대 포함하지 마세요.
+키워드는 짧고 구체적으로 (2~8자), 배경/세계관과 시너지 나는 분위기여야 합니다.
+
+반드시 아래 JSON 형식으로만 응답:
+{"moodsToAdd": [{"label": "키워드", "source": "custom"}]}`;
+}
+
+function getRulesSuggestPrompt(req: WorldSuggestRequest): string {
+  const roll = (Math.floor(Math.random() * 3));
+  const normalCount = 3 + roll;
+  const hardCount = 3 + (roll > 1 ? 1 : 0);
+  const existingStr = req.current.rules.slice(0, 8).map(r => `- ${r}`).join("\n") || "없음";
+  return `당신은 한국 소설 세계관 구성 보조 AI입니다.
+
+배경/세계관: ${req.current.settings.join(", ") || "없음"}
+장르/분위기: ${req.current.moods.join(", ") || "없음"}
+기존 규칙:
+${existingStr}
+
+위 세계관에 어울리는 새 규칙을 추가해 주세요.
+- 일반 규칙(hard: false): ${normalCount}개 — 세계의 분위기, 기술 수준, 사회 구조, 이동 방식, 일상 제약 등
+- 절대 규칙(hard: true): ${hardCount}개 — 절대 깨지면 안 되는 세계관 법칙 (독창적이고 구체적)
+기존 규칙과 중복되거나 유사한 내용은 제외하세요.
+
+반드시 아래 JSON 형식으로만 응답:
+{"rulesToAdd": [{"text": "규칙 내용", "hard": false}, {"text": "절대 규칙 내용", "hard": true}]}`;
+}
+
+function getCharactersAllPrompt(req: WorldSuggestRequest): string {
+  const count = req.limits.characterCount ?? req.limits.charactersMax;
+  const lockedNames = req.locked.characters;
+  const targetCount = Math.max(1, count - lockedNames.length);
+  const existingNames = req.current.characters.map(c => c.name).filter(Boolean);
+  return `당신은 한국 소설 인물 구성 보조 AI입니다.
+
+배경/세계관: ${req.current.settings.join(", ") || "없음"}
+장르/분위기: ${req.current.moods.join(", ") || "없음"}
+세계관 규칙: ${req.current.rules.slice(0, 4).join(" / ") || "없음"}
+잠긴 인물(변경 금지): ${lockedNames.join(", ") || "없음"}
+기존 인물(제외): ${existingNames.join(", ") || "없음"}
+
+위 세계관에 어울리는 새 인물 ${targetCount}명을 제안해 주세요.
+- 이름: 세계관과 장르에 맞는 이름 (기존 인물과 중복 금지)
+- 성별: "남성" | "여성" | "해당없음"
+- 유형: "주인공" | "조연" | "빌런" | "기타"
+- 성격/특성: 구체적이고 세계관에 맞는 성격 (30~60자)
+- 초기 소지품: 세계관에서 실제 쓸 수 있는 물건 1~3개 (name, description 20자 이내, category, badge_label)
+
+반드시 아래 JSON 형식으로만 응답:
+{"characters": [{"name": "이름", "gender": "남성", "type": "주인공", "personality": "성격 설명", "initial_items": [{"name": "소지품명", "description": "설명", "category": "도구", "badge_label": "도구"}]}]}`;
+}
+
+function getCharacterOnePrompt(req: WorldSuggestRequest): string {
+  const idx = req.character_index ?? 0;
+  const existing = req.current.characters[idx];
+  const otherNames = req.current.characters.map((c, i) => i !== idx ? c.name : "").filter(Boolean);
+  return `당신은 한국 소설 인물 구성 보조 AI입니다.
+
+배경/세계관: ${req.current.settings.join(", ") || "없음"}
+장르/분위기: ${req.current.moods.join(", ") || "없음"}
+세계관 규칙: ${req.current.rules.slice(0, 4).join(" / ") || "없음"}
+다른 인물들: ${otherNames.join(", ") || "없음"}
+현재 카드 정보: ${existing ? `이름=${existing.name || "미입력"}, 유형=${existing.type || "미정"}, 성별=${existing.gender || "미정"}` : "비어 있음"}
+
+위 맥락에서 이 인물 카드 1명을 완성해 주세요.
+- 이름: 세계관과 장르에 맞는 이름 (다른 인물과 중복 금지)
+- 성별: "남성" | "여성" | "해당없음"
+- 유형: "주인공" | "조연" | "빌런" | "기타"
+- 성격/특성: 구체적이고 세계관에 맞는 성격 (30~60자)
+- 초기 소지품: 세계관에서 실제 쓸 수 있는 물건 1~3개 (name, description 20자 이내, category, badge_label)
+
+반드시 아래 JSON 형식으로만 응답:
+{"character": {"name": "이름", "gender": "남성", "type": "주인공", "personality": "성격 설명", "initial_items": [{"name": "소지품명", "description": "설명", "category": "도구", "badge_label": "도구"}]}}`;
+}
+
+function getStylePrompt(req: WorldSuggestRequest): string {
+  return `당신은 한국 소설 문체 추천 AI입니다.
+
+배경/세계관: ${req.current.settings.join(", ") || "없음"}
+장르/분위기: ${req.current.moods.join(", ") || "없음"}
+세계관 규칙: ${req.current.rules.slice(0, 3).join(" / ") || "없음"}
+주요 인물: ${req.current.characters.slice(0, 3).map(c => c.name).filter(Boolean).join(", ") || "없음"}
+현재 문체: ${req.current.style || "미설정"}
+
+위 세계관과 이야기에 가장 어울리는 문체 하나를 다음 중에서 선택하세요:
+간결·담백 / 서정·감성 / 묘사풍부 / 균형
+
+반드시 아래 JSON 형식으로만 응답:
+{"style": "간결·담백"}`;
+}
+
+function getDirectionPrompt(req: WorldSuggestRequest): string {
+  const curr = req.current.direction ?? {};
+  return `당신은 한국 소설 연출 조율 AI입니다.
+
+배경/세계관: ${req.current.settings.join(", ") || "없음"}
+장르/분위기: ${req.current.moods.join(", ") || "없음"}
+세계관 규칙: ${req.current.rules.slice(0, 3).join(" / ") || "없음"}
+주요 인물: ${req.current.characters.slice(0, 3).map(c => c.name).filter(Boolean).join(", ") || "없음"}
+문체: ${req.current.style || "미설정"}
+현재 설정: 갈등=${curr["conflict"] ?? 5}, 복선=${curr["foreshadow"] ?? 5}, 감정=${curr["emotion"] ?? 5}, 대사=${curr["dialogue"] ?? 5}, 연출강도=${curr["direction"] ?? 5}
+
+위 세계관/이야기에 최적화된 연출 수치를 1~10 정수로 추천해 주세요:
+- conflict: 갈등 강도(1=잔잔, 10=격렬)
+- foreshadow: 복선 빈도(1=직선적, 10=복잡)
+- emotion: 감정 묘사(1=간결, 10=세밀)
+- dialogue: 대사 비중(1=서술위주, 10=대사위주)
+- direction: 연출 강도(1=담백, 10=강렬)
+
+반드시 아래 JSON 형식으로만 응답:
+{"direction": {"conflict": 7, "foreshadow": 5, "emotion": 7, "dialogue": 5, "direction": 7}}`;
+}
+
+function getSuggestPromptByTarget(req: WorldSuggestRequest): string {
+  switch (req.target) {
+    case "settings":       return getSettingsSuggestPrompt(req);
+    case "moods":          return getMoodsSuggestPrompt(req);
+    case "rules":          return getRulesSuggestPrompt(req);
+    case "characters_all": return getCharactersAllPrompt(req);
+    case "character_one":  return getCharacterOnePrompt(req);
+    case "style":          return getStylePrompt(req);
+    case "direction":      return getDirectionPrompt(req);
+    default:               return getWorldSuggestPrompt(req);
+  }
 }
 
 async function callWorldSuggest(prompt: string): Promise<string> {
@@ -1365,16 +1558,96 @@ function parseAndProtect(raw: string, req: WorldSuggestRequest): WorldSuggestRes
     .filter(m => !isLockedVariant(m.label, lockedMoodSet))
     .map(m => ({ ...m, locked: false }));
 
-  const filteredChars = ((parsed.characters ?? []) as WorldSuggestResponse["characters"])
+  const filteredChars = ((parsed.characters ?? []) as NonNullable<WorldSuggestResponse["characters"]>)
     .filter(c => !lockedCharSet.has(c.name));
 
   return {
     settings: [...lockedSettingItems, ...suggestedSettings].slice(0, req.limits.settingsMax || 5),
     moods: [...lockedMoodItems, ...suggestedMoods].slice(0, req.limits.moodsMax || 5),
-    rulesToAdd: ((parsed.rulesToAdd ?? []) as WorldSuggestResponse["rulesToAdd"]).slice(0, 5),
+    rulesToAdd: ((parsed.rulesToAdd ?? []) as NonNullable<WorldSuggestResponse["rulesToAdd"]>).slice(0, 5),
     characters: filteredChars.slice(0, 3),
     notes: (parsed.notes ?? []) as string[],
   };
+}
+
+function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSuggestResponse {
+  const cleaned = raw.replace(/^```[\w]*\n?/gm, "").replace(/```$/gm, "").trim();
+  let parsed: any;
+  try {
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch?.[0] ?? "{}");
+  } catch {
+    return { notes: ["JSON parse failed"], target: req.target };
+  }
+
+  const lockedSettingSet = new Set(req.locked.settings);
+  const lockedMoodSet = new Set(req.locked.moods);
+  const lockedCharSet = new Set(req.locked.characters);
+
+  function isLockedVariant(label: string, lockedSet: Set<string>): boolean {
+    if (lockedSet.has(label)) return true;
+    for (const locked of lockedSet) {
+      if (label.startsWith(locked)) return true;
+    }
+    return false;
+  }
+
+  const base: WorldSuggestResponse = { target: req.target };
+
+  switch (req.target) {
+    case "settings": {
+      const remaining = Math.max(0, req.limits.settingsMax - req.current.settings.length);
+      const toAdd: WorldSuggestSettingItem[] = ((parsed.settingsToAdd ?? []) as any[])
+        .filter(s => s.label && !isLockedVariant(s.label, lockedSettingSet) && !req.current.settings.includes(s.label))
+        .slice(0, remaining)
+        .map(s => ({ label: s.label, source: "custom" as const, locked: false }));
+      return { ...base, settingsToAdd: toAdd };
+    }
+    case "moods": {
+      const remaining = Math.max(0, req.limits.moodsMax - req.current.moods.length);
+      const toAdd: WorldSuggestSettingItem[] = ((parsed.moodsToAdd ?? []) as any[])
+        .filter(m => m.label && !isLockedVariant(m.label, lockedMoodSet) && !req.current.moods.includes(m.label))
+        .slice(0, remaining)
+        .map(m => ({ label: m.label, source: "custom" as const, locked: false }));
+      return { ...base, moodsToAdd: toAdd };
+    }
+    case "rules": {
+      const rules: Array<{ text: string; hard: boolean }> = ((parsed.rulesToAdd ?? []) as any[])
+        .filter(r => r.text?.trim())
+        .map(r => ({ text: r.text.trim(), hard: !!r.hard }));
+      return { ...base, rulesToAdd: rules };
+    }
+    case "characters_all": {
+      const chars = ((parsed.characters ?? []) as any[]).filter(c => c.name && !lockedCharSet.has(c.name));
+      return { ...base, characters: chars };
+    }
+    case "character_one": {
+      const c = parsed.character;
+      if (!c || !c.name || lockedCharSet.has(c.name)) return { ...base };
+      return { ...base, character: c };
+    }
+    case "style": {
+      const style = parsed.style ? normalizeStyle(String(parsed.style)) : null;
+      return { ...base, style };
+    }
+    case "direction": {
+      const dir = parsed.direction;
+      if (!dir || typeof dir !== "object") return { ...base, direction: null };
+      const clamp = (v: unknown) => Math.min(10, Math.max(1, Math.round(Number(v) || 5)));
+      return {
+        ...base,
+        direction: {
+          conflict:   clamp(dir.conflict),
+          foreshadow: clamp(dir.foreshadow),
+          emotion:    clamp(dir.emotion),
+          dialogue:   clamp(dir.dialogue),
+          direction:  clamp(dir.direction),
+        },
+      };
+    }
+    default:
+      return parseAndProtect(raw, req);
+  }
 }
 
 suggestRouter.post("/world-setup", async (req: Request, res: Response) => {
@@ -1385,12 +1658,19 @@ suggestRouter.post("/world-setup", async (req: Request, res: Response) => {
       return;
     }
 
-    logInfo("api:suggest", "world-setup 요청", { book_id: body.book_id, locked: body.locked });
-    const prompt = getWorldSuggestPrompt(body);
+    const target: SuggestTarget = (body.target as SuggestTarget) || "world_setup";
+    logInfo("api:suggest", "world-setup 요청", { book_id: body.book_id, target, locked: body.locked });
+
+    const reqWithTarget = { ...body, target };
+    const prompt = getSuggestPromptByTarget(reqWithTarget);
     const raw = await callWorldSuggest(prompt);
-    const result = parseAndProtect(raw, body);
+
+    const result = target === "world_setup"
+      ? parseAndProtect(raw, reqWithTarget)
+      : parseResponseByTarget(raw, reqWithTarget);
+
     const provider = process.env.GEMINI_API_KEY ? "gemini" : "local";
-    logInfo("api:suggest", "world-setup 완료", { settings: result.settings.length, moods: result.moods.length, provider });
+    logInfo("api:suggest", "world-setup 완료", { target, provider });
     res.json({ ...result, provider });
   } catch (err) {
     logError("api:suggest", err, { section: "world-setup" });
