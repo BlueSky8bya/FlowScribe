@@ -6,6 +6,26 @@ import { logInfo, logWarn, logError } from "../lib/logger.js";
 
 export const contextRouter = Router();
 
+/** 소지품 이름으로 등급 자동 부여 (S/A/B/C/D).
+ *  LLM 없이 키워드 기반으로 결정하며, 이미 grade가 있으면 유지한다.
+ */
+function autoGradeItem(item: { name: string; grade?: string; condition?: string; description?: string }): string {
+  if (item.grade && ["S","A","B","C","D"].includes(item.grade)) return item.grade;
+  const n = item.name.toLowerCase();
+  const d = (item.description ?? "").toLowerCase();
+  const combined = n + " " + d;
+  // S: 전설/신성/신기/불멸/마왕/천계/신수/최강/신령/고신/유일/세계 최강
+  if (/전설|신성|신기|불멸|마왕|천계|신수|최강|신령|고신|유일|세계\s*최강|신검|신창|신궁|신갑|신환|신의|천신|천마|신인|신계/.test(combined)) return "S";
+  // A: 마법/정령/마검/마창/마도구/고대/희귀/마나/특수/영혼/마력/봉인/고급 무기
+  if (/마법|정령|마검|마창|마갑|마도구|고대|희귀|마나|특수|영혼|마력|봉인|정화|성스|여신|신비|마석|룬|인챈|환생|소울|마왕의|신룡/.test(combined)) return "A";
+  // B: 강화/강철/고급/특제/명품/개조/합금/마정석|은/미스릴/아다만
+  if (/강화|강철|고급|특제|명품|개조|합금|마정석|미스릴|아다만|오리하|나이트메탈|드래곤 스케일|드래곤스케일|에너지 크리|에너지크리/.test(combined)) return "B";
+  // D: 낡은/파손/부서/저급/녹슨/임시/폐기
+  if (/낡은|파손|부서|저급|녹슨|임시|폐기|손상|반파|망가/.test(combined)) return "D";
+  // default C
+  return "C";
+}
+
 const TTL = 60 * 60 * 24 * 7; // 7일
 
 contextRouter.post("/", async (req: Request, res: Response) => {
@@ -51,11 +71,18 @@ contextRouter.post("/", async (req: Request, res: Response) => {
              ON CONFLICT (book_id, name) DO NOTHING`,
             [book_id, name, role, desc, gender]
           ),
-          // canonical_characters 테이블 (type/gender/initial_items 정본)
+          // canonical_characters 테이블 (type/gender/initial_items 정본) — grade 자동 부여
           upsertCanonicalCharacter(book_id, {
             name, personality, type: type ?? "", gender: gender ?? "",
-            initial_items: (typeof info === "object" && Array.isArray(info.initial_items))
-              ? info.initial_items : [],
+            initial_items: (() => {
+              const rawItems: Array<any> = (typeof info === "object" && Array.isArray((info as any).initial_items))
+                ? (info as any).initial_items : [];
+              return rawItems.map((it: any) => {
+                const obj = typeof it === "string" ? { name: it } : { ...it };
+                obj.grade = autoGradeItem(obj);
+                return obj;
+              });
+            })(),
           }),
         ]);
       }));

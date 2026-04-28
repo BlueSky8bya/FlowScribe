@@ -188,9 +188,14 @@ function lockCharCardFields(card, lock) {
 
 function applySettingsLock(lock) {
   const pairs = [
-    ["sectionFieldI",  "lockBadgeI"],
-    ["sectionFieldII", "lockBadgeII"],
-    ["sectionFieldV",  "lockBadgeV"],
+    ["sectionFieldI",    "lockBadgeI"],
+    ["sectionFieldII",   "lockBadgeII"],
+    ["sectionFieldIII",  "lockBadgeIII"],
+    ["sectionFieldIV",   "lockBadgeIV"],
+    ["sectionFieldV",    "lockBadgeV"],
+    ["sectionFieldVI",   "lockBadgeVI"],
+    ["sectionFieldVII",  "lockBadgeVII"],
+    ["sectionFieldVIII", "lockBadgeVIII"],
   ];
   pairs.forEach(([fieldId, badgeId]) => {
     const field = document.getElementById(fieldId);
@@ -198,6 +203,30 @@ function applySettingsLock(lock) {
     if (!field || !badge) return;
     field.classList.toggle("section-locked", lock);
     badge.classList.toggle("visible", lock);
+  });
+
+  // 섹션 III — 세계관 규칙 tag 입력 비활성화
+  const rulesInput = document.getElementById("rulesInput");
+  if (rulesInput) { rulesInput.disabled = lock; rulesInput.style.display = lock ? "none" : ""; }
+  const rulesAiBtn = document.getElementById("rulesAiBtn");
+  if (rulesAiBtn) { rulesAiBtn.disabled = lock; rulesAiBtn.style.opacity = lock ? ".25" : ""; rulesAiBtn.style.pointerEvents = lock ? "none" : ""; }
+
+  // 섹션 IV — 인물 수 조절 + AI 추천 버튼 비활성화
+  ["charCountMinus","charCountPlus","allCharAiBtn"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.disabled = lock; el.style.opacity = lock ? ".25" : ""; el.style.pointerEvents = lock ? "none" : ""; }
+  });
+
+  // 섹션 VII — 분량 입력 비활성화
+  ["epLenInput","epVarInput","totalEpInput","totalEpVarInput"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.disabled = lock; el.style.opacity = lock ? ".45" : ""; }
+  });
+
+  // 섹션 VIII — 슬라이더 비활성화
+  ["conflictSlider","foreshadowSlider","emotionSlider","dialogueSlider","directionSlider"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.disabled = lock; el.style.opacity = lock ? ".45" : ""; }
   });
 
   // 인물카드 이름·유형·성별 잠금 — data-saved 있는 카드만 (중간 생성 신규 카드는 저장 전까지 자유)

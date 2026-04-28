@@ -19,8 +19,8 @@ import type { NamePostprocessResult, NameReclassifiedItem } from "../types/chara
 import { resolveCharacterPolicy } from "../policies/character_policy_resolver.js";
 
 // 실제 응답 최대 ~3200자(경고 7개+ 시나리오), 한국어 BPE 약 1자=1토큰 → 최소 3500 필요.
-// 여유 확보용 4000 설정.
-const MAX_TOKENS = 4000;
+// 복잡한 개입/위반 시나리오에서 잘림 발생 → 8000으로 여유 확보.
+const MAX_TOKENS = 8000;
 
 // ══════════════════════════════════════════════════════════════
 // 검증 프롬프트 A — 주요 사용 버전

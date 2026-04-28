@@ -73,6 +73,8 @@
   cursor:text;min-height:52px;transition:border-color .2s;align-items:flex-start;overflow:hidden;
 }
 .tag-input-wrap:focus-within{border-color:var(--accent);}
+/* ::after flex-break: 태그들 다음에 너비 100% 0-height 요소를 삽입해 입력창을 다음 줄로 강제 */
+.tag-input-wrap::after,.char-items-tag-wrap::after{content:"";display:block;flex:0 0 100%;height:0;order:998;}
 .tag{
   background:var(--accent-bg);border:1px solid var(--accent-border);border-radius:16px;
   color:var(--accent);font-size:.88rem;padding:.3rem .85rem;
@@ -88,7 +90,7 @@
 .tag-text{cursor:text;outline:none;}
 .tag.editing{box-shadow:0 0 0 2px var(--accent);outline:none;}
 .tag.hard.editing{box-shadow:0 0 0 2px var(--tag-hard-border);}
-.tag-input-field{background:none;border:none;color:var(--text);font-family:inherit;font-size:.95rem;outline:none;flex:0 0 100%;min-width:0;width:100%;padding:.2rem .2rem;margin-top:.35rem;display:block;}
+.tag-input-field{background:none;border:none;color:var(--text);font-family:inherit;font-size:.95rem;outline:none;flex:1 0 auto;min-width:6rem;width:100%;padding:.2rem .2rem;margin-top:.1rem;order:999;}
 
 /* 세계관 규칙 안내 */
 .rules-guide{margin-top:.65rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;}
@@ -142,6 +144,17 @@
 .section-locked .chip:hover,.section-locked .radio-chip:hover{border-color:var(--border2);color:var(--text4);}
 .section-locked .custom-chip-del{display:none;}
 .section-locked .custom-inline-wrap,.section-locked .custom-inline-btn{display:none!important;}
+/* 세계관 규칙 잠금 — del/toggle 숨김, 태그 클릭 무반응 */
+.section-locked .tag-del,.section-locked .tag-toggle{display:none!important;}
+.section-locked .tag{pointer-events:none;cursor:default;}
+.section-locked .tag-input-field{display:none!important;}
+/* 인물카드 잠금 — 잠금 이후 카드 입력 전체 비활성화 */
+.section-locked .char-card{pointer-events:none;}
+.section-locked .char-card .char-confirm-btn,.section-locked .char-card .char-lock-btn,
+.section-locked .char-card .char-refine-btn,.section-locked .char-card .char-ai-btn{opacity:.25;pointer-events:none;}
+/* 분량·슬라이더 시각 표시 */
+.section-locked .vol-input,.section-locked .story-slider{cursor:not-allowed;}
+.section-locked .slider-grid-vertical,.section-locked .volume-row{opacity:.6;pointer-events:none;}
 
 /* 구글 로그인 버튼 */
 .google-login-btn{display:inline-flex;align-items:center;gap:.65rem;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:inherit;font-size:.95rem;padding:.7rem 1.6rem;cursor:pointer;text-decoration:none;transition:all .2s;letter-spacing:.02em;}
