@@ -1266,6 +1266,7 @@ interface WorldSuggestResponse {
     initial_items: Array<{ name: string; description: string; category: string; badge_label: string }>;
   }>;
   notes: string[];
+  provider?: string;
 }
 
 function getWorldSuggestPrompt(req: WorldSuggestRequest): string {
@@ -1303,7 +1304,7 @@ async function callWorldSuggest(prompt: string): Promise<string> {
 
   if (geminiKey) {
     const resp = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${geminiKey}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1345,14 +1346,23 @@ function parseAndProtect(raw: string, req: WorldSuggestRequest): WorldSuggestRes
   const lockedMoodSet = new Set(req.locked.moods);
   const lockedCharSet = new Set(req.locked.characters);
 
+  // Also strip items where Gemini echoed a locked label with suffixes like " (잠금)"
+  function isLockedVariant(label: string, lockedSet: Set<string>): boolean {
+    if (lockedSet.has(label)) return true;
+    for (const locked of lockedSet) {
+      if (label.startsWith(locked)) return true;
+    }
+    return false;
+  }
+
   const lockedSettingItems: WorldSuggestSettingItem[] = req.locked.settings.map(l => ({ label: l, source: "existing" as const, locked: true }));
   const suggestedSettings: WorldSuggestSettingItem[] = ((parsed.settings ?? []) as WorldSuggestSettingItem[])
-    .filter(s => !lockedSettingSet.has(s.label))
+    .filter(s => !isLockedVariant(s.label, lockedSettingSet))
     .map(s => ({ ...s, locked: false }));
 
   const lockedMoodItems: WorldSuggestSettingItem[] = req.locked.moods.map(l => ({ label: l, source: "existing" as const, locked: true }));
   const suggestedMoods: WorldSuggestSettingItem[] = ((parsed.moods ?? []) as WorldSuggestSettingItem[])
-    .filter(m => !lockedMoodSet.has(m.label))
+    .filter(m => !isLockedVariant(m.label, lockedMoodSet))
     .map(m => ({ ...m, locked: false }));
 
   const filteredChars = ((parsed.characters ?? []) as WorldSuggestResponse["characters"])
@@ -1379,8 +1389,9 @@ suggestRouter.post("/world-setup", async (req: Request, res: Response) => {
     const prompt = getWorldSuggestPrompt(body);
     const raw = await callWorldSuggest(prompt);
     const result = parseAndProtect(raw, body);
-    logInfo("api:suggest", "world-setup 완료", { settings: result.settings.length, moods: result.moods.length });
-    res.json(result);
+    const provider = process.env.GEMINI_API_KEY ? "gemini" : "local";
+    logInfo("api:suggest", "world-setup 완료", { settings: result.settings.length, moods: result.moods.length, provider });
+    res.json({ ...result, provider });
   } catch (err) {
     logError("api:suggest", err, { section: "world-setup" });
     res.status(500).json({ error: "suggest failed", details: String(err) });
