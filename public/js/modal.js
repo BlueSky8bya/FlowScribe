@@ -100,7 +100,10 @@ async function saveContext() {
 
   // 버튼 로딩 상태
   const saveBtn = document.querySelector('.btn-save, [onclick*="saveContext"]');
-  const origText = saveBtn?.textContent;
+  const origText = saveBtn?.innerHTML || '저장 후 닫기';
+  function _restoreBtn() {
+    if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = origText; }
+  }
   if (saveBtn) {
     saveBtn.disabled = true;
     saveBtn.textContent = '저장 중...';
@@ -119,6 +122,7 @@ async function saveContext() {
     if (!_bookId) {
       console.error("[saveContext] no bookId");
       showToast("책을 먼저 선택해 주세요", "err");
+      _restoreBtn();
       return;
     }
 
@@ -141,6 +145,7 @@ async function saveContext() {
         }
       });
       showToast(`이름이 비어 있는 인물 카드가 ${unnamedCards.length}개 있습니다`, "err");
+      _restoreBtn();
       return;
     }
 
@@ -245,7 +250,8 @@ async function saveContext() {
       sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`;
     }
 
-    // Step H: 모달 닫기 — context 저장 성공 후 항상 호출
+    // Step H: 버튼 복원 후 모달 닫기
+    _restoreBtn();
     console.debug("[saveContext] calling closeModal");
     closeModal();
 
@@ -260,10 +266,6 @@ async function saveContext() {
     if (typeof showToast === "function") {
       showToast("설정 저장 중 오류가 발생했습니다. 콘솔을 확인하세요.", "err");
     }
-    // 실패 시 버튼 복원
-    if (saveBtn) {
-      saveBtn.disabled = false;
-      saveBtn.textContent = origText || '저장 후 닫기';
-    }
+    _restoreBtn();
   }
 }
