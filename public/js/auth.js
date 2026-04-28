@@ -505,24 +505,8 @@ async function selectBook(book) {
   if (typeof _clearDebugPanels === "function") _clearDebugPanels();
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
 
-  // 에피소드 목록·아크·출력 헤더 즉시 초기화 (책 전환 시 이전 정보 표시 방지)
-  if (typeof updateEpisodeListUI === "function") updateEpisodeListUI();
-  if (typeof updateOutputHeader   === "function") updateOutputHeader();
-  const arcSection = document.getElementById("arcSection");
-  if (arcSection) arcSection.style.display = "none";
-  const arcDivider = document.getElementById("arcDivider");
-  if (arcDivider) arcDivider.style.display = "none";
-  const arcActList = document.getElementById("arcActList");
-  if (arcActList) arcActList.innerHTML = "";
-  const epListCount = document.getElementById("epListCount");
-  if (epListCount) epListCount.textContent = "";
-  ["statTotalSessions","statAvgCompletion","statAvgTime"].forEach(id => {
-    const el = document.getElementById(id); if (el) el.textContent = "—";
-  });
-  document.querySelectorAll(".metric-fill[data-key]").forEach(el => el.style.width = "0%");
-  document.querySelectorAll(".metric-val[data-key]").forEach(el => el.textContent = "0");
-  const _dirBadge = document.getElementById("directorBadge");
-  if (_dirBadge) { _dirBadge.textContent = ""; _dirBadge.style.display = "none"; }
+  // 이야기 진행 UI 즉시 초기화 (book list는 건드리지 않음)
+  clearStoryProgressUI();
 
   let _needCharFallback = false;  // 함수 스코프 선언 (블록 내 선언 시 ReferenceError 방지)
 
@@ -665,6 +649,38 @@ async function deleteBook(b) {
   showToast(`"${b.title}" 삭제됨`, "warn", 2500);
 }
 
+// ── 책 목록 토글 가시성 (book count 기준) ─────────────────
+function updateBookListToggleVisibility() {
+  const toggle = document.getElementById("bookListToggle");
+  if (!toggle) return;
+  const list = document.getElementById("bookList");
+  const hasBooks = list ? list.querySelectorAll(".book-item").length > 0 : false;
+  toggle.style.display = hasBooks ? "flex" : "none";
+}
+
+// ── 이야기 진행 UI 초기화 (book list는 건드리지 않음) ──────
+function clearStoryProgressUI() {
+  const arcSection = document.getElementById("arcSection");
+  if (arcSection) arcSection.style.display = "none";
+  const arcDivider = document.getElementById("arcDivider");
+  if (arcDivider) arcDivider.style.display = "none";
+  const arcActList = document.getElementById("arcActList");
+  if (arcActList) arcActList.innerHTML = "";
+  const epListCount = document.getElementById("epListCount");
+  if (epListCount) epListCount.textContent = "";
+  const epList = document.getElementById("episodeList");
+  if (epList) epList.innerHTML = "";
+  const header = document.getElementById("outputHeader");
+  if (header) header.style.display = "none";
+  ["statTotalSessions","statAvgCompletion","statAvgTime"].forEach(id => {
+    const el = document.getElementById(id); if (el) el.textContent = "—";
+  });
+  document.querySelectorAll(".metric-fill[data-key]").forEach(el => el.style.width = "0%");
+  document.querySelectorAll(".metric-val[data-key]").forEach(el => el.textContent = "0");
+  const dirBadge = document.getElementById("directorBadge");
+  if (dirBadge) { dirBadge.textContent = ""; dirBadge.style.display = "none"; }
+}
+
 // ── 책 목록 렌더링 ─────────────────────────────────────────
 
 function renderBookList(books, activeId) {
@@ -763,6 +779,7 @@ function renderBookList(books, activeId) {
     };
     list.appendChild(item);
   });
+  updateBookListToggleVisibility();
 }
 
 // ── 에피소드 목록 사이드바 ─────────────────────────────────
