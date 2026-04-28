@@ -473,6 +473,7 @@ async function selectBook(book) {
   output.innerHTML = "";
 
   // 이전 책 잔상 즉시 제거 (async 로드 전 동기 초기화)
+  if (typeof _clearDebugPanels === "function") _clearDebugPanels();
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
   ["statTotalSessions","statAvgCompletion","statAvgTime"].forEach(id => {
     const el = document.getElementById(id); if (el) el.textContent = "—";
@@ -492,6 +493,7 @@ async function selectBook(book) {
       for (const ep of episodes) episodeCache[ep.episode_number] = ep.content;
       if (episodes.length) {
         displayedEpisode = episodes[episodes.length - 1].episode_number;
+        if (typeof _ppReset === "function") _ppReset();
         renderProgressive(episodeCache[displayedEpisode], true);
         currentEpisode = displayedEpisode + 1;
         // 캐릭터 상태 + audit 데이터 복원 (fire-and-forget)
@@ -510,8 +512,13 @@ async function selectBook(book) {
           if (auditData?.status === 'done') {
             window._lastAuditStatus = auditData;
             if (!window._lastEpisodeMeta) window._lastEpisodeMeta = {};
+            if (typeof updateDebugMeta === "function") updateDebugMeta(window._lastEpisodeMeta, auditData);
           }
-        }).catch(() => { _needCharFallback = true; });
+        }).catch(() => { _needCharFallback = true; })
+        .finally(() => {
+          // 후처리 통계는 audit 여부·fetch 성패와 무관하게 항상 표시
+          if (typeof _renderPostprocStats === "function") _renderPostprocStats();
+        });
       } else {
         currentEpisode = 1;
         if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);

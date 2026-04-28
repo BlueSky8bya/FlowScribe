@@ -52,7 +52,7 @@ async function saveContext() {
 
   // 이름 미입력 인물카드 검증
   const unnamedCards = [...document.querySelectorAll(".char-card")].filter(
-    card => !card.querySelector(".char-name").value.trim()
+    card => !card.querySelector(".char-name")?.value?.trim()
   );
   if (unnamedCards.length) {
     unnamedCards.forEach(card => {
@@ -68,8 +68,8 @@ async function saveContext() {
   const characterDefaults = {};
   const characterRows = [];
   document.querySelectorAll(".char-card").forEach(card => {
-    const name        = card.querySelector(".char-name").value.trim();
-    const personality = card.querySelector(".char-personality").value.trim();
+    const name        = card.querySelector(".char-name")?.value?.trim() ?? "";
+    const personality = card.querySelector(".char-personality")?.value?.trim() ?? "";
     let type   = card.dataset.type;
     let gender = card.dataset.gender;
     if (type   === "기타") type   = card.querySelector(".type-inp").value.trim()   || "기타";

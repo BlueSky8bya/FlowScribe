@@ -335,7 +335,19 @@ function parseValidationResult(raw: string): ValidationResult {
   }
 
   const hard_violations = (parsed.hard_violations ?? []) as ValidationResult["hard_violations"];
-  const soft_warnings   = (parsed.soft_warnings   ?? []) as ValidationResult["soft_warnings"];
+  // soft_warnings: medium 우선 최대 4개, 각 description 60자·suggestion 50자 이내로 trim
+  const raw_soft = (parsed.soft_warnings ?? []) as ValidationResult["soft_warnings"];
+  const soft_warnings: ValidationResult["soft_warnings"] = [
+    ...raw_soft.filter(w => w.severity === "medium"),
+    ...raw_soft.filter(w => w.severity !== "medium"),
+  ].slice(0, 4).map(w => ({
+    ...w,
+    description: w.description,
+    suggestion:  w.suggestion,
+  }));
+  // revision_hints: 최대 3개, 각 80자 이내
+  const raw_hints = (parsed.revision_hints ?? []) as string[];
+  const trimmed_hints = raw_hints.slice(0, 3);
 
   const rawScores = parsed.quality_scores ?? {};
   const quality_scores: QualityScores = {
@@ -361,7 +373,7 @@ function parseValidationResult(raw: string): ValidationResult {
     quality_scores,
     total_score,
     summary: parsed.summary ?? "",
-    revision_hints: parsed.revision_hints ?? [],
+    revision_hints: trimmed_hints,
   };
 }
 

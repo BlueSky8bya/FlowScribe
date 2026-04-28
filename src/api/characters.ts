@@ -2,8 +2,8 @@ import { Router, Request, Response } from "express";
 import { pool } from "../lib/db.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { upsertCanonicalCharacter } from "../services/character_state.js";
-import { parseItemEntry } from "./context.js";
-import { itemDescQueue } from "../queues/index.js";
+import { parseItemEntry, autoDescItem } from "./context.js";
+import { generateAndSaveItemDescriptions } from "../services/item_desc.js";
 
 export const charactersRouter = Router();
 
@@ -62,7 +62,10 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
         type: c.type ?? "인간",
         gender: c.gender ?? "해당없음",
         initial_items: Array.isArray(c.initial_items)
-          ? c.initial_items.map((it: any) => parseItemEntry(it))
+          ? c.initial_items.map((it: any) => parseItemEntry(it)).map((parsed: any) => {
+              if (!parsed.description) { const fb = autoDescItem(parsed); if (fb) parsed.description = fb; }
+              return parsed;
+            })
           : [],
       });
     }
@@ -75,7 +78,7 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
         return !parsed.description;
       });
       if (!missing.length) continue;
-      itemDescQueue.add("generate-item-desc", {
+      await generateAndSaveItemDescriptions({
         book_id,
         char_name: c.name,
         char_personality: (c.personality ?? "").slice(0, 100),
@@ -86,8 +89,7 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
           grade: it.grade ?? null,
           condition: it.condition ?? null,
         })),
-      }, { attempts: 3, backoff: { type: "exponential", delay: 5000 },
-           removeOnComplete: 100, removeOnFail: 50 }).catch(() => {});
+      }).catch(() => {});
     }
 
     logInfo("api:characters:save", "인물 upsert 완료", { book_id, count: characters.length });

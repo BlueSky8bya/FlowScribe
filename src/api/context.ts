@@ -2,10 +2,32 @@ import { Router, Request, Response } from "express";
 import { redis } from "../lib/redis.js";
 import { pool } from "../lib/db.js";
 import { upsertCanonicalCharacter } from "../services/character_state.js";
-import { itemDescQueue } from "../queues/index.js";
+import { generateAndSaveItemDescriptions } from "../services/item_desc.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 
 export const contextRouter = Router();
+
+/** 소지품 이름으로 즉시 카테고리 기반 fallback 설명 부여.
+ *  description이 이미 있으면 그대로 유지한다.
+ *  프론트엔드 _QLABEL_DESC와 동일 로직 — LLM 없는 즉시 표시용.
+ */
+export function autoDescItem(item: { name: string; description?: string }): string | null {
+  if (item.description) return item.description;
+  const n = item.name.toLowerCase();
+  if (/폭발|독성|독가스|지뢰|유독|방사/.test(n))                      return '위험한 폭발물 또는 유해 물질';
+  if (/검|도\b|창\b|활\b|총\b|총기|단검|단도|대거|블레이드|나이프|칼\b|도끼|망치|석궁|리볼버|소총|권총|탄약|탄창/.test(n)) return '전투에 사용하는 무기';
+  if (/갑옷|방패|투구|방어구|흉갑|장갑\b|장화|부츠/.test(n))           return '방어 목적의 장비';
+  if (/포션|약\b|붕대|치료제|해독|회복제|응급/.test(n))                return '치료 및 회복에 사용하는 물품';
+  if (/지도|서류|편지|일지|기록물|코드|암호|데이터|정보 장치/.test(n)) return '정보가 담긴 문서 또는 자료';
+  if (/제단|봉인석|인장|부적|마법진|주술구|의례/.test(n))              return '의식이나 주술에 사용하는 물품';
+  if (/수정구|성석|성배|성유물|정령석|신물/.test(n))                   return '신성하거나 영적인 힘을 가진 물품';
+  if (/악기|피리|북\b|뿔피리|하프/.test(n))                           return '음악을 연주하는 악기';
+  if (/장치|기계|기어|렌치|회로|계기|디바이스/.test(n))               return '특수 목적의 기계 장치';
+  if (/군용|군장|전술|야전/.test(n))                                  return '군사 작전에 사용하는 물자';
+  if (/배낭|벨트 파우치|조끼|외투|망토/.test(n))                      return '탐험·작전용 기어 및 장비';
+  if (/램프|랜턴|등불|횃불|손전등|조명/.test(n))                      return '어둠을 밝히는 조명 도구';
+  return null;
+}
 
 /** 소지품 이름으로 등급 자동 부여 (S/A/B/C/D).
  *  LLM 없이 키워드 기반으로 결정하며, 이미 grade가 있으면 유지한다.
@@ -81,42 +103,29 @@ contextRouter.post("/", async (req: Request, res: Response) => {
     // resolved_final_episode: 이미 있으면 유지, 없으면 기존 컨텍스트에서 복구 or 신규 생성
     const sc = payload.story_config as Record<string, any> | undefined;
     if (sc?.totalEpisodes != null) {
-      if (!sc.resolved_final_episode) {
-        // 기존 저장 값 우선 보존 (재저장 시 재샘플링 방지)
-        let existingRf: number | null = null;
+      const variance: number = sc.totalEpisodesVar ?? 0;
+      const min = (sc.totalEpisodes as number) - variance;
+      const max = (sc.totalEpisodes as number) + variance;
+      // 클라이언트가 보낸 값 또는 저장된 값을 후보로 삼아 범위 검증 후 확정
+      let existingRf: number | null = sc.resolved_final_episode ?? null;
+      if (!existingRf) {
         try {
           const existingRaw = await redis.get(`context:${book_id}`);
-          if (existingRaw) {
-            const existing = JSON.parse(existingRaw);
-            existingRf = existing?.story_config?.resolved_final_episode ?? null;
-          }
+          if (existingRaw) existingRf = JSON.parse(existingRaw)?.story_config?.resolved_final_episode ?? null;
           if (!existingRf) {
             const dbRow = await pool.query(`SELECT context FROM books WHERE id = $1`, [book_id]);
             existingRf = dbRow.rows[0]?.context?.story_config?.resolved_final_episode ?? null;
           }
-        } catch { /* 조회 실패 시 신규 생성으로 진행 */ }
-
-        if (existingRf) {
-          // Validate existing rf is within current range; re-sample if out of range
-          const variance: number = sc.totalEpisodesVar ?? 0;
-          const min = (sc.totalEpisodes as number) - variance;
-          const max = (sc.totalEpisodes as number) + variance;
-          if (existingRf >= min && existingRf <= max) {
-            sc.resolved_final_episode = existingRf;
-          } else {
-            const delta = variance > 0 ? Math.round((Math.random() * 2 - 1) * variance) : 0;
-            sc.resolved_final_episode = (sc.totalEpisodes as number) + delta;
-            logInfo("api:context:save", "resolved_final_episode 범위 밖 → 재확정", {
-              book_id, existingRf, newRf: sc.resolved_final_episode, min, max
-            });
-          }
-        } else {
-          const variance: number = sc.totalEpisodesVar ?? 0;
-          const delta = variance > 0
-            ? Math.round((Math.random() * 2 - 1) * variance)
-            : 0;
-          sc.resolved_final_episode = (sc.totalEpisodes as number) + delta;
-        }
+        } catch { /* 조회 실패 시 신규 생성 */ }
+      }
+      if (existingRf && existingRf >= min && existingRf <= max) {
+        sc.resolved_final_episode = existingRf;
+      } else {
+        const delta = variance > 0 ? Math.round((Math.random() * 2 - 1) * variance) : 0;
+        sc.resolved_final_episode = (sc.totalEpisodes as number) + delta;
+        if (existingRf) logInfo("api:context:save", "resolved_final_episode 범위 밖 → 재확정", {
+          book_id, existingRf, newRf: sc.resolved_final_episode, min, max
+        });
       }
     }
 
@@ -162,6 +171,10 @@ contextRouter.post("/", async (req: Request, res: Response) => {
               return rawItems.map((it: any) => {
                 const parsed = parseItemEntry(it) as any;
                 parsed.grade = autoGradeItem(parsed);
+                if (!parsed.description) {
+                  const fallback = autoDescItem(parsed);
+                  if (fallback) parsed.description = fallback;
+                }
                 return parsed;
               }) as import("../types/canonical.js").ItemEntry[];
             })(),
@@ -186,7 +199,7 @@ contextRouter.post("/", async (req: Request, res: Response) => {
         const desc       = typeof info === "string" ? info : ((info as any).description ?? (info as any).personality ?? "");
         const type       = typeof info === "object" ? ((info as any).type ?? "") : "";
         const gender     = typeof info === "object" ? ((info as any).gender ?? "") : "";
-        itemDescQueue.add("generate-item-desc", {
+        await generateAndSaveItemDescriptions({
           book_id,
           char_name: name,
           char_personality: desc.slice(0, 100),
@@ -197,8 +210,7 @@ contextRouter.post("/", async (req: Request, res: Response) => {
             grade: it.grade ?? null,
             condition: it.condition ?? null,
           })),
-        }, { attempts: 3, backoff: { type: "exponential", delay: 5000 },
-             removeOnComplete: 100, removeOnFail: 50 }).catch(() => {});
+        }).catch(() => {});
       }
     }
 

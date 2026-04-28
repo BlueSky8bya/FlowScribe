@@ -1,5 +1,35 @@
 ﻿// ── 에피소드 생성 & SSE 스트리밍 ─────────────────────────────
 
+// 소지품 vocab 캐시 { [itemName]: { category, badge_label, color } }
+let _itemVocab = {};
+let _itemVocabBookId = null;
+
+// book 전환 시 vocab 로드 (book_id가 바뀔 때만 재요청)
+async function _loadItemVocab(bId) {
+  if (!bId || bId === _itemVocabBookId) return;
+  _itemVocabBookId = bId;
+  _itemVocab = {};
+  try {
+    const res = await fetch(`/api/generate/item-vocab?book_id=${encodeURIComponent(bId)}`);
+    if (!res.ok) return;
+    const { vocab } = await res.json();
+    // category → color 매핑
+    const CAT_COLOR = {
+      무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
+      문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
+      의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 악기:'#4070a0',
+      탈것:'#506070', 기타:'#888',
+    };
+    for (const [name, v] of Object.entries(vocab)) {
+      _itemVocab[name] = {
+        category:    v.category,
+        badge_label: v.badge_label,
+        color:       CAT_COLOR[v.category] ?? '#888',
+      };
+    }
+  } catch { /* vocab 로드 실패는 무시 */ }
+}
+
 // 현재 로드된 캐릭터 상태 — 화 전환 시에도 재사용
 let _currentCharStates = [];
 // 단일 hover 리스너 마운트 여부 (중복 방지)
@@ -43,22 +73,30 @@ function _renderPostprocStats() {
   const el = document.getElementById('eqPostproc');
   const sec = document.getElementById('eqPostprocSection');
   if (!el) return;
-  const kv2 = (k, v, cls) => `<div class=”eq-kv”><span class=”eq-kv-key”>${k}</span><span class=”eq-kv-val${cls ? ' '+cls : ''}”>${v}</span></div>`;
   const _outputText = document.getElementById('output')?.textContent ?? '';
   const _hasQuotes = /[“「『”]/.test(_outputText);
-  const _totalDialogue = _ppStats.dialogueLinesTagged + _ppStats.attachedDialogueSplits;
-  const _tagWarn = _hasQuotes && _totalDialogue === 0 && _ppStats.dialogueSegments === 0;
-  el.innerHTML = `<div class=”eq-kv-list”>
-    ${kv2('따옴표 병합', _ppStats.quoteMerges + '회', _ppStats.quoteMerges ? 'warn' : '')}
-    ${kv2('대괄호 병합', _ppStats.bracketMerges + '회', _ppStats.bracketMerges ? 'warn' : '')}
-    ${kv2('대화 구간 분리', _ppStats.attachedDialogueSplits + '개 단락', '')}
-    ${kv2('대화 span', _ppStats.dialogueSegments + '개', (_ppStats.dialogueSegments === 0 && _hasQuotes) ? 'warn' : '')}
-    ${kv2('분리 건너뜀', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
-    ${kv2('순수 대화줄 태깅', _ppStats.dialogueLinesTagged + '줄', _tagWarn ? 'warn' : '')}
-    ${_tagWarn ? kv2('⚠ 태깅 0', '따옴표 있음에도 대화 span 없음', 'warn') : ''}
-    ${kv2('외국어 제거', _ppStats.foreignCharsRemoved + '회', _ppStats.foreignCharsRemoved ? 'bad' : '')}
-  </div>`;
+  const _tagWarn = _hasQuotes && _ppStats.dialogueLinesTagged === 0 && _ppStats.dialogueSegments === 0;
+  // 0이 아닌 항목 + 경고만 표시 (0 항목은 불필요한 노이즈)
+  const rows = [];
+  if (_ppStats.quoteMerges)         rows.push({ k:'따옴표 병합',   v:_ppStats.quoteMerges+'회',    cls:'warn' });
+  if (_ppStats.bracketMerges)       rows.push({ k:'대괄호 병합',   v:_ppStats.bracketMerges+'회',  cls:'warn' });
+  if (_ppStats.attachedDialogueSplits) rows.push({ k:'대화 분리',  v:_ppStats.attachedDialogueSplits+'단락', cls:'' });
+  if (_ppStats.dialogueSegments)    rows.push({ k:'대화 span',     v:_ppStats.dialogueSegments+'개', cls:'' });
+  if (_ppStats.dialogueSkipped)     rows.push({ k:'분리 건너뜀',   v:_ppStats.dialogueSkipped+'회', cls:'warn' });
+  if (_ppStats.dialogueLinesTagged) rows.push({ k:'순수 대화줄',   v:_ppStats.dialogueLinesTagged+'줄', cls:'' });
+  if (_ppStats.foreignCharsRemoved) rows.push({ k:'외국어 제거',   v:_ppStats.foreignCharsRemoved+'회', cls:'bad' });
+  if (_tagWarn)                     rows.push({ k:'⚠ 대화 미탐지', v:'따옴표 있음', cls:'warn' });
+  if (!rows.length) {
+    el.innerHTML = '<div class=”eq-empty”>이상 없음</div>';
+  } else {
+    el.innerHTML = '<div class=”eq-kv-list”>' + rows.map(r =>
+      `<div class=”eq-kv”><span class=”eq-kv-key”>${r.k}</span><span class=”eq-kv-val${r.cls ? ' '+r.cls : ''}”>${r.v}</span></div>`
+    ).join('') + '</div>';
+  }
   if (sec) sec.hidden = false;
+  // 후처리 완료 후 실제 화면 글자 수로 “실제 분량” 업데이트
+  const _actualEl = document.getElementById('eqActualChars');
+  if (_actualEl && _outputText.trim()) _actualEl.textContent = _outputText.trim().length + '자';
 }
 
 let _sessionStart = null;
@@ -350,6 +388,7 @@ function renderProgressive(text, done) {
 
 function _loadAndApplyCharStates(episodeNum) {
   if (!bookId) return;
+  _loadItemVocab(bookId); // book 전환 감지 시에만 실제 fetch 수행
   Promise.all([
     fetch(`/api/generate/char-states?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
     fetch(`/api/generate/audit-status?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
@@ -384,7 +423,9 @@ function viewPrev() {
   const prev = displayedEpisode !== null ? _prevEpNum(displayedEpisode) : _prevEpNum(currentEpisode);
   if (prev === null) return;
   displayedEpisode = prev;
+  _ppReset();
   renderProgressive(episodeCache[displayedEpisode], true);
+  _renderPostprocStats();
   updateEpisodeUI();
   _loadAndApplyCharStates(displayedEpisode);
 }
@@ -393,7 +434,9 @@ function viewNext() {
   const next = displayedEpisode !== null ? _nextEpNum(displayedEpisode) : _nextEpNum(currentEpisode - 1);
   if (next === null || !episodeCache[next]) return;
   displayedEpisode = next;
+  _ppReset();
   renderProgressive(episodeCache[displayedEpisode], true);
+  _renderPostprocStats();
   updateEpisodeUI();
   _loadAndApplyCharStates(displayedEpisode);
 }
@@ -458,6 +501,7 @@ function generate() {
     _generating = false;
     clearInterval(_loadingInterval);
     renderProgressive(rawText, true);
+    _renderPostprocStats();  // renderProgressive가 끝난 뒤 _ppStats 갱신 반영
     if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
     applyFocusLine?.();
     episodeCache[episodeNum] = rawText;
@@ -549,15 +593,22 @@ function _emotionClass(e) {
 // 감정 문자열 → 키워드 배열 분리
 function _splitEmotState(e) {
   if (!e) return ['미파악'];
-  return e.split(/[,，、]+/).map(s => s.trim()).filter(Boolean);
+  // 쉼표·마침표·줄바꿈으로 분리, 각 토큰 12자 초과 시 추가 분리 없이 그대로 유지
+  return e.split(/[,，、.。\n]+/).map(s => s.trim()).filter(Boolean);
 }
 
-// 감정 키워드 배열 → 배지 HTML (state-badge 클래스 재사용)
+// 감정 키워드 배열 → 배지 HTML — 같은 색상 클래스끼리 연속 정렬
 function _emotBadgesHtml(e) {
   const keywords = _splitEmotState(e);
-  return keywords.map(k =>
-    `<span class="state-badge ${_emotionClass(k)}">${k}</span>`
-  ).join('');
+  // 색상 클래스 기준 정렬 (같은 계열 연속)
+  const order = ['emotion-positive','emotion-tense','emotion-angry','emotion-sad','emotion-neutral','emotion-unknown'];
+  const sorted = [...keywords].sort((a, b) => order.indexOf(_emotionClass(a)) - order.indexOf(_emotionClass(b)));
+  return sorted.map(k => {
+    if (k.length > 16) {
+      return `<span class="emot-text-box ${_emotionClass(k)}">${k.length > 24 ? k.slice(0, 24) + '…' : k}</span>`;
+    }
+    return `<span class="state-badge ${_emotionClass(k)}">${k}</span>`;
+  }).join('');
 }
 
 // 신체 상태 → 배지 색상 클래스
@@ -580,14 +631,16 @@ function _splitPhysState(p) {
   return p.split(/[,、·\/]/).map(s => s.trim()).filter(Boolean);
 }
 
-// 신체 상태 items → badge HTML (다수일 때 줄바꿈 wrap)
+// 신체 상태 items → badge HTML — 같은 색상 클래스끼리 연속 정렬
 function _physBadgesHtml(p) {
   const items = _splitPhysState(p);
-  if (items.length === 1) {
-    return `<span class="state-badge ${_physClass(items[0])}">${items[0]}</span>`;
+  const physOrder = ['phys-critical','phys-hurt','phys-special','phys-tired','phys-normal','phys-other'];
+  const sorted = [...items].sort((a, b) => physOrder.indexOf(_physClass(a)) - physOrder.indexOf(_physClass(b)));
+  if (sorted.length === 1) {
+    return `<span class="state-badge ${_physClass(sorted[0])}">${sorted[0]}</span>`;
   }
   return `<div class="state-badge-wrap">${
-    items.map(item => `<span class="state-badge state-badge-sm ${_physClass(item)}">${item}</span>`).join('')
+    sorted.map(item => `<span class="state-badge state-badge-sm ${_physClass(item)}">${item}</span>`).join('')
   }</div>`;
 }
 
@@ -618,9 +671,9 @@ function updateSceneCharPanel(charStates) {
 
     // 등장 인물: 확장 패널 — 라벨/값 통일 구조
     const row = (label, valHtml) =>
-      `<div class="scene-char-detail"><span class="detail-label">${label}:</span><span>${valHtml}</span></div>`;
+      `<div class="scene-char-detail"><span class="detail-label">${label}:</span><div class="detail-val">${valHtml}</div></div>`;
     const dataRows = [
-      row('감정', `<span style="display:inline-flex;flex-wrap:wrap;gap:3px 4px;">${_emotBadgesHtml(s.emotional_state)}</span>`),
+      row('감정', `<div class="emot-badge-wrap">${_emotBadgesHtml(s.emotional_state)}</div>`),
       row('신체', _physBadgesHtml(s.physical_state || '정상')),
       (() => {
         if (!s.items?.length) {
@@ -633,7 +686,7 @@ function updateSceneCharPanel(charStates) {
         const _qlabel = n => {
           const t = n.toLowerCase();
           if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
-          if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프/.test(t)) return { label:'무기', color:'#a04060' };
+          if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프|대거|블레이드|도\b/.test(t)) return { label:'무기', color:'#a04060' };
           if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
           if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
           if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
@@ -647,13 +700,14 @@ function updateSceneCharPanel(charStates) {
           if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
           // 군용 계열
           if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
-          if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return { label:'장비', color:'#307080' };
-          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이/.test(t)) return { label:'도구', color:'#607040' };
+          if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크|안대|렌즈|고글|바이저/.test(t)) return { label:'장비', color:'#307080' };
+          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이|테더|케이블|와이어|줄|묶/.test(t)) return { label:'도구', color:'#607040' };
           if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
           if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
           if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-          // 모든 아이템에 최소 1개 배지 보장
-          return { label:'일반', color:'#5a9a6a' };
+          // vocab fallback — LLM이 이전에 분류한 결과 사용
+          if (_itemVocab[n]) return { label: _itemVocab[n].badge_label, color: _itemVocab[n].color };
+          return null; // 미분류 아이템 — 배지 없음
         };
         // 이름만 있는 소지품에 대한 규칙 기반 fallback 설명 (20~60자, LLM 호출 없음)
         // 배지 카테고리 → generic 설명 매핑 (새 카테고리 추가 시 자동 확장)
@@ -884,7 +938,7 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('커스텀 분량 설정', userRange);
     rows += kv('본문 목표 분량', rendererTarget);   // 범위 중간점, 실제 프롬프트 전달값
     rows += kv('허용 범위', budgetRange);              // min~max
-    rows += kv('실제 분량', a?.actual_chars ? a.actual_chars + '자' : null);
+    rows += `<div class="eq-info-item"><span class="eq-info-label">실제 분량</span><span class="eq-info-value" id="eqActualChars">${a?.actual_chars ? a.actual_chars + '자 (후처리 전)' : '—'}</span></div>`;
     rows += kv('생성 모델', a?.renderer_model ?? null);
     rows += kv('플래너 모델', a?.planner_model ?? null);
     // 회차 역할 / 서사 국면 한글 레이블 매핑
@@ -912,8 +966,8 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('문체', gc?.style ?? null);
     const _epRole = a?.episode_role ?? meta?.episode_role ?? null;
     rows += kv('이번 화 역할', _epRole ? (EPISODE_ROLE_KO[_epRole] ?? _epRole) : null);
-    // 확정 최종화: audit > SSE meta > gen_config.totalEpisodes 순서로 폴백
-    const _resolvedFinal = a?.resolved_final_episode ?? meta?.resolved_final_episode ?? gc?.totalEpisodes;
+    // 확정 최종화: SSE meta(신규 샘플) > audit(DB 저장값) > gen_config.totalEpisodes 순서
+    const _resolvedFinal = meta?.resolved_final_episode ?? a?.resolved_final_episode ?? gc?.totalEpisodes;
     // 설정 범위 (totalEpisodes ± totalEpisodesVar)
     if (gc?.totalEpisodes != null) {
       const _var = gc.totalEpisodesVar ?? 0;
@@ -921,7 +975,7 @@ function updateDebugMeta(meta, auditStatus = null) {
     }
     if (_resolvedFinal != null) {
       const _curEp = a?.episode_number ?? meta?.episode_number ?? null;
-      const _remaining = a?.remaining_episodes ?? meta?.remaining_episodes ?? (_curEp && _resolvedFinal ? _resolvedFinal - _curEp : null);
+      const _remaining = (_curEp && _resolvedFinal) ? _resolvedFinal - _curEp : (meta?.remaining_episodes ?? a?.remaining_episodes ?? null);
       const _rfMin = gc?.totalEpisodes != null ? (gc.totalEpisodes - (gc.totalEpisodesVar ?? 0)) : null;
       const _rfMax = gc?.totalEpisodes != null ? (gc.totalEpisodes + (gc.totalEpisodesVar ?? 0)) : null;
       const _rfOutOfRange = _rfMin != null && (_resolvedFinal < _rfMin || _resolvedFinal > _rfMax);
@@ -976,6 +1030,10 @@ function updateDebugMeta(meta, auditStatus = null) {
     if (a?.trace_id) rows += kv('추적 ID', a.trace_id);
     if (a?.created_at) rows += kv('생성일시', new Date(a.created_at).toLocaleString('ko-KR'));
     basicEl.innerHTML = `<div class="eq-info-grid">${rows || '<span class="eq-empty">에피소드 생성 후 표시됩니다</span>'}</div>`;
+    // 후처리 완료 텍스트 길이로 실제 분량 업데이트 (innerHTML 재생성 후 요소 접근)
+    const _postText = document.getElementById('output')?.textContent?.trim() ?? '';
+    const _actualEl2 = document.getElementById('eqActualChars');
+    if (_actualEl2 && _postText) _actualEl2.textContent = _postText.length + '자';
   }
 
   // ── 품질 점수 바 ───────────────────────────────────────────
@@ -1044,25 +1102,24 @@ function updateDebugMeta(meta, auditStatus = null) {
     show('eqPlannerSection');
   }
 
-  // ── 경고 & 힌트 (기본: 50자 이하 요약, 길면 <details>로 상세) ──────────
+  // ── 경고 & 힌트 ─────────────────────────────────────────────
   const warnEl = document.getElementById('eqWarnings');
   if (warnEl && (a?.soft_warnings?.length || a?.revision_hints?.length)) {
-    const _compact = (text, maxLen = 50) => {
-      if (text.length <= maxLen) return text;
-      const summary = text.slice(0, maxLen);
-      const rest = text.slice(maxLen);
-      return `<details style="display:inline;cursor:pointer;"><summary style="display:inline;list-style:none;">${summary}…</summary>${rest}</details>`;
+    const _warnCard = (icon, cls, sev, text) => {
+      const badge = sev ? `<span class="eq-sev-badge">[${sev}]</span> ` : '';
+      const inner = `<span class="eq-warn-content">${icon} ${badge}${text}</span>`;
+      return `<div class="eq-warn-item ${cls}">${inner}</div>`;
     };
     let items = '';
     (a.soft_warnings || []).forEach(w => {
       const text = typeof w === 'string' ? w
         : [w.description, w.suggestion ? `→ ${w.suggestion}` : null].filter(Boolean).join(' ');
-      const sev = (typeof w === 'object' && w.severity) ? ` <span style="font-size:.78em;opacity:.65;">[${w.severity}]</span>` : '';
-      items += `<div class="eq-warn-item soft">⚠ ${_compact(text)}${sev}</div>`;
+      const sev = (typeof w === 'object' && w.severity) ? w.severity : '';
+      items += _warnCard('⚠', 'soft', sev, text);
     });
     (a.revision_hints || []).forEach(h => {
       const text = typeof h === 'string' ? h : (h.description ?? JSON.stringify(h));
-      items += `<div class="eq-warn-item hint">💡 ${_compact(text)}</div>`;
+      items += _warnCard('💡', 'hint', '', text);
     });
     warnEl.innerHTML = `<div class="eq-warn-list">${items}</div>`;
     show('eqWarningSection');
@@ -1248,6 +1305,14 @@ function updateDebugMeta(meta, auditStatus = null) {
   }
 }
 
+// 긴 경고 텍스트를 요약+펼치기 형태로 축약 (maxLen 초과 시 <details> 사용)
+function _compact(text, maxLen = 120) {
+  if (!text || text.length <= maxLen) return text ?? '';
+  const preview = text.slice(0, maxLen);
+  const rest = text.slice(maxLen);
+  return `${preview}<details><summary>…더 보기</summary>${rest}</details>`;
+}
+
 function _startAuditPolling(episodeNum) {
   if (_auditPollTimer) clearInterval(_auditPollTimer);
   _auditCurrentEpisode = episodeNum;
@@ -1274,7 +1339,11 @@ function _clearDebugPanels() {
   const empty = id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; };
   const hide  = id => { const el = document.getElementById(id); if (el) el.hidden = true; };
   const pending = '<div style="color:var(--text4);font-style:italic;padding:.4rem 0;">⏳ 생성 완료 후 표시</div>';
-  empty('eqBasicInfo');
+  const basicEl = document.getElementById('eqBasicInfo');
+  if (basicEl) basicEl.innerHTML = pending;
+  const ppEl = document.getElementById('eqPostproc');
+  if (ppEl) ppEl.innerHTML = pending;
+  hide('eqPostprocSection');
   const charEl = document.getElementById('eqCharStates');
   if (charEl) charEl.innerHTML = pending;
   empty('eqQualityScores');
@@ -1308,10 +1377,12 @@ function _clearDebugPanels() {
 function _markAuditPending(traceId) {
   const el = document.getElementById('eqAuditStatus');
   if (!el) return;
-  el.textContent = traceId
-    ? `⏳ 현재 화 분석 중… (${traceId.slice(0,8)})`
-    : '⏳ 분석 대기 중…';
-  el.style.color = 'var(--text3)';
+  if (traceId) {
+    el.textContent = `⏳ 현재 화 분석 중… (${traceId.slice(0,8)})`;
+    el.style.color = 'var(--text3)';
+  } else {
+    el.textContent = '';
+  }
 }
 
 function updateDebugCharStates(charStates) {
@@ -1564,7 +1635,7 @@ async function captureEpisode(withChars = false) {
               if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
               if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
               if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-              return { label:'일반', color:'#5a9a6a' };
+              return null;
             };
             // hover card도 동일 카테고리 매핑 사용 (QLABEL_CAP 기반)
             const _CAP_DESC = {

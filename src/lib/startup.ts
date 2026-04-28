@@ -1,6 +1,7 @@
 import { pool } from "./db.js";
 import { redis } from "./redis.js";
 import { runMigrateV2 } from "../db/migrate_v2.js";
+import { runMigrateV8 } from "../db/migrate_v8.js";
 import { logInfo, logWarn, logError } from "./logger.js";
 import { writeFileSync, readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
@@ -129,6 +130,7 @@ export async function runStartup(): Promise<void> {
   const [db, redisOk, ollama] = await Promise.all([checkDb(), checkRedis(), checkOllama()]);
   if (db) {
     try { await runMigrateV2(); } catch (e) { logWarn("startup", "V2 마이그레이션 실패 — 무시하고 계속", { error: String(e) }); }
+    try { await runMigrateV8(); } catch (e) { logWarn("startup", "V8 마이그레이션 실패 — 무시하고 계속", { error: String(e) }); }
   }
   const status = {
     pipeline_status: db && redisOk ? "ready" : "degraded",

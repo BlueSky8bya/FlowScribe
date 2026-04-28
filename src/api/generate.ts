@@ -11,6 +11,7 @@ import { buildEffectiveContext } from "../services/effective_context.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { enterGeneration, exitGeneration } from "../lib/generation_guard.js";
+import { generateAndSaveItemDescriptions } from "../services/item_desc.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import jwt from "jsonwebtoken";
 
@@ -178,7 +179,27 @@ generateRouter.get("/", async (req: Request, res: Response) => {
 
       clearInterval(heartbeat);
       const _epNum = (ctx as any).episode_number ?? episode;
-      const _rf = (ctx.gen_config as any)?.resolved_final_episode ?? (ctx.gen_config as any)?.totalEpisodes ?? null;
+      // resolved_final_episode: Redis 저장값 사용, 범위 벗어난 경우에만 재샘플링 후 Redis 갱신
+      const _gc = ctx.gen_config as any;
+      let _rf: number | null = _gc?.resolved_final_episode ?? _gc?.totalEpisodes ?? null;
+      if (_rf != null && _gc?.totalEpisodes != null) {
+        const _var = (_gc.totalEpisodesVar ?? 0) as number;
+        const _min = (_gc.totalEpisodes as number) - _var;
+        const _max = (_gc.totalEpisodes as number) + _var;
+        if (_rf < _min || _rf > _max) {
+          const delta = _var > 0 ? Math.round((Math.random() * 2 - 1) * _var) : 0;
+          _rf = (_gc.totalEpisodes as number) + delta;
+          try {
+            const raw = await redis.get(`context:${bookId}`);
+            if (raw) {
+              const cached = JSON.parse(raw);
+              const sc = cached?.story_config ?? cached?.gen_config;
+              if (sc) sc.resolved_final_episode = _rf;
+              await redis.set(`context:${bookId}`, JSON.stringify(cached), "EX", 60 * 60 * 24 * 7);
+            }
+          } catch { /* Redis 업데이트 실패 무시 */ }
+        }
+      }
       const _arcRatio = (_rf && _rf > 0) ? _epNum / _rf : null;
       const _freshRole = (_epNum && _rf && _rf > 0)
         ? (_epNum >= _rf ? "final" : _rf - _epNum <= 1 ? "pre-final" : _rf - _epNum <= 5 ? "late"
@@ -199,6 +220,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
             episodeLength:    (ctx.gen_config as any).episodeLength,
             episodeLengthVar: (ctx.gen_config as any).episodeLengthVar,
             totalEpisodes:    (ctx.gen_config as any).totalEpisodes,
+            totalEpisodesVar: (ctx.gen_config as any).totalEpisodesVar,
             pov:              (ctx.gen_config as any).pov,
             style:            (ctx.gen_config as any).style,
           } : null,
@@ -506,8 +528,16 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       for (const ci of fallbackItems) {
         if (ci.name && ci.grade) canonicalItemGradeMap[ci.name] = ci.grade;
       }
+      const canonicalItemMap: Record<string, any> = {};
+      for (const ci of fallbackItems) { if (ci.name) canonicalItemMap[ci.name] = ci; }
       const mergedItems = dynItems.length > 0
-        ? dynItems.map((it: any) => (!it.grade && canonicalItemGradeMap[it.name]) ? { ...it, grade: canonicalItemGradeMap[it.name] } : it)
+        ? dynItems.map((it: any) => {
+            const ci = canonicalItemMap[it.name];
+            let merged = it;
+            if (!merged.grade && ci?.grade) merged = { ...merged, grade: ci.grade };
+            if (!merged.description && ci?.description) merged = { ...merged, description: ci.description };
+            return merged;
+          })
         : fallbackItems;
       return {
         character_name:  s.character_name,
@@ -552,10 +582,78 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       });
     }
 
+    // string 아이템을 object로 정규화 (description 검사 통일)
+    for (const s of charStates) {
+      s.items = (s.items ?? []).map((it: any) =>
+        typeof it === "string" ? { name: it } : it
+      );
+    }
+
+    // description 없는 아이템 → LLM 설명 동기 생성 후 charStates에 반영 (응답 전 완료)
+    let anyMissing = false;
+    for (const s of charStates) {
+      const allItems: any[] = s.items ?? [];
+      const missing = allItems.filter((it: any) => it.name && !it.description);
+      if (!missing.length) continue;
+      anyMissing = true;
+      const canonical = canonicalMap[s.character_name];
+      const wbInfo = wbDefs[s.character_name];
+      const personality = typeof wbInfo === "object" ? (wbInfo?.personality ?? wbInfo?.description ?? "") : (typeof wbInfo === "string" ? wbInfo : "");
+      await generateAndSaveItemDescriptions({
+        book_id: bookId,
+        char_name: s.character_name,
+        char_personality: personality.slice(0, 100),
+        char_type: canonical?.type ?? "",
+        char_gender: canonical?.gender ?? "",
+        items_without_desc: missing.map((it: any) => ({ name: it.name, grade: it.grade ?? null, condition: it.condition ?? null })),
+      }).catch(() => {});
+    }
+    // 설명이 새로 생성됐으면 DB에서 다시 읽어 응답에 반영
+    if (anyMissing) {
+      const refreshed = await pool.query(
+        `SELECT name, initial_items FROM canonical_characters WHERE book_id=$1`,
+        [bookId]
+      ).catch(() => ({ rows: [] as any[] }));
+      const refreshMap: Record<string, any[]> = {};
+      for (const r of refreshed.rows) {
+        if (Array.isArray(r.initial_items)) refreshMap[r.name] = r.initial_items;
+      }
+      for (const s of charStates) {
+        if (refreshMap[s.character_name]) {
+          const refreshedItems = refreshMap[s.character_name];
+          s.items = s.items.map((it: any) => {
+            if (!it.name || it.description) return it;
+            const found = refreshedItems.find((ri: any) => ri.name === it.name);
+            return found?.description ? { ...it, description: found.description } : it;
+          });
+        }
+      }
+    }
+
     logInfo("api:generate", "char-states 조회", { book_id: bookId, episode, count: charStates.length });
     res.json({ char_states: charStates });
   } catch (err) {
     logError("api:generate", err, { context: "char-states", book_id: bookId });
+    res.status(500).json({ error: String(err) });
+  }
+});
+
+// ── item vocab 조회 (배지 학습용) ────────────────────────────
+generateRouter.get("/item-vocab", async (req: Request, res: Response) => {
+  const bookId = req.query.book_id as string;
+  if (!bookId) { res.status(400).json({ error: "book_id 필수" }); return; }
+  try {
+    const result = await pool.query(
+      `SELECT name, category, badge_label FROM item_vocab WHERE book_id = $1`,
+      [bookId]
+    );
+    const vocab: Record<string, { category: string; badge_label: string }> = {};
+    for (const r of result.rows) {
+      vocab[r.name] = { category: r.category, badge_label: r.badge_label };
+    }
+    res.json({ vocab });
+  } catch (err) {
+    logError("api:generate", err, { context: "item-vocab", book_id: bookId });
     res.status(500).json({ error: String(err) });
   }
 });
@@ -702,6 +800,7 @@ generateRouter.get("/audit-status", async (req: Request, res: Response) => {
         episodeLength:    (ctx.gen_config as any).episodeLength,
         episodeLengthVar: (ctx.gen_config as any).episodeLengthVar,
         totalEpisodes:    (ctx.gen_config as any).totalEpisodes,
+        totalEpisodesVar: (ctx.gen_config as any).totalEpisodesVar,
         pov:              (ctx.gen_config as any).pov,
         style:            (ctx.gen_config as any).style,
       } : null,
