@@ -34,37 +34,23 @@ async function suggestCharacter(btn) {
   btn.classList.add("loading");
 
   suggestQueue.push(async () => {
-    const myName = card.querySelector(".char-name").value.trim();
-    const exclude_names = [...document.querySelectorAll(".char-name")]
-      .map(i => i.value.trim()).filter(n => n && n !== myName);
-    const myPersonality = card.querySelector(".char-personality").value.trim();
-    const exclude_personalities = [...document.querySelectorAll(".char-personality")]
-      .map(t => t.value.trim()).filter(p => p && p !== myPersonality);
-    const myType = card.querySelector(".type-chips .char-chip.selected")?.dataset.val ?? "";
-    const exclude_types = [...document.querySelectorAll(".type-chips .char-chip.selected")]
-      .map(c => c.dataset.val).filter(t => t && t !== myType && t !== "기타");
+    const cards = [...document.querySelectorAll(".char-card")];
+    const cardIdx = cards.indexOf(card);
 
     btn.textContent = "⟳";
     startLoadingOverlay("charLoadingBar", LOADING_MSGS);
 
     try {
-      const res = await fetch("/api/suggest", {
+      const body = _buildWorldSetupBody("character_one", { character_index: cardIdx });
+      const res = await fetch("/api/suggest/world-setup", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          section: "characters",
-          context: getContext(),
-          settings: [...settingVals],
-          moods: [...moodVals],
-          world_rules: ruleEntries.map(e => e.val),
-          exclude_names,
-          exclude_personalities,
-          exclude_types,
-        }),
+        body: JSON.stringify(body),
       });
       const json = await res.json();
-      if (!json.data?.length) throw new Error("empty");
-      const c = json.data[0];
+      const c = json.character;
+      if (!c) throw new Error("empty");
+
       const nameInp = card.querySelector(".char-name");
       const nameLocked = nameInp.readOnly;
       if (!nameLocked) {
@@ -83,6 +69,10 @@ async function suggestCharacter(btn) {
       taEl.value = c.personality || "";
       taEl.style.height = "auto";
       taEl.style.height = taEl.scrollHeight + "px";
+
+      if (c.initial_items?.length && typeof applyItemsToCard === "function") {
+        applyItemsToCard(card, c.initial_items);
+      }
     } catch(e) {
       console.error("[suggest char]", e);
       showToast("인물 생성에 실패했습니다.", "err", 3000);
@@ -504,6 +494,9 @@ function applyWorldSuggestResult(data, locked) {
         if (c.gender) {
           const genderChip = last.querySelector(`.gender-chips .char-chip[data-val="${c.gender}"]`);
           if (genderChip) genderChip.click();
+        }
+        if (c.initial_items?.length && typeof applyItemsToCard === "function") {
+          applyItemsToCard(last, c.initial_items);
         }
       }
     });

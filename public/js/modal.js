@@ -172,9 +172,13 @@ async function saveContext() {
             .filter(n => n.nodeType === 3)
             .map(n => n.textContent.trim())
             .join('')).trim();
-          const gr = t.dataset.grade || null;
           if (!nm) return null;
-          return gr ? { name: nm, grade: gr } : { name: nm };
+          const obj = { name: nm };
+          if (t.dataset.grade)      obj.grade       = t.dataset.grade;
+          if (t.dataset.description) obj.description = t.dataset.description;
+          if (t.dataset.category)   obj.category    = t.dataset.category;
+          if (t.dataset.badgeLabel) obj.badge_label  = t.dataset.badgeLabel;
+          return obj;
         }).filter(Boolean);
 
         characterDefaults[name] = { type, gender, personality, description: personality, initial_items };

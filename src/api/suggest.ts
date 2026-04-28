@@ -1267,6 +1267,7 @@ interface WorldSuggestResponse {
   // target-specific fields
   settingsToAdd?: WorldSuggestSettingItem[];
   moodsToAdd?: WorldSuggestSettingItem[];
+  coherenceNote?: string;
   rulesToAdd?: Array<{ text: string; hard: boolean }>;
   characters?: Array<{
     name: string;
@@ -1337,40 +1338,77 @@ function getWorldSuggestPrompt(req: WorldSuggestRequest): string {
 }`;
 }
 
-function getSettingsSuggestPrompt(req: WorldSuggestRequest): string {
-  const remaining = Math.max(0, req.limits.settingsMax - req.current.settings.length);
-  const moodCtx = req.current.moods.length ? `장르/분위기: ${req.current.moods.join(", ")}` : "";
-  return `당신은 한국 소설 세계관 구성 보조 AI입니다.
+// ── 응집성 검증 ─────────────────────────────────────────────
+const _ERA_KEYWORDS = ['조선', '고려', '삼국', '신라', '백제', '고구려', '현대', '근현대', '중세', '고대', '선사'];
+const _BRIDGE_KEYWORDS = ['대체역사', '시간단층', '시간균열', '평행세계', '기억재현', '타임슬립', '시간여행', '이세계', '포털', '역사시뮬'];
 
-현재 선택된 배경/세계관: ${req.current.settings.join(", ") || "없음"}
-${moodCtx}
-잠긴 항목(절대 포함 금지): ${req.locked.settings.join(", ") || "없음"}
-
-추가 가능한 슬롯: ${remaining}개
-기존 UI에 없는 참신한 배경/세계관 키워드를 최대 ${remaining}개 추천해 주세요.
-이미 선택된 항목, 잠긴 항목은 절대 포함하지 마세요.
-키워드는 짧고 구체적으로 (2~8자), 장르에 어울리는 독창적 배경이어야 합니다.
-
-반드시 아래 JSON 형식으로만 응답:
-{"settingsToAdd": [{"label": "키워드", "source": "custom"}]}`;
+function detectEraConflict(labels: string[], coherenceNote: string): boolean {
+  const eraHits = _ERA_KEYWORDS.filter(era => labels.some(l => l.includes(era)));
+  if (eraHits.length < 2) return false;
+  const fullText = [...labels, coherenceNote].join(" ").replace(/\s/g, "");
+  return !_BRIDGE_KEYWORDS.some(b => fullText.includes(b.replace(/\s/g, "")));
 }
 
-function getMoodsSuggestPrompt(req: WorldSuggestRequest): string {
-  const remaining = Math.max(0, req.limits.moodsMax - req.current.moods.length);
-  const settingCtx = req.current.settings.length ? `배경/세계관: ${req.current.settings.join(", ")}` : "";
+const COHERENCE_RETRY_SUFFIX = `
+
+[중요 재지시] 이전 응답에 서로 다른 시대/배경이 bridge 없이 섞여 있습니다.
+반드시 다음 원칙을 지키세요:
+- 추천 항목들은 한 편의 이야기 안에 동시에 존재할 수 있어야 합니다.
+- 서로 다른 역사 시대를 추천할 경우 coherenceNote에 반드시 연결 장치(대체역사/시간단층/평행세계 등)를 명시하세요.
+- '조선시대', '고려시대', '현대 대한민국'처럼 무관한 시대를 병렬 추천하는 것은 절대 금지입니다.
+- 하나의 독창적인 세계관 콘셉트를 먼저 정하고, 그 콘셉트 안에서 어울리는 키워드만 추천하세요.`;
+
+function getSettingsSuggestPrompt(req: WorldSuggestRequest, retrySuffix = ""): string {
+  const remaining = Math.max(0, req.limits.settingsMax - req.current.settings.length);
+  const moodCtx = req.current.moods.length ? `장르/분위기: ${req.current.moods.join(", ")}` : "";
+  const lockedAnchor = req.locked.settings.length
+    ? `잠긴 항목(강한 anchor — 이 항목과 반드시 어울리는 것만 추천): ${req.locked.settings.join(", ")}`
+    : "";
+  const selectedAnchor = req.current.settings.length
+    ? `이미 선택된 항목(이 항목을 중심축으로 삼으세요): ${req.current.settings.join(", ")}`
+    : "";
   return `당신은 한국 소설 세계관 구성 보조 AI입니다.
 
-현재 선택된 장르/분위기: ${req.current.moods.join(", ") || "없음"}
-${settingCtx}
-잠긴 항목(절대 포함 금지): ${req.locked.moods.join(", ") || "없음"}
-
+${selectedAnchor}
+${lockedAnchor}
+${moodCtx}
 추가 가능한 슬롯: ${remaining}개
-기존 UI에 없는 참신한 장르/분위기 키워드를 최대 ${remaining}개 추천해 주세요.
-이미 선택된 항목, 잠긴 항목은 절대 포함하지 마세요.
-키워드는 짧고 구체적으로 (2~8자), 배경/세계관과 시너지 나는 분위기여야 합니다.
 
-반드시 아래 JSON 형식으로만 응답:
-{"moodsToAdd": [{"label": "키워드", "source": "custom"}]}`;
+원칙 (반드시 준수):
+- 서로 독립적인 배경 후보를 나열하지 마세요. 하나의 작품 안에 함께 들어갈 수 있는 조합만 추천하세요.
+- 먼저 하나의 통합 세계관 콘셉트를 정하고, 그 콘셉트에서 어울리는 키워드만 추천하세요.
+- 시대가 섞일 경우(예: 조선시대 + 현대) 반드시 시간 단층, 대체역사, 평행세계 같은 연결 장치를 coherenceNote에 명시하세요.
+- 이미 선택된 항목과 잠긴 항목은 절대 포함하지 마세요.
+- 키워드는 짧고 구체적으로 (2~8자), 기존 UI 목록에 없는 독창적 배경이어야 합니다.
+
+반드시 아래 JSON 형식으로만 응답 (coherenceNote 필수):
+{"coherenceNote": "추천 조합의 세계관 콘셉트 한 문장", "settingsToAdd": [{"label": "키워드", "source": "custom"}]}${retrySuffix}`;
+}
+
+function getMoodsSuggestPrompt(req: WorldSuggestRequest, retrySuffix = ""): string {
+  const remaining = Math.max(0, req.limits.moodsMax - req.current.moods.length);
+  const settingCtx = req.current.settings.length ? `배경/세계관: ${req.current.settings.join(", ")}` : "";
+  const lockedAnchor = req.locked.moods.length
+    ? `잠긴 항목(강한 anchor): ${req.locked.moods.join(", ")}`
+    : "";
+  const selectedAnchor = req.current.moods.length
+    ? `이미 선택된 항목(중심축으로 삼으세요): ${req.current.moods.join(", ")}`
+    : "";
+  return `당신은 한국 소설 세계관 구성 보조 AI입니다.
+
+${selectedAnchor}
+${lockedAnchor}
+${settingCtx}
+추가 가능한 슬롯: ${remaining}개
+
+원칙 (반드시 준수):
+- 서로 독립적인 장르를 나열하지 마세요. 하나의 작품 분위기 안에서 공존할 수 있는 조합만 추천하세요.
+- 먼저 하나의 통합 분위기 콘셉트를 정하고, 그 콘셉트와 어울리는 장르만 추천하세요.
+- 이미 선택된 항목과 잠긴 항목은 절대 포함하지 마세요.
+- 키워드는 짧고 구체적으로 (2~8자), 배경/세계관과 시너지 나는 분위기여야 합니다.
+
+반드시 아래 JSON 형식으로만 응답 (coherenceNote 필수):
+{"coherenceNote": "추천 분위기 조합의 콘셉트 한 문장", "moodsToAdd": [{"label": "키워드", "source": "custom"}]}${retrySuffix}`;
 }
 
 function getRulesSuggestPrompt(req: WorldSuggestRequest): string {
@@ -1479,10 +1517,10 @@ function getDirectionPrompt(req: WorldSuggestRequest): string {
 {"direction": {"conflict": 7, "foreshadow": 5, "emotion": 7, "dialogue": 5, "direction": 7}}`;
 }
 
-function getSuggestPromptByTarget(req: WorldSuggestRequest): string {
+function getSuggestPromptByTarget(req: WorldSuggestRequest, retrySuffix = ""): string {
   switch (req.target) {
-    case "settings":       return getSettingsSuggestPrompt(req);
-    case "moods":          return getMoodsSuggestPrompt(req);
+    case "settings":       return getSettingsSuggestPrompt(req, retrySuffix);
+    case "moods":          return getMoodsSuggestPrompt(req, retrySuffix);
     case "rules":          return getRulesSuggestPrompt(req);
     case "characters_all": return getCharactersAllPrompt(req);
     case "character_one":  return getCharacterOnePrompt(req);
@@ -1601,7 +1639,8 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
         .filter(s => s.label && !isLockedVariant(s.label, lockedSettingSet) && !req.current.settings.includes(s.label))
         .slice(0, remaining)
         .map(s => ({ label: s.label, source: "custom" as const, locked: false }));
-      return { ...base, settingsToAdd: toAdd };
+      const coherenceNote: string = (parsed.coherenceNote as string) ?? "";
+      return { ...base, settingsToAdd: toAdd, coherenceNote };
     }
     case "moods": {
       const remaining = Math.max(0, req.limits.moodsMax - req.current.moods.length);
@@ -1609,7 +1648,8 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
         .filter(m => m.label && !isLockedVariant(m.label, lockedMoodSet) && !req.current.moods.includes(m.label))
         .slice(0, remaining)
         .map(m => ({ label: m.label, source: "custom" as const, locked: false }));
-      return { ...base, moodsToAdd: toAdd };
+      const coherenceNote: string = (parsed.coherenceNote as string) ?? "";
+      return { ...base, moodsToAdd: toAdd, coherenceNote };
     }
     case "rules": {
       const rules: Array<{ text: string; hard: boolean }> = ((parsed.rulesToAdd ?? []) as any[])
@@ -1665,9 +1705,30 @@ suggestRouter.post("/world-setup", async (req: Request, res: Response) => {
     const prompt = getSuggestPromptByTarget(reqWithTarget);
     const raw = await callWorldSuggest(prompt);
 
-    const result = target === "world_setup"
+    let result = target === "world_setup"
       ? parseAndProtect(raw, reqWithTarget)
       : parseResponseByTarget(raw, reqWithTarget);
+
+    // Coherence retry for settings/moods
+    if (target === "settings" || target === "moods") {
+      const labels = (target === "settings"
+        ? result.settingsToAdd ?? []
+        : result.moodsToAdd ?? []).map(s => s.label);
+      const note = result.coherenceNote ?? "";
+      if (detectEraConflict(labels, note)) {
+        logWarn("api:suggest", "응집성 충돌 감지 — 1회 retry", { target, labels });
+        const retryRaw = await callWorldSuggest(getSuggestPromptByTarget(reqWithTarget, COHERENCE_RETRY_SUFFIX));
+        const retryResult = parseResponseByTarget(retryRaw, reqWithTarget);
+        const retryLabels = (target === "settings"
+          ? retryResult.settingsToAdd ?? []
+          : retryResult.moodsToAdd ?? []).map(s => s.label);
+        if (!detectEraConflict(retryLabels, retryResult.coherenceNote ?? "")) {
+          result = retryResult;
+        } else {
+          result = { ...result, notes: [...(result.notes ?? []), "coherence_warning"] };
+        }
+      }
+    }
 
     const provider = process.env.GEMINI_API_KEY ? "gemini" : "local";
     logInfo("api:suggest", "world-setup 완료", { target, provider });

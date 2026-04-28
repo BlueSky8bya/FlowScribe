@@ -150,7 +150,24 @@ function appendCharCard(container, i, p) {
           <div class="char-items-tag-wrap" id="charItemsWrap-${i}">
             ${(()=>{
               const _gMap={S:'#d4a000',A:'#9b5de0',B:'#3b82c8',C:'#2e8a55',D:'#888'};
-              // p.initialItems: string ("S:검,낡은 열쇠") 또는 [{name,grade?}] 배열 모두 허용
+              // 구조화 배열 ({name, grade?, description?, category?, badge_label?})
+              if (Array.isArray(p.initialItems) && p.initialItems.length && typeof p.initialItems[0] === 'object') {
+                return p.initialItems.map(it => {
+                  const nm = it.name || ''; if (!nm) return '';
+                  const gr = it.grade || null;
+                  const gc = gr ? _gMap[gr] : null;
+                  const gBadge = gc ? `<span style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>` : '';
+                  const da = [
+                    `data-item-name="${esc(nm)}"`,
+                    gr ? `data-grade="${gr}"` : '',
+                    it.description ? `data-description="${esc(it.description)}"` : '',
+                    it.category   ? `data-category="${esc(it.category)}"` : '',
+                    it.badge_label ? `data-badge-label="${esc(it.badge_label)}"` : '',
+                  ].filter(Boolean).join(' ');
+                  return `<span class="tag char-item-tag" ${da}>${gBadge}${esc(nm)}<span class="tag-del">×</span></span>`;
+                }).join('');
+              }
+              // 레거시 string 형식
               const _rawStr = Array.isArray(p.initialItems)
                 ? p.initialItems.map(it=>typeof it==='object'?(it.grade?`${it.grade}:${it.name}`:it.name):String(it)).join(',')
                 : (p.initialItems||'');
@@ -297,15 +314,46 @@ function renderCharCards() {
       genderCustom: c.querySelector(".gender-inp")?.value || "",
       initialItems: Array.from(c.querySelectorAll(".char-item-tag")).map(t => {
         const nm = (t.dataset.itemName || Array.from(t.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')).trim();
-        const gr = t.dataset.grade;
-        return nm ? (gr ? `${gr}:${nm}` : nm) : null;
-      }).filter(Boolean).join("\n"),
+        if (!nm) return null;
+        const obj = { name: nm };
+        if (t.dataset.grade)      obj.grade      = t.dataset.grade;
+        if (t.dataset.description) obj.description = t.dataset.description;
+        if (t.dataset.category)   obj.category   = t.dataset.category;
+        if (t.dataset.badgeLabel) obj.badge_label = t.dataset.badgeLabel;
+        return obj;
+      }).filter(Boolean),
     });
   });
   container.innerHTML = "";
   for (let i = 0; i < charCount; i++) {
     appendCharCard(container, i, saved[i] || { type:"인간", gender:"해당없음" });
   }
+}
+
+// AI 추천 소지품을 카드에 적용 (structured item array 지원)
+function applyItemsToCard(card, items) {
+  if (!items || !items.length) return;
+  const wrap = card.querySelector(".char-items-tag-wrap");
+  const inp  = card.querySelector(".char-items-input");
+  if (!wrap || !inp) return;
+  const GRADE_COLOR_MAP = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
+  items.forEach(item => {
+    const nm = typeof item === "string" ? item : (item.name || "");
+    if (!nm) return;
+    const grade = typeof item === "object" ? (item.grade || null) : null;
+    const tag = document.createElement("span");
+    tag.className = "tag char-item-tag";
+    tag.dataset.itemName = nm;
+    if (grade) tag.dataset.grade = grade;
+    if (item.description) tag.dataset.description = item.description;
+    if (item.category)    tag.dataset.category    = item.category;
+    if (item.badge_label) tag.dataset.badgeLabel  = item.badge_label;
+    const gc = grade ? GRADE_COLOR_MAP[grade] : null;
+    const gBadge = gc ? `<span style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${grade}</span>` : '';
+    tag.innerHTML = `${gBadge}${esc(nm)}<span class="tag-del">×</span>`;
+    tag.querySelector(".tag-del").addEventListener("click", () => tag.remove());
+    wrap.insertBefore(tag, inp);
+  });
 }
 
 function changeCharCount(d) {

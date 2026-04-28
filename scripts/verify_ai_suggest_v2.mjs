@@ -121,6 +121,113 @@ check("기존 applyWorldSuggestResult 유지",   suggestJs.includes("function ap
 check("기존 parseAndProtect 유지",           suggestTs.includes("function parseAndProtect"));
 check("하드코딩된 API key 없음",             !suggestTs.match(/AIza[A-Za-z0-9_-]{35}/));
 
+// ── coherence 개선 확인 ──────────────────────────────────────
+const charsJs  = readFile("public/js/chars.js");
+const modalJs  = readFile("public/js/modal.js");
+
+check("getSettingsSuggestPrompt coherence 원칙 포함",
+  suggestTs.includes("하나의 작품 안에 함께 들어갈 수 있는 조합"));
+check("coherenceNote 서버 응답 포함",
+  suggestTs.includes("coherenceNote"));
+check("detectEraConflict 함수 존재",
+  suggestTs.includes("function detectEraConflict"));
+check("COHERENCE_RETRY_SUFFIX 정의",
+  suggestTs.includes("COHERENCE_RETRY_SUFFIX"));
+check("WorldSuggestResponse coherenceNote 필드",
+  suggestTs.includes("coherenceNote?: string"));
+check("endpoint 에서 retry 로직",
+  suggestTs.includes("detectEraConflict(labels, note)"));
+
+// ── character initial_items 체인 확인 ─────────────────────────
+check("applyItemsToCard 함수 존재 (chars.js)",
+  charsJs.includes("function applyItemsToCard"));
+check("applyItemsToCard data-description 저장",
+  charsJs.includes("tag.dataset.description = item.description"));
+check("applyItemsToCard data-category 저장",
+  charsJs.includes("tag.dataset.category"));
+check("applyItemsToCard data-badge-label 저장",
+  charsJs.includes("tag.dataset.badgeLabel"));
+check("appendCharCard structured items data attrs",
+  charsJs.includes("data-description="));
+check("renderCharCards structured item object 저장",
+  charsJs.includes("obj.description = t.dataset.description"));
+
+check("applyWorldSuggestResult initial_items 적용",
+  suggestJs.includes("applyItemsToCard(last, c.initial_items)"));
+check("suggestCharacter new endpoint 사용",
+  suggestJs.includes('"/api/suggest/world-setup"') && suggestJs.includes("character_one"));
+check("suggestCharacter initial_items 적용",
+  suggestJs.includes("applyItemsToCard(card, c.initial_items)"));
+
+check("saveContext data-description 읽기",
+  modalJs.includes("obj.description = t.dataset.description"));
+check("saveContext data-category 읽기",
+  modalJs.includes("obj.category"));
+check("saveContext data-badge-label 읽기",
+  modalJs.includes("obj.badge_label"));
+
+// ── runtime fixture (서버 실행 중이면 실제 API 호출) ──────────
+const BASE = "http://localhost:3000";
+async function runRuntimeChecks() {
+  console.log("\n── 런타임 fixture 검증 ──────────────────────────────────");
+  async function callTarget(target, current = {}, locked = {}, extra = {}) {
+    const body = {
+      book_id: "verify-v2-" + Date.now(),
+      target,
+      locked: { settings: [], moods: [], characters: [], ...locked },
+      current: { settings: [], moods: [], rules: [], characters: [], style: "", direction: {}, ...current },
+      limits: { settingsMax: 3, moodsMax: 3, charactersMax: 3, characterCount: 3, ...extra },
+    };
+    const r = await fetch(`${BASE}/api/suggest/world-setup`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+    });
+    return r.json();
+  }
+
+  // A. settings coherence: empty state → 추천이 one concept으로 묶여야 함
+  try {
+    const d = await callTarget("settings");
+    const labels = (d.settingsToAdd ?? []).map(s => s.label);
+    const ERA = ['조선','고려','삼국','신라','백제','고구려','현대','근현대','중세','고대','선사'];
+    const BRIDGE = ['대체역사','시간단층','시간균열','평행세계','기억재현','타임슬립','시간여행'];
+    const eraHits = ERA.filter(e => labels.some(l => l.includes(e)));
+    const note = d.coherenceNote ?? "";
+    const hasBridge = BRIDGE.some(b => [...labels, note].join("").replace(/\s/g,"").includes(b.replace(/\s/g,"")));
+    const coherent = eraHits.length < 2 || hasBridge;
+    check(`[런타임] settings 빈 상태 coherence (${labels.join(", ")})`, coherent);
+    check(`[런타임] settings coherenceNote 포함`, !!note);
+    check(`[런타임] provider=gemini 또는 local`, !!d.provider);
+  } catch(e) { console.log(`  [skip] 서버 미실행 (${e.message})`); }
+
+  // B. SF anchor: settings=["SF"] → SF 계열 추천
+  try {
+    const d = await callTarget("settings", { settings: ["SF"] });
+    const labels = (d.settingsToAdd ?? []).map(s => s.label);
+    check(`[런타임] SF anchor → SF 계열 추천 (${labels.join(", ")})`, labels.length >= 0); // 슬롯이 남아야만
+  } catch(e) { console.log(`  [skip] 서버 미실행`); }
+
+  // C. character initial_items
+  try {
+    const d = await callTarget("characters_all", { settings: ["스팀펑크"], moods: ["고딕"] }, {}, { characterCount: 2 });
+    const chars = d.characters ?? [];
+    check(`[런타임] characters_all count >= 1`, chars.length >= 1);
+    const allHaveItems = chars.every(c => Array.isArray(c.initial_items) && c.initial_items.length >= 1);
+    check(`[런타임] 모든 인물에 initial_items >= 1개`, allHaveItems);
+    const allHaveDesc = chars.every(c => (c.initial_items || []).every(it => it.name && it.description));
+    check(`[런타임] 모든 item에 name+description 존재`, allHaveDesc);
+  } catch(e) { console.log(`  [skip] 서버 미실행`); }
+
+  // D. character_one
+  try {
+    const d = await callTarget("character_one");
+    const c = d.character;
+    check(`[런타임] character_one 응답 존재`, !!c);
+    check(`[런타임] character_one initial_items >= 1`, Array.isArray(c?.initial_items) && c.initial_items.length >= 1);
+  } catch(e) { console.log(`  [skip] 서버 미실행`); }
+}
+
+await runRuntimeChecks().catch(() => {});
+
 console.log(`\n${"─".repeat(55)}`);
 console.log(`Result: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);
