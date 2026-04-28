@@ -461,6 +461,7 @@ async function initBooks() {
   }
 
   renderBookList(books, books[0].id);
+  showBookListToggle(books.length > 0);   // selectBook 성공 여부와 무관하게 즉시 표시
   await selectBook(books[0]);
 }
 
@@ -487,6 +488,7 @@ async function createNewBook(title) {
   const { books } = await listRes.json();
   _allBooks = books;
   renderBookList(books, book.id);
+  showBookListToggle(books.length > 0);
   await selectBook(book);
 }
 
@@ -649,14 +651,21 @@ async function deleteBook(b) {
   showToast(`"${b.title}" 삭제됨`, "warn", 2500);
 }
 
-// ── 책 목록 토글 가시성 (book count 기준) ─────────────────
-function updateBookListToggleVisibility() {
+// ── 책 목록 토글 가시성 ────────────────────────────────────
+// force=true 이면 무조건 표시. 아니면 _allBooks 또는 DOM 기준.
+function showBookListToggle(force) {
   const toggle = document.getElementById("bookListToggle");
+  const wrap   = document.getElementById("bookListWrap");
   if (!toggle) return;
-  const list = document.getElementById("bookList");
-  const hasBooks = list ? list.querySelectorAll(".book-item").length > 0 : false;
+  const hasBooks = force === true
+    || (Array.isArray(window._allBooks) && window._allBooks.length > 0)
+    || (document.getElementById("bookList")?.querySelectorAll(".book-item").length > 0);
   toggle.style.display = hasBooks ? "flex" : "none";
+  toggle.hidden = false;
+  if (wrap) wrap.hidden = false;
 }
+// 하위 호환 alias
+function updateBookListToggleVisibility() { showBookListToggle(); }
 
 // ── 이야기 진행 UI 초기화 (book list는 건드리지 않음) ──────
 function clearStoryProgressUI() {
@@ -779,7 +788,7 @@ function renderBookList(books, activeId) {
     };
     list.appendChild(item);
   });
-  updateBookListToggleVisibility();
+  showBookListToggle(userBooks.length > 0);
 }
 
 // ── 에피소드 목록 사이드바 ─────────────────────────────────
