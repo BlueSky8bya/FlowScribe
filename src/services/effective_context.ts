@@ -28,7 +28,7 @@ import {
 } from "./character_state.js";
 import type {
   EffectiveContext, GenConfig, WorldConfig, AuthorIntervention,
-  EpisodeTask, PrevEpisodeState,
+  EpisodeTask, PrevEpisodeState, ContinuityContract,
 } from "../types/canonical.js";
 
 const DEFAULT_GEN_CONFIG: GenConfig = {
@@ -212,7 +212,7 @@ export async function buildEffectiveContext(opts: {
   let prevEpisodeTail: string | undefined;
   if (prevTailRow.status === "fulfilled") {
     const content: string = (prevTailRow.value as any).rows[0]?.content ?? "";
-    if (content) prevEpisodeTail = content.slice(-300);
+    if (content) prevEpisodeTail = content.slice(-900);
   }
 
   // ── Prev Episode State 조립 ────────────────────────────────────
@@ -239,6 +239,14 @@ export async function buildEffectiveContext(opts: {
     ...opts.overrideTask,
   };
 
+  // ── Continuity Contract (ep >= 2) ─────────────────────────────
+  const foreshadowList: Array<{ id: string; planted_episode: number; content: string; keywords: string[] }> =
+    foreshadows.status === "fulfilled" ? (foreshadows.value as any[]).map(f => ({ id: f.id, planted_episode: f.planted_episode, content: f.content, keywords: f.keywords })) : [];
+
+  const continuityContract: ContinuityContract | undefined = episodeNumber >= 2
+    ? buildContinuityContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail)
+    : undefined;
+
   const ctx: EffectiveContext = {
     episode_number: episodeNumber,
     gen_config: genConfig,
@@ -251,15 +259,14 @@ export async function buildEffectiveContext(opts: {
     character_inferred_states: infStates,
     prev_episode_state: prevState,
     task,
-    foreshadow_memory: foreshadows.status === "fulfilled"
-      ? (foreshadows.value as any[]).map(f => ({ id: f.id, planted_episode: f.planted_episode, content: f.content, keywords: f.keywords }))
-      : [],
+    foreshadow_memory: foreshadowList,
     arc_summaries: arcSummaries.status === "fulfilled"
       ? (arcSummaries.value as any[]).map(a => ({ arc_number: a.arc_number, episode_start: a.episode_start, episode_end: a.episode_end, summary: a.summary }))
       : [],
     character_arcs: characterArcs,
     rolling_summary: rollingSummary,
     prev_episode_tail: prevEpisodeTail,
+    continuity_contract: continuityContract,
     reader_profile: readerProfile.status === "fulfilled" ? readerProfile.value : { focus: 55, sentiment: 55, urgency: 50, complexity: 55, dialogue: 55, audio_sync: 40 },
   };
 
@@ -346,6 +353,82 @@ export function effectiveContextToStoryContext(ctx: EffectiveContext) {
     episodeNumber: ctx.episode_number,
     prevEpisodeTail: ctx.prev_episode_tail,
     userPrompt: buildTaskUserPrompt(ctx),
+  };
+}
+
+/**
+ * buildContinuityContract — ep >= 2 생성 시 직전 화 상태를 구조화된 계약으로 변환.
+ * LLM에게 "이미 알려진 사실"과 "금지된 퇴행"을 명시해 서사 연속성을 강제한다.
+ */
+function buildContinuityContract(
+  episodeNumber: number,
+  dynStates: Array<{ character_name: string; location?: string | null; emotional_state?: string | null; recent_goal?: string | null; items?: any[] | null; physical_state?: string | null }>,
+  characterArcs: Record<string, { state: string; key_events: string[] }>,
+  foreshadows: Array<{ content: string; keywords: string[] }>,
+  prevTail?: string,
+): ContinuityContract {
+  // known_facts: 인물 아크 key_events + recent_goal
+  const known_facts: string[] = [];
+  for (const [name, arc] of Object.entries(characterArcs)) {
+    for (const ev of arc.key_events.slice(-4)) {
+      if (ev.trim()) known_facts.push(`${name}: ${ev}`);
+    }
+  }
+  for (const s of dynStates) {
+    if (s.recent_goal) known_facts.push(`${s.character_name} 현재 목표: ${s.recent_goal}`);
+  }
+
+  // relationship_state: 인물 아크 state 필드
+  const relationship_state: string[] = [];
+  for (const [name, arc] of Object.entries(characterArcs)) {
+    if (arc.state) relationship_state.push(`${name}: ${arc.state}`);
+  }
+
+  // open_threads: 복선 메모리
+  const open_threads: string[] = foreshadows.map(f => f.content).filter(Boolean);
+
+  // forbidden_regressions: 핵심 이벤트에서 자동 파생
+  const forbidden_regressions: string[] = [
+    "이미 만난 인물을 처음 만나는 장면으로 반복하지 말 것.",
+    "이미 발생한 만남·대화·약속·고백을 처음 일어나는 것처럼 다시 처리하지 말 것.",
+    "인물 관계 상태를 직전 화보다 낮은 단계로 되돌리지 말 것.",
+    "직전 화에 등장한 소지품을 근거(획득·상실·파손) 없이 바꾸지 말 것.",
+    "직전 화에서 열린 B플롯을 이번 화에서 완전히 사라지게 하지 말 것.",
+  ];
+  // 관계 단어가 아크에 있으면 더 구체적인 regression 추가
+  for (const [name, arc] of Object.entries(characterArcs)) {
+    if (/돕기로|약속|동맹|신뢰/.test(arc.key_events.join(""))) {
+      forbidden_regressions.push(`${name}와의 협력/신뢰 관계를 직전 화보다 소원한 상태로 되돌리지 말 것.`);
+    }
+    if (/처음 만남|첫 대화|발견/.test(arc.key_events.join(""))) {
+      forbidden_regressions.push(`${name}와의 첫 만남 장면을 이번 화에서 반복하지 말 것.`);
+    }
+  }
+
+  // last_state: prevTail 마지막 2문장 요약 or 동적 상태
+  const lastStateLines: string[] = [];
+  if (prevTail) {
+    const sentences = prevTail.replace(/\s+/g, " ").split(/(?<=[.!?"])\s+/).filter(Boolean);
+    lastStateLines.push(sentences.slice(-3).join(" "));
+  } else {
+    for (const s of dynStates.slice(0, 3)) {
+      const parts = [s.character_name];
+      if (s.location) parts.push(`위치: ${s.location}`);
+      if (s.emotional_state) parts.push(`감정: ${s.emotional_state}`);
+      lastStateLines.push(parts.join(", "));
+    }
+  }
+
+  return {
+    mode: "next_episode",
+    must_continue_from: {
+      episode: episodeNumber - 1,
+      last_state: lastStateLines.join(" / "),
+    },
+    known_facts,
+    relationship_state,
+    open_threads,
+    forbidden_regressions,
   };
 }
 

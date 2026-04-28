@@ -41,6 +41,8 @@ export interface PlannerTrace {
     arc_summaries_count: number;
     character_arcs_count: number;
     has_prev_tail: boolean;
+    has_continuity_contract?: boolean;
+    continuity_known_facts?: number;
     foreshadow_count: number;
     // Arc-phase — planner 7-phase (state_extractor 기준)
     // NOTE: training/types.ts ArcPhase(4종)와 다름 — 혼용 금지. planner_arc_phase로 명시

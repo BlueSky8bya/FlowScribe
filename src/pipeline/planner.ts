@@ -491,6 +491,29 @@ function buildPlannerUserPrompt(
   if (sc.prev_event_summary)
     sections.push(`[직전 화 여파]\n${sc.prev_event_summary}`);
 
+  // ── 연속성 계약 (ep >= 2) — known_facts / forbidden_regressions ──
+  const cc = ctx.continuity_contract;
+  if (cc) {
+    const ccLines: string[] = [
+      `이번 화(${ctx.episode_number}화)는 ${cc.must_continue_from.episode}화의 결과 위에 쌓이는 장면이다.`,
+      cc.must_continue_from.last_state ? `직전 화 마지막 상태: ${cc.must_continue_from.last_state}` : "",
+    ].filter(Boolean);
+
+    if (cc.known_facts.length) {
+      ccLines.push(`[이미 알려진 사실 — 처음 일어난 것처럼 반복 금지]\n${cc.known_facts.map(f => `- ${f}`).join("\n")}`);
+    }
+    if (cc.relationship_state.length) {
+      ccLines.push(`[인물 관계 현황]\n${cc.relationship_state.map(r => `- ${r}`).join("\n")}`);
+    }
+    if (cc.open_threads.length) {
+      ccLines.push(`[열린 플롯 스레드 — 이번 화에서 최소 1~2개 이어야 한다]\n${cc.open_threads.map(t => `- ${t}`).join("\n")}`);
+    }
+    if (cc.forbidden_regressions.length) {
+      ccLines.push(`[금지된 퇴행 — 절대 금지]\n${cc.forbidden_regressions.map(r => `- ${r}`).join("\n")}`);
+    }
+    sections.push(`[연속성 계약 — 절대 준수]\n${ccLines.join("\n")}`);
+  }
+
   if (prevTailText) {
     sections.push(`[직전 화 말미 — 이 장면 직후부터 이번 화가 시작된다]\n${prevTailText}`);
     // ep2+ 연속성 강제: 직전 화 말미가 있으면 반드시 그 장면에서 이어지도록 지시
@@ -546,13 +569,23 @@ function buildPlannerUserPrompt(
     );
   }
 
-  // 직전 화 / 스토리 흐름 기반 반복 방지
+  // 직전 화 / 스토리 흐름 기반 반복 방지 — 재생성(regen)이 아닌 경우 연속성 유지 원칙 적용
   if (prevTailText || storyFlowText) {
-    avoidLines.push(
-      "- [직전 화 말미] 또는 [스토리 흐름]에 이미 등장한 사건·장면 구조·감정 질감을 반복 금지.",
-      "- 이번 화 beat 1은 직전 화 마지막 장면과 완전히 다른 감정적 출발점에서 시작해야 한다.",
-      "- 동일 인물 조합이 동일 장소에서 동일 목적으로 재회하는 구성 금지."
-    );
+    if (regenPrev) {
+      // 재생성: 이전 시도와 다른 방향으로 설계
+      avoidLines.push(
+        "- [직전 화 말미] 또는 [스토리 흐름]에 이미 등장한 사건·장면 구조를 반복 금지.",
+        "- 동일 인물 조합이 동일 장소에서 동일 목적으로 재회하는 구성 금지."
+      );
+    } else {
+      // 다음화 생성: 직전 화 마지막 장면을 이어야 하므로 "감정적 출발점을 달리하라"는 지시 금지
+      // 같은 사건을 반복하는 것은 금지하되, 감정·장소·상황의 연속성은 유지한다
+      avoidLines.push(
+        "- 직전 화에서 이미 일어난 사건(만남·대화·발견·약속)을 처음 일어나는 것처럼 반복 금지.",
+        "- 동일 장소·동일 인물 조합·동일 목적으로 사건이 '원점으로 돌아간 것처럼' 구성하는 것 금지.",
+        "- 단, 직전 화 감정·장소·상황의 연속선 위에서 사건이 전진하는 것은 필수다. 연속성을 깨는 새 출발점 금지."
+      );
+    }
   }
 
   // 1화 재생성 장소 명시 회피 목록

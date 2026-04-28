@@ -213,6 +213,22 @@ export interface EpisodeTask {
 }
 
 // ══════════════════════════════════════════════════════════════
+// E-1. Continuity Contract — 다음 화 연속성 계약
+// ══════════════════════════════════════════════════════════════
+
+export interface ContinuityContract {
+  mode: "next_episode";
+  must_continue_from: {
+    episode: number;
+    last_state: string;
+  };
+  known_facts: string[];
+  relationship_state: string[];
+  open_threads: string[];
+  forbidden_regressions: string[];
+}
+
+// ══════════════════════════════════════════════════════════════
 // E. Effective Context — 생성 직전 조립 결과
 // ══════════════════════════════════════════════════════════════
 
@@ -236,6 +252,8 @@ export interface EffectiveContext {
   prev_episode_tail?: string;
   /** 재생성 시 직전 시도에서 생성된 텍스트 — planner 반복 방지용 */
   regen_prev_text?: string;
+  /** ep >= 2 생성 시 자동 조립되는 연속성 계약 */
+  continuity_contract?: ContinuityContract;
   reader_profile: {
     focus: number; sentiment: number; urgency: number;
     complexity: number; dialogue: number; audio_sync: number;

@@ -160,6 +160,8 @@ export async function runPlannerPipeline(
       arc_summaries_count:   ctx.arc_summaries?.length ?? 0,
       character_arcs_count:  Object.keys(ctx.character_arcs ?? {}).length,
       has_prev_tail:         !!ctx.prev_episode_tail,
+      has_continuity_contract: !!ctx.continuity_contract,
+      continuity_known_facts: ctx.continuity_contract?.known_facts?.length ?? 0,
       foreshadow_count:      ctx.foreshadow_memory?.length ?? 0,
       // Arc-phase (planner 7-phase 기준 — training ArcPhase 4종과 별개)
       planner_arc_phase:     stateConstraints.narrative_contract.arc_phase,
@@ -269,6 +271,49 @@ export async function runPlannerPipeline(
     logWarn("pipeline", "렌더링 오류", { error: String(err) });
   }
   const renderer_elapsed_ms = Date.now() - t_render0;
+
+  // ─── Step 5.25: Continuity Check (ep >= 2) ───────────────────
+  if (ctx.episode_number >= 2 && generatedText && ctx.continuity_contract) {
+    const cc = ctx.continuity_contract;
+    const issues: string[] = [];
+    const text = generatedText;
+
+    // 금지된 퇴행 패턴 탐지 (롤링 기반, 특정 예시 하드코딩 없음)
+    // 1. 직전 화 인물 접촉/약속 key_event가 있는 인물쌍에 대해 "처음 만남" 패턴 감지
+    for (const [name, arc] of Object.entries(ctx.character_arcs ?? {})) {
+      const hasContact = arc.key_events.some(ev => /만남|대화|약속|돕기|신뢰|발견/.test(ev));
+      if (hasContact) {
+        // 본문에 "처음", "낯선", "누구십니까", "처음 보는" 등의 퇴행 패턴이 있으면 WARN
+        if (/처음\s*보|낯선\s*사람|처음 만|누구십니까|처음 뵙/.test(text)) {
+          issues.push(`${name} 관련 이미 발생한 만남·접촉이 다시 처음처럼 표현될 수 있음`);
+        }
+      }
+    }
+
+    // 2. open_threads 중 최소 1개가 본문에 반영됐는지 확인
+    if (cc.open_threads.length >= 2) {
+      const reflected = cc.open_threads.filter(th => {
+        const kw = th.replace(/[^가-힣\w]/g, " ").split(/\s+/).filter(w => w.length >= 2);
+        return kw.some(w => text.includes(w));
+      });
+      if (reflected.length === 0) {
+        issues.push("직전 화에서 열린 플롯 스레드(복선/B플롯)가 이번 화 본문에 전혀 반영되지 않음");
+      }
+    }
+
+    const verdict = issues.length === 0 ? "PASS" : "WARN";
+    logInfo("pipeline:continuity", "연속성 검사", {
+      episode: ctx.episode_number,
+      verdict,
+      issues,
+      known_facts: cc.known_facts.length,
+      open_threads: cc.open_threads.length,
+    });
+    // tracer에 continuity_check 첨부
+    if (tracer) {
+      (tracer as any).continuity_check = { verdict, issues };
+    }
+  }
 
   // ─── Step 5.5: Character State Commit (planner 예측 → DB) ────
   const stateUpdates = scenePlan.character_state_updates ?? [];

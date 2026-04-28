@@ -81,6 +81,22 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
     ? `  규칙: "${plan.world_rule.rule_content}"\n  작동 방식: ${plan.world_rule.scene_usage}`
     : "  없음";
 
+  // 직전 화 연속성 (ep >= 2)
+  const prevTailSection = (ctx.episode_number >= 2 && ctx.prev_episode_tail)
+    ? `\n[직전 화 말미 — 이 장면 직후부터 이번 화가 이어진다]\n${ctx.prev_episode_tail.slice(-500)}\n`
+    : "";
+
+  // 연속성 계약 (ep >= 2)
+  const cc = ctx.continuity_contract;
+  const continuitySection = cc && cc.forbidden_regressions.length
+    ? `\n[연속성 — 퇴행 금지]\n` +
+      cc.forbidden_regressions.map(r => `- ${r}`).join("\n") +
+      (cc.known_facts.length
+        ? `\n[이미 알려진 사실 — 대사·행동에서 인물들이 이미 아는 것으로 처리]\n` +
+          cc.known_facts.slice(0, 8).map(f => `- ${f}`).join("\n")
+        : "") + "\n"
+    : "";
+
   const isFinal = plan.ending_constraint !== "cliff";
 
   // 클리프 전용: 엔딩 훅
@@ -108,7 +124,7 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
 영어는 고유명사·브랜드명에 한해서만 허용되며, 일반 서술에 영어를 사용해서는 안 된다.
 
 당신은 한국 소설 생성 AI다.
-${protagonistDecl ? "\n" + protagonistDecl + "\n" : ""}
+${protagonistDecl ? "\n" + protagonistDecl + "\n" : ""}${prevTailSection}${continuitySection}
 [시점 — 최우선 규칙]
 ${plan.pov_contract}
 
