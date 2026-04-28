@@ -752,19 +752,34 @@ function updateSceneCharPanel(charStates) {
 
         const itemCards = s.items.map((it, idx) => {
           const rawName = typeof it === 'string' ? it : (it.name ?? '');
-          const grade     = typeof it === 'object' ? it.grade       : null;
-          const cond      = typeof it === 'object' ? it.condition   : null;
-          const desc      = typeof it === 'object' ? it.description : null;
+          const grade      = typeof it === 'object' ? it.grade       : null;
+          const cond       = typeof it === 'object' ? it.condition   : null;
+          const desc       = typeof it === 'object' ? it.description : null;
           const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
+          // char-states API가 직접 임베드한 badge_label/category 우선 사용
+          const itemBadgeLabel = typeof it === 'object' ? (it.badge_label ?? null) : null;
+          const itemCategory   = typeof it === 'object' ? (it.category   ?? null) : null;
 
           const { displayName, inferredDesc } = _parseItemName(rawName);
           const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName);
 
           // 비판타지 장르에서는 S/A/B/C/D 뱃지 대신 _qlabel 사용
           const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
+          // item 자체에 badge_label이 있으면 CAT_COLOR 매핑으로 색상 결정, 없으면 _qlabel fallback
+          const _qlabelFromItem = (n) => {
+            if (itemBadgeLabel) {
+              const CAT_COLOR = {
+                무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
+                문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
+                의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 기타:'#888',
+              };
+              return { label: itemBadgeLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
+            }
+            return _qlabel(n);
+          };
           const gradeHtml = (isFantasyGenre && grade)
             ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
-            : _qlabelBadgeHtml(_qlabel(displayName));
+            : _qlabelBadgeHtml(_qlabelFromItem(displayName));
           const bodyRows = [
             cond       ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
             effectiveDesc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${effectiveDesc}</span></div>` : '',

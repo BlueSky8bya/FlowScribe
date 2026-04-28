@@ -57,9 +57,11 @@ async function saveContext() {
   if (unnamedCards.length) {
     unnamedCards.forEach(card => {
       const inp = card.querySelector(".char-name");
-      inp.style.borderColor = "var(--danger-text)";
-      inp.placeholder = "이름을 입력해야 저장할 수 있습니다";
-      inp.focus();
+      if (inp) {
+        inp.style.borderColor = "var(--danger-text)";
+        inp.placeholder = "이름을 입력해야 저장할 수 있습니다";
+        inp.focus();
+      }
     });
     showToast(`이름이 비어 있는 인물 카드가 ${unnamedCards.length}개 있습니다`, "err");
     return;
@@ -72,8 +74,8 @@ async function saveContext() {
     const personality = card.querySelector(".char-personality")?.value?.trim() ?? "";
     let type   = card.dataset.type;
     let gender = card.dataset.gender;
-    if (type   === "기타") type   = card.querySelector(".type-inp").value.trim()   || "기타";
-    if (gender === "기타") gender = card.querySelector(".gender-inp").value.trim() || "기타";
+    if (type   === "기타") type   = card.querySelector(".type-inp")?.value?.trim()   || "기타";
+    if (gender === "기타") gender = card.querySelector(".gender-inp")?.value?.trim() || "기타";
     if (!name) return;
     // 초기 소지품: tag 시스템에서 텍스트 추출 → [{name}] 배열
     const initial_items = Array.from(card.querySelectorAll(".char-item-tag")).map(t => {

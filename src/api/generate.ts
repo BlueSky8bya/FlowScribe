@@ -485,6 +485,22 @@ generateRouter.get("/", async (req: Request, res: Response) => {
   }
 });
 
+// ── 아이템 이름 기반 뱃지 추론 (item_vocab fallback) ────────────
+function _inferItemBadge(name: string): { category: string; badge_label: string } {
+  const n = name;
+  if (/검|칼|도|창|활|총|권총|소총|리볼버|블레이드|단검|장검|병기|도검/u.test(n)) return { category: "무기", badge_label: "무기" };
+  if (/방패|갑옷|헬멧|장갑|부츠|외투|망토|코트|방탄|흉갑/u.test(n)) return { category: "방어구", badge_label: "방어구" };
+  if (/약|포션|붕대|치료|회복|해독|의약|주사기/u.test(n)) return { category: "소모품", badge_label: "소모품" };
+  if (/책|문서|지도|편지|서류|일지|노트|다이어리|수첩/u.test(n)) return { category: "문서", badge_label: "문서" };
+  if (/지팡이|마법|마력|마정석|오브|룬/u.test(n)) return { category: "마법", badge_label: "마법" };
+  if (/무전|통신|라디오|신호|튜너/u.test(n)) return { category: "통신", badge_label: "통신" };
+  if (/컴퓨터|노트북|태블릿|폰|드론|전자|디지털|단말/u.test(n)) return { category: "전자", badge_label: "전자" };
+  if (/옷|의복|가운|드레스|유니폼|군복/u.test(n)) return { category: "의복", badge_label: "의복" };
+  if (/램프|등|조명|횃불|촛불/u.test(n)) return { category: "도구", badge_label: "도구" };
+  if (/종|향로|제기|심령|진혼|성유물|부적/u.test(n)) return { category: "기타", badge_label: "기타" };
+  return { category: "기타", badge_label: "기타" };
+}
+
 // ── 캐릭터 상태 전용 엔드포인트 (에피소드 로드 시 패널 복원용) ──
 generateRouter.get("/char-states", async (req: Request, res: Response) => {
   const bookId = req.query.book_id as string;
@@ -628,6 +644,25 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
           });
         }
       }
+    }
+
+    // item_vocab에서 badge_label/category를 아이템에 직접 임베드 (race condition 방지)
+    const vocabRows = await pool.query(
+      `SELECT name, category, badge_label FROM item_vocab WHERE book_id = $1`,
+      [bookId]
+    ).catch(() => ({ rows: [] as any[] }));
+    const vocabMap: Record<string, { category: string; badge_label: string }> = {};
+    for (const r of vocabRows.rows) {
+      vocabMap[r.name] = { category: r.category, badge_label: r.badge_label };
+    }
+    for (const s of charStates) {
+      s.items = (s.items ?? []).map((it: any) => {
+        if (!it.name || (it.badge_label && it.category)) return it;
+        const v = vocabMap[it.name];
+        if (v) return { ...it, category: v.category, badge_label: v.badge_label };
+        const fb = _inferItemBadge(it.name);
+        return { ...it, category: fb.category, badge_label: fb.badge_label };
+      });
     }
 
     logInfo("api:generate", "char-states 조회", { book_id: bookId, episode, count: charStates.length });
