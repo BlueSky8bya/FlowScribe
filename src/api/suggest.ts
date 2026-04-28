@@ -1218,6 +1218,175 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
   }
 });
 
+// ── /world-setup ─────────────────────────────────────────────
+
+interface WorldSuggestRequest {
+  book_id: string;
+  target: "world_setup";
+  locked: {
+    settings: string[];
+    moods: string[];
+    characters: string[];
+  };
+  current: {
+    settings: string[];
+    moods: string[];
+    rules: string[];
+    characters: Array<{
+      name: string;
+      gender: string;
+      type: string;
+      personality: string;
+      initial_items: Array<{ name: string }>;
+    }>;
+  };
+  limits: {
+    settingsMax: number;
+    moodsMax: number;
+    rulesMax: number;
+    charactersMax: number;
+  };
+}
+
+interface WorldSuggestSettingItem {
+  label: string;
+  source: "existing" | "custom";
+  locked: boolean;
+}
+
+interface WorldSuggestResponse {
+  settings: WorldSuggestSettingItem[];
+  moods: WorldSuggestSettingItem[];
+  rulesToAdd: Array<{ text: string; hard: boolean }>;
+  characters: Array<{
+    name: string;
+    gender: string;
+    type: string;
+    personality: string;
+    initial_items: Array<{ name: string; description: string; category: string; badge_label: string }>;
+  }>;
+  notes: string[];
+}
+
+function getWorldSuggestPrompt(req: WorldSuggestRequest): string {
+  return `당신은 한국 소설 세계관 구성 보조 AI입니다.
+
+현재 세계관 설정:
+- 배경/설정: ${req.current.settings.join(", ") || "없음"} (잠금: ${req.locked.settings.join(", ") || "없음"})
+- 장르/분위기: ${req.current.moods.join(", ") || "없음"} (잠금: ${req.locked.moods.join(", ") || "없음"})
+- 규칙: ${req.current.rules.slice(0, 5).join(" / ") || "없음"}
+- 인물: ${req.current.characters.map(c => c.name).join(", ") || "없음"}
+
+잠금된 항목은 절대 변경하지 마세요:
+- 잠금 배경: ${req.locked.settings.join(", ") || "없음"}
+- 잠금 장르: ${req.locked.moods.join(", ") || "없음"}
+- 잠금 인물: ${req.locked.characters.join(", ") || "없음"}
+
+요청:
+1. settings: 현재 배경 설정에 어울리는 배경/키워드를 최대 ${req.limits.settingsMax}개 제안 (잠금 항목 포함)
+2. moods: 어울리는 장르/분위기 최대 ${req.limits.moodsMax}개 제안 (잠금 항목 포함)
+3. rulesToAdd: 세계관에 추가할 만한 규칙 1~3개 제안 (기존 규칙과 중복되지 않게)
+4. characters: 이야기에 어울리는 인물 1~2명 제안 (잠금 인물 외 새 인물만)
+
+반드시 아래 JSON 형식으로만 응답하세요:
+{
+  "settings": [{"label": "키워드", "source": "existing|custom", "locked": false}],
+  "moods": [{"label": "장르", "source": "existing|custom", "locked": false}],
+  "rulesToAdd": [{"text": "규칙 내용", "hard": false}],
+  "characters": [{"name": "이름", "gender": "남성|여성|중성", "type": "주인공|조연|빌런|기타", "personality": "성격 설명", "initial_items": [{"name": "소지품명", "description": "짧은 설명", "category": "무기|도구|전자|통신|마법|기타", "badge_label": "배지"}]}],
+  "notes": []
+}`;
+}
+
+async function callWorldSuggest(prompt: string): Promise<string> {
+  const geminiKey = process.env.GEMINI_API_KEY;
+
+  if (geminiKey) {
+    const resp = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${geminiKey}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 1200 },
+        }),
+      }
+    );
+    if (!resp.ok) throw new Error(`Gemini API ${resp.status}`);
+    const data = await resp.json() as any;
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+  }
+
+  // Fallback: use existing LLM client
+  const client = getLLMClient();
+  const model = getSuggestModel();
+  const result = await client.chat.completions.create({
+    model,
+    messages: [{ role: "user", content: prompt }],
+    temperature: 0.7,
+    max_tokens: 1200,
+  });
+  return result.choices[0]?.message?.content ?? "";
+}
+
+function parseAndProtect(raw: string, req: WorldSuggestRequest): WorldSuggestResponse {
+  const cleaned = raw.replace(/^```[\w]*\n?/m, "").replace(/```$/m, "").trim();
+
+  let parsed: Partial<WorldSuggestResponse>;
+  try {
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(jsonMatch?.[0] ?? "{}");
+  } catch {
+    return { settings: [], moods: [], rulesToAdd: [], characters: [], notes: ["JSON parse failed"] };
+  }
+
+  const lockedSettingSet = new Set(req.locked.settings);
+  const lockedMoodSet = new Set(req.locked.moods);
+  const lockedCharSet = new Set(req.locked.characters);
+
+  const lockedSettingItems: WorldSuggestSettingItem[] = req.locked.settings.map(l => ({ label: l, source: "existing" as const, locked: true }));
+  const suggestedSettings: WorldSuggestSettingItem[] = ((parsed.settings ?? []) as WorldSuggestSettingItem[])
+    .filter(s => !lockedSettingSet.has(s.label))
+    .map(s => ({ ...s, locked: false }));
+
+  const lockedMoodItems: WorldSuggestSettingItem[] = req.locked.moods.map(l => ({ label: l, source: "existing" as const, locked: true }));
+  const suggestedMoods: WorldSuggestSettingItem[] = ((parsed.moods ?? []) as WorldSuggestSettingItem[])
+    .filter(m => !lockedMoodSet.has(m.label))
+    .map(m => ({ ...m, locked: false }));
+
+  const filteredChars = ((parsed.characters ?? []) as WorldSuggestResponse["characters"])
+    .filter(c => !lockedCharSet.has(c.name));
+
+  return {
+    settings: [...lockedSettingItems, ...suggestedSettings].slice(0, req.limits.settingsMax || 5),
+    moods: [...lockedMoodItems, ...suggestedMoods].slice(0, req.limits.moodsMax || 5),
+    rulesToAdd: ((parsed.rulesToAdd ?? []) as WorldSuggestResponse["rulesToAdd"]).slice(0, 5),
+    characters: filteredChars.slice(0, 3),
+    notes: (parsed.notes ?? []) as string[],
+  };
+}
+
+suggestRouter.post("/world-setup", async (req: Request, res: Response) => {
+  try {
+    const body = req.body as WorldSuggestRequest;
+    if (!body.book_id) {
+      res.status(400).json({ error: "book_id required" });
+      return;
+    }
+
+    logInfo("api:suggest", "world-setup 요청", { book_id: body.book_id, locked: body.locked });
+    const prompt = getWorldSuggestPrompt(body);
+    const raw = await callWorldSuggest(prompt);
+    const result = parseAndProtect(raw, body);
+    logInfo("api:suggest", "world-setup 완료", { settings: result.settings.length, moods: result.moods.length });
+    res.json(result);
+  } catch (err) {
+    logError("api:suggest", err, { section: "world-setup" });
+    res.status(500).json({ error: "suggest failed", details: String(err) });
+  }
+});
+
 suggestRouter.post("/", async (req: Request, res: Response) => {
   const { section } = req.body ?? {};
   if (section !== "characters" && section !== "rules") {

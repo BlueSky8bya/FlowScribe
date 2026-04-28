@@ -6,7 +6,7 @@
   <title>FlowScribe</title>
   <link rel="stylesheet" href="/css/tokens.css" />
   <link rel="stylesheet" href="/css/layout.css" />
-  <link rel="stylesheet" href="/css/components.css?v=29" />
+  <link rel="stylesheet" href="/css/components.css?v=30" />
   <link rel="stylesheet" href="/css/modal.css" />
   <link rel="stylesheet" href="/css/voice.css" />
 </head>
@@ -467,7 +467,7 @@
           <div class="bible-pages">
             <div class="bible-page-left">
               <div class="field" id="sectionFieldI">
-                <div class="section-header" id="sectionHeaderI"><span class="bible-section-num">I</span><div class="section-label">배경 · 세계관<span class="section-label-sub">(최대 3개)</span></div><span class="section-lock-hint" id="lockHintI">2화 생성 후 수정 불가</span><span class="section-lock-badge" id="lockBadgeI">🔒 고정됨</span></div>
+                <div class="section-header" id="sectionHeaderI"><span class="bible-section-num">I</span><div class="section-label">배경 · 세계관<span class="section-label-sub">(최대 3개)</span></div><button class="card-ai-btn" id="aiSuggestBtn" onclick="runWorldSetupSuggest()" type="button">✨ AI 추천</button><span class="section-lock-hint" id="lockHintI">2화 생성 후 수정 불가</span><span class="section-lock-badge" id="lockBadgeI">🔒 고정됨</span></div>
                 <div class="chip-group" id="settingGrid"></div>
                 <div class="custom-inline-wrap" id="settingCustomWrap"><input class="custom-inline-input" id="settingCustomInput" type="text" placeholder="예: 고려 시대, 우주 정거장" /><button class="custom-inline-btn" onclick="confirmCustomChip('setting')">확정 ↵</button></div>
               </div>
@@ -541,10 +541,10 @@
   <script src="/js/calibration.js"></script>
   <script src="/js/auth.js?v=6"></script>
   <script src="/js/ui.js?v=5"></script>
-  <script src="/js/chips.js"></script>
+  <script src="/js/chips.js?v=2"></script>
   <script src="/js/rules.js"></script>
   <script src="/js/chars.js"></script>
-  <script src="/js/suggest.js"></script>
+  <script src="/js/suggest.js?v=2"></script>
   <script src="/js/generate.js?v=39"></script>
   <script src="/js/story-config.js"></script>
   <script src="/js/modal.js?v=10"></script>

@@ -525,3 +525,14 @@ body.mode-tts span.char-name-ref { cursor:help; }
 .scene-char-absent .scene-char-header:hover .scene-char-name{color:inherit!important;}
 /* 성별 표시 */
 .scene-char-gender{flex-shrink:0;}
+
+/* ── 잠금 칩 (AI 세계관 추천) ── */
+.chip.chip-locked {
+  border: 2px solid var(--accent, #7c6af0);
+  opacity: 1;
+}
+.chip-lock-icon {
+  font-size: 0.7em;
+  margin-left: 2px;
+  pointer-events: none;
+}

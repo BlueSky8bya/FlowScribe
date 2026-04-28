@@ -17,6 +17,10 @@ const STYLE_ITEMS = ["간결·담백", "서정·감성", "묘사풍부", "균형
 const settingVals = [];
 const moodVals    = [];
 
+// 잠금 칩 상태 — AI 세계관 추천 시 변경 금지 대상
+const lockedSettings = new Set();
+const lockedMoods    = new Set();
+
 // 서사 설정 상태
 const storyConfig = {
   pov: "3인칭 관찰자",

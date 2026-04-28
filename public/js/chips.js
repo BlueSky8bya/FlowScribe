@@ -32,6 +32,11 @@ function bindChipGroup(gridId, customWrapId, customInputId, arr, max, groupKey) 
       const idx = arr.indexOf(label);
       if (idx > -1) arr.splice(idx, 1);
       if (label === "기타") wrap.classList.remove("show");
+      // 선택 해제 시 잠금도 해제
+      const lockSet = groupKey === "setting" ? lockedSettings : lockedMoods;
+      lockSet.delete(label);
+      chip.classList.remove("chip-locked");
+      chip.querySelector(".chip-lock-icon")?.remove();
     } else {
       if (arr.length >= max) return;
       arr.push(label);
@@ -39,6 +44,28 @@ function bindChipGroup(gridId, customWrapId, customInputId, arr, max, groupKey) 
       if (label === "기타") { wrap.classList.add("show"); inp.focus(); }
     }
     updateDisabled();
+  });
+
+  grid.addEventListener("dblclick", e => {
+    const chip = e.target.closest(".chip");
+    if (!chip || !chip.classList.contains("selected")) return;
+    e.stopPropagation();
+    const label = chip.dataset.label;
+    const lockSet = groupKey === "setting" ? lockedSettings : lockedMoods;
+    if (lockSet.has(label)) {
+      lockSet.delete(label);
+      chip.classList.remove("chip-locked");
+      chip.querySelector(".chip-lock-icon")?.remove();
+    } else {
+      lockSet.add(label);
+      chip.classList.add("chip-locked");
+      if (!chip.querySelector(".chip-lock-icon")) {
+        const icon = document.createElement("span");
+        icon.className = "chip-lock-icon";
+        icon.textContent = " 🔒";
+        chip.appendChild(icon);
+      }
+    }
   });
 
   inp.addEventListener("keydown", e => {
