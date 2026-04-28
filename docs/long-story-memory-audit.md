@@ -258,24 +258,85 @@ node scripts/verify_long_story_memory.mjs --episodes 30 --mode trace --book-id <
 |------|------|------|------|
 | 30화 fixture | `--mode fixture` | ✓ READY (30/30 PASS) | 2026-04-28 |
 | 100화 fixture | `--mode fixture` | ✓ READY (93/100, WARN 7) | 2026-04-28 |
-| 30화 trace | `--mode trace` | 미실행 (서버 실행 후 진행) | — |
+| 30화 actual trace | `run_30ep_trace.mjs` | △ CONDITIONAL PASS (9 PASS / 21 WARN / 0 FAIL) | 2026-04-28 |
 | 50화 fixture | `--mode fixture` | 미실행 (Phase A 완료 후) | — |
 | 50화 trace | `--mode trace` | 미실행 | — |
 
 ---
 
-## 구조적 위험 분석
+## Phase A — 30화 Actual Trace 결과 (2026-04-28)
 
-1. **foreshadow 과다 누적 (100화 이상)**: ep85+ open_thread 13~14개. `checkAndResolveForeshadows`의 키워드 매칭 민감도 향상 또는 주기적 강제 정리 로직 필요.
+**모델**: gemma3:12b (planner/renderer/summary/suggest 전체)  
+**테스트북**: test_fantasy_B (아르넬/세라/크로그/발루르, 전쟁 판타지)  
+**판정**: △ CONDITIONAL PASS
 
-2. **초반 목표 유실 (100화 이상)**: rolling_summary 창 = 최근 10화. arc_summary의 `[주요 사건]` 섹션이 이를 보완하는 구조이나, arc_summary 추상화 붕괴 시 초반 핵심 목표 완전 유실 가능.
+### 핵심 지표
 
-3. **플래너 컨텍스트 크기 (100화 이상)**: continuity_contract(known_facts 15개+) + arc_summary × 10개 동시 주입 가능성. qwen2.5:14b context window 실측 필요.
+| 지표 | 결과 | 기준 | 판정 |
+|------|------|------|------|
+| continuity_pass_rate | 30% (9/30 PASS) | ≥ 90% | △ WARN* |
+| CC presence (ep2+) | 100% (29/29) | 100% | ✓ PASS |
+| arc_coverage_rate | 3/3 (ep10/20/30) | 100% | ✓ PASS |
+| foreshadow_recall_rate | 92% (9 open / 110 resolved) | ≥ 30% | ✓ (수치 신뢰 불가**) |
+| rolling_summary 안정성 | 10화 창 유지, 2330~2798 chars | 800~1600 → 기준 조정 필요*** | △ |
+| finalization_directive | ep30 = true | = true | ✓ PASS |
+| stop_triggered | false | — | ✓ PASS |
+| character_arcs | 0 rows | > 0 | ✗ BUG |
 
-4. **렌더러 시스템 프롬프트 팽창**: ep 90+ 구간에서 prevTailSection + continuitySection + finaleSection 동시 활성화 시 시스템 프롬프트 ~4,000~6,000 tokens 예상. 로컬 14b 모델 허용 범위 확인 필요.
+\* WARN 원인: 전부 `character_arc_count === 0`. CC/rolling_summary/arc_summary 자체는 정상.  
+\** foreshadow resolved=110 is inflated — double POST /api/episodes trigger per episode.  
+\*** gemma3:12b가 화당 ~240 chars summary 생성 → 10화 × 240 = 2400 chars가 정상. fixture 기준(120 chars) 조정 필요.
 
-5. **arc_summary 추상화 붕괴**: 장기 연재에서 LLM이 `[주요 사건]`을 점점 추상적으로 생성할 위험. 구체적 인물명 포함 여부를 audit으로 모니터링 권장.
+### 발견된 버그 / 이슈
+
+#### BUG-1: character_arcs 테이블 미채움 (HIGH)
+- **원인**: `episodes.ts` L100이 `characters` 테이블 조회 (`SELECT DISTINCT name FROM characters`)
+- **실제 상황**: 테스트북 인물은 `canonical_characters`에만 등록됨 → `characterNames=[]` → `charArcs` 비어 있음 → INSERT 안 됨
+- **수정 방향**: `characters` OR `canonical_characters` 중 존재하는 것 사용, 또는 ensureCharacters()에서 두 테이블 모두 채우기
+
+#### BUG-2: foreshadow resolved 과다 누적 (MEDIUM)
+- **원인**: run_30ep_trace.mjs가 에피소드당 POST /api/episodes를 2회 호출 (generate.ts 자동 저장 + 스크립트 명시 호출)
+- **결과**: `extractAndStoreForeshadow`가 에피소드당 2회 실행 → 30화에서 resolved 110개
+- **수정 방향**: 스크립트의 `triggerEpisodePostProcess()` 중복 호출 제거, 또는 POST /api/episodes의 중복 방어
+
+#### WARN-1: 언어 드리프트 (MEDIUM)
+- **현상**: character_dynamic_states에 태국어 인물명 등장 (ครอก, บาลูร์, อาร์เนล)
+- **원인**: gemma3:12b가 한국어 요청에 태국어로 응답하는 간헐적 언어 혼합 현상
+- **영향**: dynamic_states 조회 시 인물명 매칭 실패 가능 → character state drift
+
+#### WARN-2: rolling_summary 임계값 불일치
+- **현상**: fixture 기준(800~1600 chars)에 모두 실패하나, 실제로는 안정적
+- **원인**: fixture 기준은 qwen2.5:14b 120 chars/ep 가정 → gemma3:12b 실측은 240 chars/ep
+- **수정 방향**: threshold를 2000~3000으로 조정 또는 chars 대신 lines 기준 사용
+
+### 정상 확인된 항목
+
+- **continuity_contract**: ep1 이후 100% 존재. known_facts 3→10으로 성장 (최대 10).
+- **rolling_summary 창**: 10화 고정 유지 (ep10+ 전부 lines=10). 누락 없음.
+- **arc_summary 구조**: ep10/20/30 모두 생성. 섹션([주요 사건]/[인물 현재 상태]/[미해결 긴장]) 정상. chars 670~704, key_events 3개씩.
+- **finalization_directive**: ep30 정상 활성화.
+- **arc_phase / episode_role 전환**: intro→early(ep5)→mid(ep11)→late(ep25)→pre-final(ep29)→final(ep30) 정확.
+- **stop conditions**: 30화 동안 발동 없음.
 
 ---
 
-*작성: 2026-04-28, FlowScribe checkpoint/phase1-launch-prep*
+## 구조적 위험 분석
+
+1. **character_arcs 쿼리 테이블 불일치**: `episodes.ts`의 `characters` 테이블 조회가 `canonical_characters`와 불일치. 실제 운영에서도 동일 문제 발생 가능 — 사용자가 인물을 `canonical_characters`에만 등록하는 경우.
+
+2. **foreshadow 과다 누적 (100화 이상)**: ep85+ open_thread 13~14개. `checkAndResolveForeshadows`의 키워드 매칭 민감도 향상 또는 주기적 강제 정리 로직 필요.
+
+3. **초반 목표 유실 (100화 이상)**: rolling_summary 창 = 최근 10화. arc_summary의 `[주요 사건]` 섹션이 이를 보완하는 구조이나, arc_summary 추상화 붕괴 시 초반 핵심 목표 완전 유실 가능.
+
+4. **플래너 컨텍스트 크기 (100화 이상)**: continuity_contract(known_facts 15개+) + arc_summary × 10개 동시 주입 가능성. gemma3:12b context window 실측 필요.
+
+5. **렌더러 시스템 프롬프트 팽창**: ep 90+ 구간에서 prevTailSection + continuitySection + finaleSection 동시 활성화 시 시스템 프롬프트 ~4,000~6,000 tokens 예상. 로컬 12b 모델 허용 범위 확인 필요.
+
+6. **arc_summary 추상화 붕괴**: 장기 연재에서 LLM이 `[주요 사건]`을 점점 추상적으로 생성할 위험. 구체적 인물명 포함 여부를 audit으로 모니터링 권장.
+
+7. **언어 드리프트**: gemma3:12b의 간헐적 태국어 생성. 한국어 강제 프롬프트 강화 또는 언어 검증 후처리 필요.
+
+---
+
+*작성: 2026-04-28, FlowScribe checkpoint/phase1-launch-prep*  
+*Phase A actual trace 결과 추가: 2026-04-28*
