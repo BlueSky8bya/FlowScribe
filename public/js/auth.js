@@ -50,6 +50,15 @@ function clearWorldSettingsUI() {
   applySettingsLock(false);
 }
 
+function _updateSettingsBtnLabel(isLocked) {
+  const sb = document.getElementById("settingsBtn");
+  if (!sb) return;
+  sb.classList.add("active");
+  sb.innerHTML = isLocked
+    ? `세계관 설정 <span class="badge viewer">뷰어모드</span>`
+    : `세계관 설정 <span class="badge">편집모드</span>`;
+}
+
 // ── 컨텍스트 UI 복원 ──────────────────────────────────────
 
 function restoreContextUI(ctx) {
@@ -170,18 +179,30 @@ function restoreContextUI(ctx) {
     document.getElementById("charCountNum").textContent = charCount;
     const container = document.getElementById("charCards");
     container.innerHTML = "";
+    const _shouldLockCards = Object.keys(episodeCache).some(k => Number(k) >= 2);
     chars.forEach((p, i) => {
       const c = appendCharCard(container, i, p);
       c.dataset.saved = "true";
+      // 2화 이후 복원 시: 인물 카드를 확정 상태로 표시
+      if (_shouldLockCards) {
+        c.classList.add("locked");
+        const lockBtn = c.querySelector(".char-lock-btn");
+        if (lockBtn) { lockBtn.classList.add("locked"); lockBtn.textContent = "✔ 확정됨"; }
+        const aiBtn = c.querySelector(".char-ai-btn");
+        if (aiBtn) aiBtn.disabled = true;
+        const nameInp = c.querySelector(".char-name");
+        if (nameInp) { nameInp.readOnly = true; nameInp.style.pointerEvents = "none"; nameInp.style.opacity = ".5"; }
+        c.querySelectorAll(".char-chip-label").forEach(el => { el.style.pointerEvents = "none"; el.style.opacity = ".5"; });
+      }
     });
   }
 
-  // 6. 설정 버튼 ON 표시
-  const sb = document.getElementById("settingsBtn");
-  if (sb) { sb.classList.add("active"); sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`; }
+  // 6. 설정 버튼 표시 (편집모드/뷰어모드)
+  const _isLocked = Object.keys(episodeCache).some(k => Number(k) >= 2);
+  _updateSettingsBtnLabel(_isLocked);
 
   // 7. 섹션 잠금 적용 (2화 생성 이후면 세계관 설정 고정 — 1화는 재생성 허용)
-  applySettingsLock(Object.keys(episodeCache).some(k => Number(k) >= 2));
+  applySettingsLock(_isLocked);
 }
 
 function lockCharCardFields(card, lock) {
@@ -244,6 +265,9 @@ function applySettingsLock(lock) {
   document.querySelectorAll(".char-card[data-saved]").forEach(card => {
     lockCharCardFields(card, lock);
   });
+
+  // 설정 버튼 레이블 동기화
+  _updateSettingsBtnLabel?.(lock);
 }
 
 // ── 커스텀 다이얼로그 ──────────────────────────────────────

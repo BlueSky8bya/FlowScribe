@@ -607,10 +607,21 @@ function updateSceneCharPanel(charStates) {
         }
         const _qlabel = n => {
           const t = n.toLowerCase();
-          if (/고급|특제|개조|군용|정밀|강화|희귀|커스텀|개인화|첨단/.test(t)) return { label:'고급', color:'#5080c8' };
+          // 위험 계열 (폭탄/폭발류) — 소형 폭탄이 일반으로 오탐되지 않게 최우선
+          if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
+          // 무기 계열
+          if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총/.test(t)) return { label:'무기', color:'#a04060' };
+          // 정보 계열 (수첩/책/문서)
+          if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책/.test(t)) return { label:'정보', color:'#5060a0' };
+          // 장비/기기 계열
+          if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너/.test(t)) return { label:'장비', color:'#307080' };
+          // 도구 계열
+          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자/.test(t)) return { label:'도구', color:'#607040' };
+          // 품질 계열
+          if (/고급|특제|개조|군용|정밀|희귀|커스텀|첨단/.test(t)) return { label:'고급', color:'#5080c8' };
           if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
           if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-          if (/범용|표준|기본|일반|휴대용|소형/.test(t)) return { label:'일반', color:'#5a9a6a' };
+          if (/범용|표준|기본|일반|휴대용/.test(t)) return { label:'일반', color:'#5a9a6a' };
           return null;
         };
         const itemCards = s.items.map((it, idx) => {
