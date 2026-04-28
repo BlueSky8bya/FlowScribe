@@ -28,13 +28,14 @@ function _reapplyCharUI() {
 
 // ── 후처리 통계 카운터 ────────────────────────────────────────
 const _ppStats = {
-  quoteMerges: 0,        // 미닫힌 따옴표 병합 횟수
-  bracketMerges: 0,      // 미닫힌 대괄호 병합 횟수
-  dialogueSplits: 0,     // 대화/지문 혼합 단락 분리 횟수 (인라인 span 생성)
-  dialogueLinesTagged: 0,// DIAL_START로 전체-대화 단락에 dialogue-line 부여 수
-  dialogueSegments: 0,   // 실제 생성된 dialogue-span 개수
-  foreignCharsRemoved: 0,// 키릴 등 외국어 문자 제거 횟수
-  dialogueSkipped: 0,    // 20% 임계값으로 분리 건너뜀
+  quoteMerges: 0,             // 미닫힌 따옴표 병합 횟수
+  bracketMerges: 0,           // 미닫힌 대괄호 병합 횟수
+  dialogueSplits: 0,          // 대화/지문 혼합 단락 처리 횟수
+  attachedDialogueSplits: 0,  // splitDialogueNarration에서 처리된 단락 수
+  dialogueLinesTagged: 0,     // DIAL_START로 전체-대화 단락 태깅 수
+  dialogueSegments: 0,        // 실제 생성된 dialogue-span 개수
+  foreignCharsRemoved: 0,     // 외국어 문자 제거 횟수
+  dialogueSkipped: 0,         // threshold로 처리 건너뜀
 };
 function _ppReset() { Object.keys(_ppStats).forEach(k => _ppStats[k] = 0); }
 
@@ -42,21 +43,19 @@ function _renderPostprocStats() {
   const el = document.getElementById('eqPostproc');
   const sec = document.getElementById('eqPostprocSection');
   if (!el) return;
-  const kv2 = (k, v, cls) => `<div class="eq-kv"><span class="eq-kv-key">${k}</span><span class="eq-kv-val${cls ? ' '+cls : ''}">${v}</span></div>`;
-  const any = Object.values(_ppStats).some(v => v > 0);
+  const kv2 = (k, v, cls) => `<div class=”eq-kv”><span class=”eq-kv-key”>${k}</span><span class=”eq-kv-val${cls ? ' '+cls : ''}”>${v}</span></div>`;
   const _outputText = document.getElementById('output')?.textContent ?? '';
   const _hasQuotes = /[“「『”]/.test(_outputText);
-  // dialogueSplits로 생긴 dialogue-line은 dialogueLinesTagged에 안 잡힘 — 둘 다 0일 때만 경고
-  const _totalDialogue = _ppStats.dialogueLinesTagged + _ppStats.dialogueSplits;
-  const _tagWarn = _hasQuotes && _totalDialogue === 0;
+  const _totalDialogue = _ppStats.dialogueLinesTagged + _ppStats.attachedDialogueSplits;
+  const _tagWarn = _hasQuotes && _totalDialogue === 0 && _ppStats.dialogueSegments === 0;
   el.innerHTML = `<div class=”eq-kv-list”>
     ${kv2('따옴표 병합', _ppStats.quoteMerges + '회', _ppStats.quoteMerges ? 'warn' : '')}
     ${kv2('대괄호 병합', _ppStats.bracketMerges + '회', _ppStats.bracketMerges ? 'warn' : '')}
-    ${kv2('대화/지문 분리', _ppStats.dialogueSplits + '개 단락', '')}
-    ${kv2('dialogue-span', _ppStats.dialogueSegments + '개', (_ppStats.dialogueSegments === 0 && _hasQuotes) ? 'warn' : '')}
-    ${kv2('분리 건너뜀(20%↓)', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
-    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄', _tagWarn ? 'warn' : '')}
-    ${_tagWarn ? kv2('⚠ 대화 태깅 0', '따옴표 있음에도 태깅 없음 — 확인 필요', 'warn') : ''}
+    ${kv2('대화 구간 분리', _ppStats.attachedDialogueSplits + '개 단락', '')}
+    ${kv2('대화 span', _ppStats.dialogueSegments + '개', (_ppStats.dialogueSegments === 0 && _hasQuotes) ? 'warn' : '')}
+    ${kv2('분리 건너뜀', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
+    ${kv2('순수 대화줄 태깅', _ppStats.dialogueLinesTagged + '줄', _tagWarn ? 'warn' : '')}
+    ${_tagWarn ? kv2('⚠ 태깅 0', '따옴표 있음에도 대화 span 없음', 'warn') : ''}
     ${kv2('외국어 제거', _ppStats.foreignCharsRemoved + '회', _ppStats.foreignCharsRemoved ? 'bad' : '')}
   </div>`;
   if (sec) sec.hidden = false;
@@ -237,9 +236,13 @@ function splitDialogueNarration(container) {
 
     // 순수 대사 or 순수 지문은 그대로
     if (parts.length < 2) return;
-    // 대사가 단락 전체의 20% 미만이면 단어 강조 인용 → 분리하지 않음 (30%→20%로 완화)
+    // 곡선 따옴표(" ")는 항상 진짜 대화 → threshold 없음
+    // 직선 따옴표(" ")는 기술명 오탐 방지를 위해 5% threshold 적용
+    const hasCurlyQuote = deduped.some(h => h.text.charCodeAt(0) === 0x201C || h.text[0] === '「' || h.text[0] === '『');
     const dialLen = parts.filter(pt => pt.type === "dial").reduce((s, pt) => s + pt.text.length, 0);
-    if (dialLen < text.length * 0.20) { _ppStats.dialogueSkipped++; return; }
+    const threshold = hasCurlyQuote ? 0 : 0.05;
+    if (dialLen < text.length * threshold) { _ppStats.dialogueSkipped++; return; }
+    _ppStats.attachedDialogueSplits = (_ppStats.attachedDialogueSplits || 0) + 1;
 
     // 인라인 span 방식: 단락 분리 없이 대사 구간만 dialogue-span으로 감쌈
     const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -626,25 +629,38 @@ function updateSceneCharPanel(charStates) {
 
         const _qlabel = n => {
           const t = n.toLowerCase();
-          // 위험 계열 — 최우선 (소형 폭탄이 일반으로 오탐되지 않게)
           if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
-          // 무기 계열
           if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프/.test(t)) return { label:'무기', color:'#a04060' };
-          // 방어 계열
           if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
-          // 의료 계열
           if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
-          // 정보 계열
           if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
-          // 장비/기기 계열
+          // 의식/종교 계열 (의수보다 앞에서 판단)
+          if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
+          // 영적/심령 계열
+          if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
+          // 음향/청음 계열
+          if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
+          // 기계/보조 계열 (의수, 의족)
+          if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
+          // 군용 계열
+          if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
           if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return { label:'장비', color:'#307080' };
-          // 도구 계열
-          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집/.test(t)) return { label:'도구', color:'#607040' };
-          // 품질 계열
-          if (/고급|특제|개조|군용|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
+          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이/.test(t)) return { label:'도구', color:'#607040' };
+          if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
           if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
           if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-          if (/범용|표준|기본|일반|휴대용/.test(t)) return { label:'일반', color:'#5a9a6a' };
+          // 모든 아이템에 최소 1개 배지 보장
+          return { label:'일반', color:'#5a9a6a' };
+        };
+        // 이름만 있는 소지품에 대한 규칙 기반 fallback 설명 (20~60자, LLM 호출 없음)
+        const _itemDescFallback = name => {
+          const t = (name ?? '').toLowerCase();
+          if (/의수|의족|기계팔/.test(t))   return '잃어버린 지체를 대체하는 기계식 보조 장치';
+          if (/진혼/.test(t))              return '망자의 넋을 달래는 의식용 도구';
+          if (/향로/.test(t))              return '향을 태우는 의식용 기구';
+          if (/심령/.test(t))              return '영적 존재의 기운을 감지하는 도구';
+          if (/청음기|청음/.test(t))       return '미세한 소리나 파동을 포착하는 감청 장치';
+          if (/강령|영매|초혼/.test(t))    return '영계와 소통하는 의식 도구';
           return null;
         };
         const _qlabelBadgeHtml = (ql) => ql
@@ -672,7 +688,7 @@ function updateSceneCharPanel(charStates) {
           const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
 
           const { displayName, inferredDesc } = _parseItemName(rawName);
-          const effectiveDesc = desc || inferredDesc;
+          const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName);
 
           // 비판타지 장르에서는 S/A/B/C/D 뱃지 대신 _qlabel 사용
           const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
@@ -851,7 +867,7 @@ function updateDebugMeta(meta, auditStatus = null) {
       : null;
     let rows = '';
     rows += kv('커스텀 분량 설정', userRange);
-    rows += kv('렌더러 목표 분량', rendererTarget);   // 범위 중간점, 실제 프롬프트 전달값
+    rows += kv('본문 목표 분량', rendererTarget);   // 범위 중간점, 실제 프롬프트 전달값
     rows += kv('허용 범위', budgetRange);              // min~max
     rows += kv('실제 분량', a?.actual_chars ? a.actual_chars + '자' : null);
     rows += kv('생성 모델', a?.renderer_model ?? null);
@@ -880,7 +896,7 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('POV', gc?.pov ?? null);
     rows += kv('문체', gc?.style ?? null);
     const _epRole = a?.episode_role ?? meta?.episode_role ?? null;
-    rows += kv('회차 역할', _epRole ? (EPISODE_ROLE_KO[_epRole] ?? _epRole) : null);
+    rows += kv('이번 화 역할', _epRole ? (EPISODE_ROLE_KO[_epRole] ?? _epRole) : null);
     // 확정 최종화: audit > SSE meta > gen_config.totalEpisodes 순서로 폴백
     const _resolvedFinal = a?.resolved_final_episode ?? meta?.resolved_final_episode ?? gc?.totalEpisodes;
     // 설정 범위 (totalEpisodes ± totalEpisodesVar)
@@ -899,23 +915,23 @@ function updateDebugMeta(meta, auditStatus = null) {
       rows += kv('남은 화수', a?.remaining_episodes != null ? a.remaining_episodes + '화' : null);
     }
     const _arcPhase = a?.planner_arc_phase ?? null;
-    rows += kv('서사 국면', _arcPhase
+    rows += kv('전체 서사 위치', _arcPhase
       ? `${ARC_PHASE_KO[_arcPhase] ?? _arcPhase}${a?.planner_arc_ratio != null ? ' (' + a.planner_arc_ratio + '%)' : ''}` : null);
     rows += kv('엔딩 유형', a?.ending_constraint ?? null);
     if (a?.is_regen) rows += kv('재생성', '✓ regen_prev 주입됨', 'warn');
     const _hookRaw = a?.hook_type ?? meta?.hook_type ?? null;
-    rows += kv('hook 유형', _hookRaw ? (HOOK_TYPE_KO[_hookRaw] ?? _hookRaw) : null);
+    rows += kv('엔딩 훅 유형', _hookRaw ? (HOOK_TYPE_KO[_hookRaw] ?? _hookRaw) : null);
     rows += kv('장면 수', (a?.scene_beats_count ?? meta?.scene_beats_count) != null ? (a?.scene_beats_count ?? meta?.scene_beats_count) + '개' : null);
-    rows += kv('플랜 판정', a?.plan_verdict ?? null);
+    rows += kv('장면 설계 판정', a?.plan_verdict ?? null);
     rows += kv('플랜 폴백', a?.fallback_used != null ? (a.fallback_used ? `있음${a.fallback_reason ? ': '+a.fallback_reason : ''}` : '없음') : null, a?.fallback_used ? 'warn' : '');
-    rows += kv('리비전 횟수', a?.revision_count != null ? a.revision_count + '회' : meta?.revision_count != null ? meta.revision_count + '회' : null, (a?.revision_count ?? meta?.revision_count) > 0 ? 'warn' : '');
+    rows += kv('수정 반복 횟수', a?.revision_count != null ? a.revision_count + '회' : meta?.revision_count != null ? meta.revision_count + '회' : null, (a?.revision_count ?? meta?.revision_count) > 0 ? 'warn' : '');
     rows += kv('생성 시간', ms(a?.renderer_ms));
     rows += kv('플래너 시간', ms(a?.planner_ms ?? meta?.planner_ms));
-    rows += kv('감사 시간', ms(a?.audit_ms));
-    if (a?.combined_reward != null) rows += kv('combined', a.combined_reward.toFixed(3), rc(a.combined_reward));
-    if (a?.planner_reward != null)  rows += kv('planner R', a.planner_reward.toFixed(3), rc(a.planner_reward));
-    if (a?.renderer_reward != null) rows += kv('renderer R', a.renderer_reward.toFixed(3), rc(a.renderer_reward));
-    rows += kv('verdict', a?.verdict ?? null, a?.verdict === 'PASS' ? 'ok' : a?.verdict === 'WARN' ? 'warn' : a?.verdict === 'FAIL' ? 'bad' : '');
+    rows += kv('품질 검사 시간', ms(a?.audit_ms));
+    if (a?.combined_reward != null) rows += kv('종합 점수', a.combined_reward.toFixed(3), rc(a.combined_reward));
+    if (a?.planner_reward != null)  rows += kv('플래너 보상', a.planner_reward.toFixed(3), rc(a.planner_reward));
+    if (a?.renderer_reward != null) rows += kv('본문 보상', a.renderer_reward.toFixed(3), rc(a.renderer_reward));
+    rows += kv('품질 판정', a?.verdict ?? null, a?.verdict === 'PASS' ? 'ok' : a?.verdict === 'WARN' ? 'warn' : a?.verdict === 'FAIL' ? 'bad' : '');
     if (a?.sft_eligible_renderer != null) {
       // episode_extended가 null이면 hard_gate 결과 미확정 — pending으로 표시 (오판 방지)
       const ee = a?.episode_extended;
@@ -932,13 +948,13 @@ function updateDebugMeta(meta, auditStatus = null) {
         sftText = (a.sft_eligible_renderer ? '✓ 렌더러' : '—') + (a.sft_eligible_planner ? ' ✓ 플래너' : '');
         sftCls = a.sft_eligible_renderer ? 'ok' : '';
       }
-      rows += kv('SFT 적합', sftText, sftCls);
+      rows += kv('학습 데이터 적합성', sftText, sftCls);
     }
     if (a?.has_rolling_summary != null) rows += kv('롤링요약', a.has_rolling_summary ? '있음' : '없음');
     if (a?.arc_summaries_count != null) rows += kv('아크 요약', a.arc_summaries_count + '개');
     if (a?.foreshadow_count != null)    rows += kv('복선 메모리', a.foreshadow_count + '개');
     if (a?.absent_characters?.length)  rows += kv('미등장 인물', a.absent_characters.join(', '));
-    if (a?.trace_id) rows += kv('trace_id', a.trace_id);
+    if (a?.trace_id) rows += kv('추적 ID', a.trace_id);
     if (a?.created_at) rows += kv('생성일시', new Date(a.created_at).toLocaleString('ko-KR'));
     basicEl.innerHTML = `<div class="eq-info-grid">${rows || '<span class="eq-empty">에피소드 생성 후 표시됩니다</span>'}</div>`;
   }
@@ -1009,19 +1025,23 @@ function updateDebugMeta(meta, auditStatus = null) {
     show('eqPlannerSection');
   }
 
-  // ── 경고 & 힌트 ───────────────────────────────────────────
+  // ── 경고 & 힌트 (기본: 50자 이하 요약, 길면 <details>로 상세) ──────────
   const warnEl = document.getElementById('eqWarnings');
   if (warnEl && (a?.soft_warnings?.length || a?.revision_hints?.length)) {
+    const _compact = (text, maxLen = 50) => {
+      if (text.length <= maxLen) return text;
+      return `<details style="display:inline;cursor:pointer;"><summary style="display:inline;list-style:none;">${text.slice(0, maxLen)}…</summary><div style="margin-top:3px;white-space:pre-wrap;">${text}</div></details>`;
+    };
     let items = '';
     (a.soft_warnings || []).forEach(w => {
       const text = typeof w === 'string' ? w
         : [w.description, w.suggestion ? `→ ${w.suggestion}` : null].filter(Boolean).join(' ');
-      const sev = (typeof w === 'object' && w.severity) ? ` <span style="font-size:.8em;opacity:.7">[${w.severity}]</span>` : '';
-      items += `<div class="eq-warn-item soft">⚠ ${text}${sev}</div>`;
+      const sev = (typeof w === 'object' && w.severity) ? ` <span style="font-size:.78em;opacity:.65;">[${w.severity}]</span>` : '';
+      items += `<div class="eq-warn-item soft">⚠ ${_compact(text)}${sev}</div>`;
     });
     (a.revision_hints || []).forEach(h => {
       const text = typeof h === 'string' ? h : (h.description ?? JSON.stringify(h));
-      items += `<div class="eq-warn-item hint">💡 ${text}</div>`;
+      items += `<div class="eq-warn-item hint">💡 ${_compact(text)}</div>`;
     });
     warnEl.innerHTML = `<div class="eq-warn-list">${items}</div>`;
     show('eqWarningSection');
@@ -1513,12 +1533,27 @@ async function captureEpisode(withChars = false) {
               if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
               if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
               if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿/.test(t)) return { label:'정보', color:'#5060a0' };
+              if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
+              if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
+              if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
+              if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
+              if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
               if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return { label:'장비', color:'#307080' };
-              if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집/.test(t)) return { label:'도구', color:'#607040' };
-              if (/고급|특제|개조|군용|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
+              if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이/.test(t)) return { label:'도구', color:'#607040' };
+              if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
               if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
               if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
               return { label:'일반', color:'#5a9a6a' };
+            };
+            const _capDescFallback = name => {
+              const t = (name ?? '').toLowerCase();
+              if (/의수|의족|기계팔/.test(t))  return '잃어버린 지체를 대체하는 기계식 보조 장치';
+              if (/진혼/.test(t))             return '망자의 넋을 달래는 의식용 도구';
+              if (/향로/.test(t))             return '향을 태우는 의식용 기구';
+              if (/심령/.test(t))             return '영적 존재의 기운을 감지하는 도구';
+              if (/청음기|청음/.test(t))      return '미세한 소리나 파동을 포착하는 감청 장치';
+              if (/강령|영매|초혼/.test(t))   return '영계와 소통하는 의식 도구';
+              return null;
             };
             const isFantasyCap = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
             const itemsHtml = (s.items ?? []).map(it => {
@@ -1533,7 +1568,7 @@ async function captureEpisode(withChars = false) {
               if (_pm && !/^[SABCD]$|^[SABCD][급등]\b/.test(_pm[2].trim()) && /있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(_pm[2])) {
                 displayName = _pm[1].trim(); inferredDesc = _pm[2].trim();
               }
-              const effectiveDesc = desc || inferredDesc;
+              const effectiveDesc = desc || inferredDesc || _capDescFallback(displayName);
               const showGrade = isFantasyCap && grade;
               const gc2 = showGrade ? GRADE_COLOR[grade] ?? '#888' : null;
               const ql  = !showGrade ? QLABEL_CAP(displayName) : null;

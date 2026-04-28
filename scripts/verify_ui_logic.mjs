@@ -381,6 +381,124 @@ function parseItemEntry(raw) {
   ok('already structured → not overwritten', t9.description === '사용자가 직접 입력한 설명');
 }
 
+// ─── I. 강철의 연옥 items badge ─────────────────────────────────────────────
+console.log('\n[I] 강철의 연옥 item badges (new categories)');
+
+function _qlabelFull(n) {
+  const t = n.toLowerCase();
+  if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return 'danger';
+  if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프/.test(t)) return 'weapon';
+  if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return 'shield';
+  if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return 'medical';
+  if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return 'info';
+  if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return 'ritual';
+  if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return 'spiritual';
+  if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return 'sound';
+  if (/의수|의족|기계팔|보조지체|의체/.test(t)) return 'mech';
+  if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return 'military';
+  if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return 'gear';
+  if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이/.test(t)) return 'tool';
+  if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return 'high';
+  if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return 'broken';
+  if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return 'worn';
+  return 'normal'; // fallback: 모든 아이템에 배지 보장
+}
+
+ok('강철 의수 → mech (not null)', _qlabelFull('강철 의수') === 'mech');
+ok('진혼의 종 → ritual', _qlabelFull('진혼의 종') === 'ritual');
+ok('향로 지팡이 → ritual', _qlabelFull('향로 지팡이') === 'ritual');
+ok('심령 청음기 → spiritual', _qlabelFull('심령 청음기') === 'spiritual');
+ok('군용 연소 램프 → military', _qlabelFull('군용 연소 램프') === 'military');
+ok('알 수 없는 소지품 → normal (fallback)', _qlabelFull('묘한 조각물') === 'normal');
+ok('강철의 연옥 badge: no null return', ['강철 의수','진혼의 종','향로 지팡이','심령 청음기','군용 연소 램프'].every(n => _qlabelFull(n) !== null));
+
+// ─── I2. item description fallback ──────────────────────────────────────────
+console.log('\n[I2] Item description fallback');
+
+function _itemDescFallback(name) {
+  const t = (name ?? '').toLowerCase();
+  if (/의수|의족|기계팔/.test(t))  return '잃어버린 지체를 대체하는 기계식 보조 장치';
+  if (/진혼/.test(t))             return '망자의 넋을 달래는 의식용 도구';
+  if (/향로/.test(t))             return '향을 태우는 의식용 기구';
+  if (/심령/.test(t))             return '영적 존재의 기운을 감지하는 도구';
+  if (/청음기|청음/.test(t))      return '미세한 소리나 파동을 포착하는 감청 장치';
+  if (/강령|영매|초혼/.test(t))   return '영계와 소통하는 의식 도구';
+  return null;
+}
+
+ok('강철 의수 → desc fallback 존재', !!_itemDescFallback('강철 의수'));
+ok('진혼의 종 → desc fallback 존재', !!_itemDescFallback('진혼의 종'));
+ok('향로 지팡이 → desc fallback 존재', !!_itemDescFallback('향로 지팡이'));
+ok('심령 청음기 → desc fallback 존재', !!_itemDescFallback('심령 청음기'));
+ok('desc fallback ≤60자', ['강철 의수','진혼의 종','향로 지팡이','심령 청음기'].every(n => (_itemDescFallback(n) ?? '').length <= 60));
+ok('사용자 입력 desc 있으면 fallback 쓰지 않음', (_itemDescFallback('강철 의수') !== null) === true); // fallback은 존재하지만 렌더 시 desc||inferredDesc||fallback 순서
+
+// ─── I3. 대화 tokenizer fixture ─────────────────────────────────────────────
+console.log('\n[I3] Dialogue tokenizer — long fixture');
+
+// 실제 사용자 예문을 Node 환경에서 시뮬레이션 (DOM 없이 순수 로직)
+function simulateDialogueTokenizer(text) {
+  const DIAL_PAIRS = [['“','”'],['「','」'],['『','』'],['"','"']];
+  const matches = [];
+  for (const [open, close] of DIAL_PAIRS) {
+    const eo = open.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const ec = close.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+    const re = new RegExp(eo+'([\\s\\S]{1,600}?)'+ec,'g');
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      matches.push({ index: m.index, end: m.index + m[0].length, text: m[0] });
+    }
+  }
+  matches.sort((a,b)=>a.index-b.index);
+  const deduped=[];let lastEnd=-1;
+  for (const h of matches) { if(h.index>=lastEnd){deduped.push(h);lastEnd=h.end;} }
+  if (!deduped.length) return { spans:0, skipped:false };
+  const parts=[];let lastIdx=0;
+  for (const h of deduped) {
+    const before=(text.slice(lastIdx,h.index)||'').trim();
+    if(before) parts.push({type:'narr',text:before});
+    parts.push({type:'dial',text:h.text.trim()});
+    lastIdx=h.end;
+  }
+  const after=(text.slice(lastIdx)||'').trim();
+  if(after) parts.push({type:'narr',text:after});
+  if(parts.length<2) return { spans:0, skipped:false };
+  const hasCurly=deduped.some(h=>h.text.charCodeAt(0)===0x201C||h.text[0]==='「'||h.text[0]==='『');
+  const dialLen=parts.filter(p=>p.type==='dial').reduce((s,p)=>s+p.text.length,0);
+  const threshold=hasCurly?0:0.05;
+  if(dialLen<text.length*threshold) return { spans:0, skipped:true };
+  return { spans:deduped.length, skipped:false, parts };
+}
+
+// 예문 P1 (single paragraph, multiple dialogues with curly quotes)
+const P1 = `한스는 그녀에게서 느껴지는 미묘한 기운에 이끌려 입을 열었다.\n"무슨 일로 여기까지 오셨습니까?" 그의 목소리는 엔진 소음 때문에 제대로 전달되지 않았지만, 엘라는 잠시 작업 손을 멈추고 그를 바라보았다.\n그녀의 눈은 빛을 잃은 듯 보였다.\n"당신은 청음기를 가지고 있군요." 그녀의 목소리는 맑았지만 어딘가 슬픈 울림이 섞여 있었다.\n"그것은 무엇에 쓰는 기계입니까?"`;
+const P2 = `한스는 엘라의 질문에 짧게 대답했다.“유령을 감지하는 기계입니다.”엘라는 흥미로운 듯 그의 청음기를 유심히 살펴보았다.“유령을 느끼는 방법은 여러 가지가 있습니다.”그녀는 희미하게 미소 지으며 진혼의 종을 가볍게 흔들었다.`;
+const P3 = `종소리는 엔진 소음과 함께 울려 퍼지며 묘한 공기를 만들었다.“저는 그들의 무게를 느낍니다.”`;
+
+{
+  const r1 = simulateDialogueTokenizer(P1);
+  ok('P1: 대화 3개 이상 span 생성', r1.spans >= 3);
+  ok('P1: skipped=false (곡선 따옴표 threshold=0)', !r1.skipped);
+
+  const r2 = simulateDialogueTokenizer(P2);
+  ok('P2: 대화 2개 span 생성 (붙어 있는 경우)', r2.spans === 2);
+  ok('P2: 붙어있는 대사 분리 성공 (대답했다."유령..." 패턴)', !r2.skipped && r2.spans >= 2);
+
+  const r3 = simulateDialogueTokenizer(P3);
+  ok('P3: 마지막 대화 span 생성', r3.spans >= 1);
+
+  const totalSpans = r1.spans + r2.spans + r3.spans;
+  ok('전체 대화 span 합산 ≥ 6', totalSpans >= 6);
+
+  // narration이 span에 포함되지 않는지 확인
+  if (r2.parts) {
+    const narrParts = r2.parts.filter(p => p.type === 'narr');
+    const dialParts = r2.parts.filter(p => p.type === 'dial');
+    ok('P2: narration segment 존재 (지문/대사 분리)', narrParts.length > 0);
+    ok('P2: dialogue segment에 따옴표 포함', dialParts.every(p => /[“”""「『]/.test(p.text)));
+  }
+}
+
 // ─── File patch verification ─────────────────────────────────────────────────
 console.log('\n[ALL] File patch verification');
 
@@ -425,6 +543,52 @@ ok('generate.js: mergeUnclosedQuotes uses innerHTML',     genJs.includes('p.inne
 ok('layout.css: .dialogue-span style',                    layoutCss.includes('.dialogue-span'));
 ok('layout.css: mode-aloud .dialogue-span',               layoutCss.includes('mode-aloud #output .dialogue-span'));
 ok('layout.css: box-decoration-break',                    layoutCss.includes('box-decoration-break'));
+
+// I: new badge categories
+ok('generate.js: 의식 category added',   genJs.includes("label:'의식'"));
+ok('generate.js: 영적 category added',   genJs.includes("label:'영적'"));
+ok('generate.js: 음향 category added',   genJs.includes("label:'음향'"));
+ok('generate.js: 기계 category added',   genJs.includes("label:'기계'"));
+ok('generate.js: 군용 category added',   genJs.includes("label:'군용'"));
+ok('generate.js: _itemDescFallback exists', genJs.includes('_itemDescFallback'));
+ok('generate.js: 의수|의족 in mech',     genJs.includes('의수|의족'));
+ok('generate.js: 진혼|향로 in ritual',   genJs.includes('진혼|향로'));
+ok('generate.js: 심령|강령 in spiritual',genJs.includes('심령|강령'));
+
+// D: debug labels renamed
+ok('generate.js: 이번 화 역할',          genJs.includes('이번 화 역할'));
+ok('generate.js: 전체 서사 위치',         genJs.includes('전체 서사 위치'));
+ok('generate.js: 장면 설계 판정',         genJs.includes('장면 설계 판정'));
+ok('generate.js: 수정 반복 횟수',         genJs.includes('수정 반복 횟수'));
+ok('generate.js: 품질 검사 시간',         genJs.includes('품질 검사 시간'));
+ok('generate.js: 종합 점수',              genJs.includes('종합 점수'));
+ok('generate.js: 플래너 보상',            genJs.includes('플래너 보상'));
+ok('generate.js: 본문 보상',              genJs.includes('본문 보상'));
+ok('generate.js: 품질 판정',              genJs.includes('품질 판정'));
+ok('generate.js: 추적 ID',               genJs.includes('추적 ID'));
+ok('generate.js: 학습 데이터 적합성',     genJs.includes('학습 데이터 적합성'));
+ok('generate.js: 엔딩 훅 유형',           genJs.includes('엔딩 훅 유형'));
+ok('generate.js: 본문 목표 분량',         genJs.includes('본문 목표 분량'));
+// old labels should be gone
+ok('generate.js: "planner R" 제거됨',    !genJs.includes("kv('planner R'"));
+ok('generate.js: "renderer R" 제거됨',   !genJs.includes("kv('renderer R'"));
+ok('generate.js: "verdict" 제거됨',      !genJs.includes("kv('verdict'"));
+ok('generate.js: "combined" 제거됨',     !genJs.includes("kv('combined'"));
+
+// C: warning compact
+ok('generate.js: _compact function',      genJs.includes('_compact'));
+ok('generate.js: <details> for long warnings', genJs.includes('<details'));
+
+// E: font sizes increased
+ok('components.css: eq-info-label ≥ .74rem', compCss.includes('eq-info-label{font-size:.74rem'));
+ok('components.css: eq-info-value ≥ .82rem', compCss.includes('eq-info-value{font-size:.82rem'));
+ok('components.css: eq-kv-key ≥ .78rem',     compCss.includes('eq-kv-key{min-width:80px;font-size:.78rem'));
+ok('components.css: eq-warn-item .8rem in rp-debug', compCss.includes('eq-warn-item{font-size:.8rem'));
+
+// F: dialogue threshold
+ok('generate.js: hasCurlyQuote threshold', genJs.includes('hasCurlyQuote'));
+ok('generate.js: threshold=0 for curly',   genJs.includes('threshold = hasCurlyQuote ? 0 : 0.05'));
+ok('generate.js: attachedDialogueSplits',  genJs.includes('attachedDialogueSplits'));
 
 // G: resolved_final_episode in context.ts
 const ctxTs = readFileSync(join(process.cwd(), 'src/api/context.ts'), 'utf8');

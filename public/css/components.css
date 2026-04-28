@@ -241,15 +241,17 @@ body.mode-tts span.char-name-ref { cursor:help; }
 .rp-debug-panel .eq-section-label:hover{background:var(--bg2);}
 .rp-debug-panel .eq-section-body{padding:6px 10px 9px;}
 .rp-debug-panel .eq-info-grid{grid-template-columns:1fr 1fr;}
-.rp-debug-panel .eq-score-name{width:82px;font-size:.68rem;}
-.rp-debug-panel .eq-score-num{font-size:.66rem;}
+.rp-debug-panel .eq-score-name{width:90px;font-size:.76rem;}
+.rp-debug-panel .eq-score-num{font-size:.74rem;}
 .rp-debug-panel .eq-char-row{padding:6px 8px;}
-.rp-debug-panel .eq-char-name{font-size:.76rem;}
-.rp-debug-panel .eq-char-field{font-size:.68rem;}
-.rp-debug-panel .eq-info-label{font-size:.64rem;}
-.rp-debug-panel .eq-info-value{font-size:.72rem;}
-.rp-debug-panel .eq-kv-key{min-width:70px;font-size:.7rem;}
-.rp-debug-panel .eq-kv-val{font-size:.7rem;}
+.rp-debug-panel .eq-char-name{font-size:.82rem;}
+.rp-debug-panel .eq-char-field{font-size:.74rem;}
+.rp-debug-panel .eq-info-label{font-size:.74rem;}
+.rp-debug-panel .eq-info-value{font-size:.82rem;}
+.rp-debug-panel .eq-kv-key{min-width:80px;font-size:.78rem;}
+.rp-debug-panel .eq-kv-val{font-size:.78rem;}
+.rp-debug-panel .eq-beat-summary{font-size:.78rem;}
+.rp-debug-panel .eq-warn-item{font-size:.8rem;}
 
 /* ── TTS paragraph highlight ──────────────────────────────── */
 .tts-current{background:var(--accent-border,rgba(100,160,255,.15));border-left:2px solid var(--accent);padding-left:.4em;border-radius:2px;transition:background .2s;}
