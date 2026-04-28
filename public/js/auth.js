@@ -143,15 +143,26 @@ function restoreContextUI(ctx) {
   // 5. 인물 복원
   if (ctx.character_defaults && Object.keys(ctx.character_defaults).length) {
     const chars = Object.entries(ctx.character_defaults).map(([name, desc]) => {
-      // desc 형식: "[유형: X, 성별: Y] 성격..."
+      if (desc && typeof desc === "object") {
+        // object 형식: { type, gender, personality, initial_items }
+        return {
+          name,
+          personality: desc.personality || desc.description || "",
+          type:        desc.type   || "인간",
+          gender:      desc.gender || "해당없음",
+          initialItems: Array.isArray(desc.initial_items) ? desc.initial_items : [],
+        };
+      }
+      // legacy string 형식: "[유형: X, 성별: Y] 성격..."
       const typeMatch   = desc.match(/유형:\s*([^,\]]+)/);
       const genderMatch = desc.match(/성별:\s*([^\]]+)/);
       const personality = desc.replace(/\[[^\]]*\]\s*/, "").trim();
       return {
         name,
         personality,
-        type:   typeMatch?.[1]?.trim()   || "인간",
-        gender: genderMatch?.[1]?.trim() || "해당없음",
+        type:        typeMatch?.[1]?.trim()   || "인간",
+        gender:      genderMatch?.[1]?.trim() || "해당없음",
+        initialItems: [],
       };
     });
 

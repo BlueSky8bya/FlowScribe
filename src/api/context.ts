@@ -103,29 +103,64 @@ contextRouter.post("/", async (req: Request, res: Response) => {
 contextRouter.get("/:bookId", async (req: Request, res: Response) => {
   const { bookId } = req.params;
   try {
+    let ctx: any = null;
+
     // Redis 우선
     const raw = await redis.get(`context:${bookId}`);
     if (raw) {
+      ctx = JSON.parse(raw);
       logInfo("api:context:get", "World Bible 캐시 조회 성공", { bookId });
-      res.json(JSON.parse(raw));
+    } else {
+      // Redis 미스 → books 테이블 폴백
+      const dbResult = await pool.query(
+        `SELECT context FROM books WHERE id = $1`, [bookId]
+      );
+      ctx = dbResult.rows[0]?.context ?? null;
+      if (ctx && Object.keys(ctx).length) {
+        logInfo("api:context:get", "World Bible DB 폴백 조회", { bookId });
+        await redis.set(`context:${bookId}`, JSON.stringify(ctx), "EX", TTL);
+      }
+    }
+
+    if (!ctx || !Object.keys(ctx).length) {
+      logWarn("api:context:get", "World Bible 없음", { bookId });
+      res.status(404).json({ error: "not found" });
       return;
     }
 
-    // Redis 미스 → books 테이블 폴백
-    const dbResult = await pool.query(
-      `SELECT context FROM books WHERE id = $1`, [bookId]
-    );
-    const ctx = dbResult.rows[0]?.context;
-    if (ctx && Object.keys(ctx).length) {
-      logInfo("api:context:get", "World Bible DB 폴백 조회", { bookId });
-      // Redis에 다시 올림
-      await redis.set(`context:${bookId}`, JSON.stringify(ctx), "EX", TTL);
-      res.json(ctx);
-      return;
+    // canonical_characters.initial_items를 character_defaults에 merge
+    // 기존 string 형식 책도 새로고침 후 소지품이 복원되도록 함
+    if (ctx.character_defaults) {
+      try {
+        const canonRows = await pool.query(
+          `SELECT name, initial_items FROM canonical_characters WHERE book_id = $1`,
+          [bookId]
+        );
+        for (const row of canonRows.rows) {
+          const def = ctx.character_defaults[row.name];
+          if (def === undefined) continue;
+          const items: any[] = Array.isArray(row.initial_items) ? row.initial_items : [];
+          if (!items.length) continue;
+          if (typeof def === "string") {
+            // legacy string → object로 업그레이드
+            const typeMatch   = def.match(/유형:\s*([^,\]]+)/);
+            const genderMatch = def.match(/성별:\s*([^\]]+)/);
+            const personality = def.replace(/\[[^\]]*\]\s*/, "").trim();
+            ctx.character_defaults[row.name] = {
+              type:        typeMatch?.[1]?.trim()   ?? "",
+              gender:      genderMatch?.[1]?.trim() ?? "",
+              personality,
+              description: personality,
+              initial_items: items,
+            };
+          } else if (typeof def === "object" && !(def.initial_items as any[])?.length) {
+            ctx.character_defaults[row.name] = { ...def, initial_items: items };
+          }
+        }
+      } catch { /* canonical merge 실패해도 context 반환 유지 */ }
     }
 
-    logWarn("api:context:get", "World Bible 없음", { bookId });
-    res.status(404).json({ error: "not found" });
+    res.json(ctx);
   } catch (err) {
     logError("api:context:get", err, { bookId });
     res.status(500).json({ error: "context fetch failed" });

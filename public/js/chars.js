@@ -148,14 +148,20 @@ function appendCharCard(container, i, p) {
         <div class="char-fields-full char-items-row">
           <div class="char-personality-label">초기 소지품 <span style="font-size:.75rem;opacity:.55;font-weight:400">Enter로 항목 구분</span></div>
           <div class="char-items-tag-wrap" id="charItemsWrap-${i}">
-            ${(p.initialItems||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(raw=>{
+            ${(()=>{
               const _gMap={S:'#d4a000',A:'#9b5de0',B:'#3b82c8',C:'#2e8a55',D:'#888'};
-              let nm=raw,gr=null;
-              const pm=raw.match(/^([SABCD]):(.+)$/i); if(pm&&['S','A','B','C','D'].includes(pm[1].toUpperCase())){gr=pm[1].toUpperCase();nm=pm[2].trim();}
-              else{const sm=raw.match(/^(.+)\(([SABCD])급?\)$/i);if(sm&&['S','A','B','C','D'].includes(sm[2].toUpperCase())){gr=sm[2].toUpperCase();nm=sm[1].trim();}}
-              const gb=gr?`<span style="font-size:.68rem;font-weight:700;color:${_gMap[gr]};border:1px solid ${_gMap[gr]};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>`:'';
-              return `<span class="tag char-item-tag"${gr?` data-grade="${gr}" data-item-name="${esc(nm)}"`:``}>${gb}${esc(nm)}<span class="tag-del" data-item="${esc(raw)}">×</span></span>`;
-            }).join("")}
+              // p.initialItems: string ("S:검,낡은 열쇠") 또는 [{name,grade?}] 배열 모두 허용
+              const _rawStr = Array.isArray(p.initialItems)
+                ? p.initialItems.map(it=>typeof it==='object'?(it.grade?`${it.grade}:${it.name}`:it.name):String(it)).join(',')
+                : (p.initialItems||'');
+              return _rawStr.split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(raw=>{
+                let nm=raw,gr=null;
+                const pm=raw.match(/^([SABCD]):(.+)$/i); if(pm&&['S','A','B','C','D'].includes(pm[1].toUpperCase())){gr=pm[1].toUpperCase();nm=pm[2].trim();}
+                else{const sm=raw.match(/^(.+)\(([SABCD])급?\)$/i);if(sm&&['S','A','B','C','D'].includes(sm[2].toUpperCase())){gr=sm[2].toUpperCase();nm=sm[1].trim();}}
+                const gb=gr?`<span style="font-size:.68rem;font-weight:700;color:${_gMap[gr]};border:1px solid ${_gMap[gr]};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>`:'';
+                return `<span class="tag char-item-tag"${gr?` data-grade="${gr}" data-item-name="${esc(nm)}"`:``}>${gb}${esc(nm)}<span class="tag-del" data-item="${esc(raw)}">×</span></span>`;
+              }).join('');
+            })()}
             <input class="tag-input-field char-items-input" type="text" placeholder="소지품 입력 후 Enter" />
           </div>
         </div>

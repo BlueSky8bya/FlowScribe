@@ -82,7 +82,7 @@ async function saveContext() {
       if (!nm) return null;
       return gr ? { name: nm, grade: gr } : { name: nm };
     }).filter(Boolean);
-    characterDefaults[name] = `[유형: ${type}, 성별: ${gender}]${personality ? " " + personality : ""}`;
+    characterDefaults[name] = { type, gender, personality, description: personality, initial_items };
     characterRows.push({ name, personality, type, gender, source: "user", initial_items });
   });
 
