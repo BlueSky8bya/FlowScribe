@@ -98,6 +98,14 @@ function closeModalOutside(e) { /* 바깥 클릭으로 닫지 않음 — 저장 
 async function saveContext() {
   console.debug("[saveContext] ENTER");
 
+  // 버튼 로딩 상태
+  const saveBtn = document.querySelector('.btn-save, [onclick*="saveContext"]');
+  const origText = saveBtn?.textContent;
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = '저장 중...';
+  }
+
   try {
     // Step A: 전역 변수 안전 접근
     const _settingVals = typeof settingVals !== "undefined" ? settingVals : [];
@@ -251,6 +259,11 @@ async function saveContext() {
     console.error("[saveContext] FATAL ERROR:", err);
     if (typeof showToast === "function") {
       showToast("설정 저장 중 오류가 발생했습니다. 콘솔을 확인하세요.", "err");
+    }
+    // 실패 시 버튼 복원
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = origText || '저장 후 닫기';
     }
   }
 }

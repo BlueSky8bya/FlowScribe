@@ -56,6 +56,35 @@ const openModalBody = modalJs.slice(modalJs.indexOf('function openModal'), modal
 test('openModal removes inline display override',
   openModalBody.includes('removeProperty') || openModalBody.includes('style.display'));
 
+// Test 11: generateAndSaveItemDescriptions NOT awaited before res.json
+const charsTs = readFileSync('src/api/characters.ts', 'utf-8');
+const resJsonIdx = charsTs.lastIndexOf('res.json(');
+const generateAwaitIdx = charsTs.lastIndexOf('await generateAndSaveItemDescriptions');
+test('generateAndSaveItemDescriptions is NOT awaited before res.json',
+  generateAwaitIdx === -1 || generateAwaitIdx > resJsonIdx,
+  `await found at ${generateAwaitIdx}, res.json at ${resJsonIdx}`
+);
+
+// Test 12: background job has .catch() or setImmediate
+test('background job has .catch() handler or setImmediate',
+  !charsTs.includes('generateAndSaveItemDescriptions(') ||
+  charsTs.includes('.catch(') ||
+  charsTs.includes('setImmediate')
+);
+
+// Test 13: modal.js shows loading state on save button
+test('saveContext disables save button during save',
+  saveBody.includes('saveBtn.disabled = true') || saveBody.includes("disabled = true"));
+
+// Test 14: modal.js restores button on failure
+// Search the full modal.js for button restoration in the catch block of saveContext
+const saveFuncStart = modalJs.indexOf('async function saveContext');
+const saveFuncBody = modalJs.slice(saveFuncStart);
+const catchIdx = saveFuncBody.lastIndexOf('} catch (err)');
+const catchBody = saveFuncBody.slice(catchIdx);
+test('saveContext restores button on failure',
+  catchBody.includes('disabled = false') || catchBody.includes("disabled=false"));
+
 results.forEach(r => console.log(`${r.ok ? '✓' : '✗'} ${r.name}${r.detail ? ' — ' + r.detail : ''}`));
 console.log(`\n${pass}/${pass+fail} PASS`);
 if (fail > 0) process.exit(1);

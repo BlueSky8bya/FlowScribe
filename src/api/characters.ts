@@ -69,7 +69,8 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
           : [],
       });
     }
-    // description 없는 아이템 → LLM 설명 생성 잡 enqueue (백그라운드)
+    // description 없는 아이템 → LLM 설명 생성 잡 수집 (응답 전에 실행하지 않음)
+    const descJobs: Array<() => Promise<void>> = [];
     for (const c of characters) {
       if (!c.name) continue;
       const rawItems: Array<any> = Array.isArray(c.initial_items) ? c.initial_items : [];
@@ -78,7 +79,7 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
         return !parsed.description;
       });
       if (!missing.length) continue;
-      await generateAndSaveItemDescriptions({
+      const jobData = {
         book_id,
         char_name: c.name,
         char_personality: (c.personality ?? "").slice(0, 100),
@@ -89,11 +90,22 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
           grade: it.grade ?? null,
           condition: it.condition ?? null,
         })),
-      }).catch(() => {});
+      };
+      descJobs.push(() => generateAndSaveItemDescriptions(jobData));
     }
 
-    logInfo("api:characters:save", "인물 upsert 완료", { book_id, count: characters.length });
-    res.json({ ok: true, count: characters.length });
+    logInfo("api:characters:save", "인물 upsert 완료", { book_id, count: characters.length, desc_jobs_queued: descJobs.length });
+    // 응답 먼저 반환
+    res.json({ ok: true, count: characters.length, desc_jobs_queued: descJobs.length });
+
+    // 응답 후 백그라운드에서 LLM 설명 생성 실행
+    for (const run of descJobs) {
+      setImmediate(() => {
+        run().catch((err: unknown) => {
+          logWarn("item_desc:background", err instanceof Error ? err.message : String(err), {});
+        });
+      });
+    }
   } catch (err) {
     logError("api:characters:save", err, { book_id, count: characters?.length });
     res.status(500).json({ error: "characters save failed" });
