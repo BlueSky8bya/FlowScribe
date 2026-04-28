@@ -141,6 +141,15 @@ textarea.char-input{resize:none;line-height:1.6;min-height:3rem;overflow:hidden;
 .char-refine-btn:disabled{opacity:.4;cursor:not-allowed;}
 .char-fields-full{margin-bottom:.6rem;}
 
+/* 초기 소지품 tag wrap */
+.char-items-tag-wrap{
+  background:var(--bg);border:1px solid var(--border2);border-radius:8px;
+  padding:.45rem .85rem;display:flex;flex-wrap:wrap;gap:.35rem;
+  cursor:text;min-height:2.6rem;transition:border-color .18s;align-items:flex-start;
+}
+.char-items-tag-wrap:focus-within{border-color:var(--accent);}
+.char-item-tag{font-size:.82rem;}
+
 /* 구분선 */
 .char-divider{border:none;height:1px;background:linear-gradient(90deg,transparent,var(--border),transparent);margin:.65rem 0;}
 

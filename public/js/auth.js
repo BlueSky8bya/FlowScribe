@@ -27,7 +27,7 @@ function clearWorldSettingsUI() {
   // storyConfig 기본값 복원
   Object.assign(storyConfig, {
     conflict:3, foreshadow:3, emotion:3, dialogue:3, direction:3,
-    episodeLength:1000, episodeLengthVar:200, totalEpisodes:20, totalEpisodesVar:5,
+    episodeLength:2000, episodeLengthVar:500, totalEpisodes:30, totalEpisodesVar:5,
     pov: "3인칭 관찰자", style: "균형",
   });
   ["conflict","foreshadow","emotion","dialogue","direction"].forEach(key => {
@@ -169,8 +169,8 @@ function restoreContextUI(ctx) {
   const sb = document.getElementById("settingsBtn");
   if (sb) { sb.classList.add("active"); sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`; }
 
-  // 7. 섹션 잠금 적용 (1화 이후면 I/II/V 고정)
-  applySettingsLock(currentEpisode > 1);
+  // 7. 섹션 잠금 적용 (2화 생성 이후면 세계관 설정 고정 — 1화는 재생성 허용)
+  applySettingsLock(Object.keys(episodeCache).some(k => Number(k) >= 2));
 }
 
 function lockCharCardFields(card, lock) {
@@ -607,6 +607,7 @@ function renderBookList(books, activeId) {
         b.title = newTitle;
         const inAllBooks = _allBooks.find(fb => fb.id === b.id);
         if (inAllBooks) inAllBooks.title = newTitle;
+        if (b.id === bookId) { activeBookTitle = newTitle; updateOutputHeader?.(); }
         renderBookList(_allBooks, bookId);
         showToast("제목이 수정됐습니다.", "ok", 1800);
       }

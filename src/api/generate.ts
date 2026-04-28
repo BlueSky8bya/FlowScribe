@@ -59,6 +59,8 @@ generateRouter.get("/", async (req: Request, res: Response) => {
   // renderer/planner 모델 오버라이드 (표적 재생성용 — 운영 환경에서는 사용 금지)
   const rendererModelOverride = req.query.renderer_model as string | undefined;
   const plannerModelOverride  = req.query.planner_model  as string | undefined;
+  // 1화 재생성 다양성 유도용 nonce (클라이언트가 regenerate() 시 전달)
+  const regenNonce = req.query.regen_nonce as string | undefined;
 
   // ── Planner 경로 (use_planner=true) ─────────────────────────
   if (usePlanner) {
@@ -90,6 +92,13 @@ generateRouter.get("/", async (req: Request, res: Response) => {
           (ctx as any).regen_prev_text = allBeatSets
             .map((set, i) => `[시도 ${allBeatSets.length - i}]\n${set}`)
             .join("\n");
+        }
+        // 1화 재생성: regen_nonce가 있으면 이전 장소 avoid_list 추출하여 주입
+        if (regenNonce && episode === 1 && allBeatSets.length) {
+          const locRe = /Beat\d+\(([^)]+)\)/g;
+          const prevLocs = new Set<string>();
+          for (const s of allBeatSets) { let m; while ((m = locRe.exec(s)) !== null) if (m[1] !== "?") prevLocs.add(m[1]); }
+          if (prevLocs.size) (ctx as any).regen_avoid_locations = [...prevLocs];
         }
       } catch { /* 무시 */ }
 

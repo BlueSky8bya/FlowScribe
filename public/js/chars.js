@@ -26,7 +26,11 @@ function toggleCharLock(btn) {
   const aiBtn = card.querySelector(".char-ai-btn");
   if (aiBtn) aiBtn.disabled = locked;
 
-  if (locked) card.classList.remove("expanded");
+  if (locked) {
+    card.classList.remove("expanded");
+  } else {
+    card.classList.add("expanded"); // 확정 해제 시 자동 펼침
+  }
 
   // 이름 입력만 잠금
   nameInp.readOnly = locked;
@@ -142,8 +146,11 @@ function appendCharCard(container, i, p) {
           <textarea class="char-input char-personality" placeholder="말투·행동·외형을 구체적으로&#10;예) 말이 없고 눈을 잘 안 마주침. 화날 때 입술을 깨뭄. 키가 크고 손이 크다." style="display:${p.personality?'none':'block'}">${esc(p.personality||"")}</textarea>
         </div>
         <div class="char-fields-full char-items-row">
-          <div class="char-personality-label">초기 소지품</div>
-          <input class="char-input char-initial-items" type="text" placeholder="쉼표로 구분 · 예) 활, 화살 20개, 단검" value="${esc(p.initialItems||"")}" />
+          <div class="char-personality-label">초기 소지품 <span style="font-size:.75rem;opacity:.55;font-weight:400">Enter로 항목 구분</span></div>
+          <div class="char-items-tag-wrap" id="charItemsWrap-${i}">
+            ${(p.initialItems||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(item=>`<span class="tag char-item-tag">${esc(item)}<span class="tag-del" data-item="${esc(item)}">×</span></span>`).join("")}
+            <input class="tag-input-field char-items-input" type="text" placeholder="소지품 입력 후 Enter" />
+          </div>
         </div>
         <hr class="char-divider">
         <div class="char-section">
@@ -186,6 +193,29 @@ function appendCharCard(container, i, p) {
 
   makeCharChips(card,"type-chips",  "type",  "type-wrap",  "type-inp");
   makeCharChips(card,"gender-chips","gender","gender-wrap","gender-inp");
+
+  // 초기 소지품 multi-entry
+  const itemsWrap = card.querySelector(".char-items-tag-wrap");
+  const itemsInp  = card.querySelector(".char-items-input");
+  if (itemsWrap && itemsInp) {
+    function _addItemTag(val) {
+      val = val.trim();
+      if (!val) return;
+      const tag = document.createElement("span");
+      tag.className = "tag char-item-tag";
+      tag.innerHTML = `${esc(val)}<span class="tag-del">×</span>`;
+      tag.querySelector(".tag-del").addEventListener("click", () => tag.remove());
+      itemsWrap.insertBefore(tag, itemsInp);
+    }
+    // 기존 태그 del 핸들러 바인딩
+    itemsWrap.querySelectorAll(".char-item-tag .tag-del").forEach(del => {
+      del.addEventListener("click", () => del.closest(".char-item-tag").remove());
+    });
+    itemsInp.addEventListener("keydown", e => {
+      if (e.key === "Enter") { e.preventDefault(); _addItemTag(itemsInp.value); itemsInp.value = ""; }
+    });
+    itemsWrap.addEventListener("click", () => itemsInp.focus());
+  }
   const nameInp = card.querySelector(".char-name");
   nameInp.addEventListener("input", e => {
     card.querySelector(".char-card-name-preview").textContent = e.target.value.trim() || "이름 미입력";
@@ -235,7 +265,7 @@ function renderCharCards() {
       typeCustom: c.querySelector(".type-inp")?.value || "",
       gender: c.dataset.gender || "해당없음",
       genderCustom: c.querySelector(".gender-inp")?.value || "",
-      initialItems: c.querySelector(".char-initial-items")?.value || "",
+      initialItems: Array.from(c.querySelectorAll(".char-item-tag")).map(t => t.childNodes[0].textContent.trim()).filter(Boolean).join("\n"),
     });
   });
   container.innerHTML = "";

@@ -555,6 +555,14 @@ function buildPlannerUserPrompt(
     );
   }
 
+  // 1화 재생성 장소 명시 회피 목록
+  const avoidLocs: string[] = (ctx as any).regen_avoid_locations ?? [];
+  if (avoidLocs.length) {
+    avoidLines.push(
+      `- 이전 1화 시도에 등장한 장소를 반드시 피한다: ${avoidLocs.join(", ")} — 이 장소들을 beat에 쓰지 않는다.`
+    );
+  }
+
   // 1화 또는 재생성 시: 진입점 다양성 강제 (rolling_summary 유무와 무관하게 ep1이면 항상 적용)
   if (ctx.episode_number === 1) {
     const genre = ctx.world_config?.genre ?? "";

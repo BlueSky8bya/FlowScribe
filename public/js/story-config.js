@@ -53,10 +53,12 @@ function initVolumeInputs() {
     const el = document.getElementById(id);
     if (!el) return;
     el.value = storyConfig[key];
-    el.addEventListener("change", () => {
-      storyConfig[key] = Number(el.value) || storyConfig[key];
-      el.value = storyConfig[key];
-    });
+    function _syncVal() {
+      const v = Number(el.value);
+      if (v > 0) { storyConfig[key] = v; el.value = v; }
+    }
+    el.addEventListener("change", _syncVal);
+    el.addEventListener("input",  _syncVal);
   });
 }
 

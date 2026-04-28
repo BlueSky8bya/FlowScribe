@@ -35,8 +35,8 @@ const DEFAULT_GEN_CONFIG: GenConfig = {
   pov: "3인칭 관찰자",
   style: "균형",
   conflict: 5, foreshadow: 5, emotion: 5, dialogue: 5, direction: 5,
-  episodeLength: 750, episodeLengthVar: 150,
-  totalEpisodes: 20, totalEpisodesVar: 5,
+  episodeLength: 2000, episodeLengthVar: 500,
+  totalEpisodes: 30, totalEpisodesVar: 5,
 };
 
 const DEFAULT_PREV_STATE: PrevEpisodeState = {

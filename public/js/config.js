@@ -21,9 +21,9 @@ const moodVals    = [];
 const storyConfig = {
   pov: "3인칭 관찰자",
   style: "균형",
-  episodeLength: 1000,
-  episodeLengthVar: 200,
-  totalEpisodes: 20,
+  episodeLength: 2000,
+  episodeLengthVar: 500,
+  totalEpisodes: 30,
   totalEpisodesVar: 5,
   conflict: 5,
   foreshadow: 5,

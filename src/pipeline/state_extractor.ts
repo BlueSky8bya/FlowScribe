@@ -15,7 +15,7 @@ import { resolveCharBudget } from "../types/canonical.js";
 import type { ForbiddenAction, ItemConstraint } from "../types/planner.js";
 import { variantCPovRule } from "../policies/pov_rules.js";
 
-export type EpisodeRole = "mid" | "late" | "pre-final" | "final";
+export type EpisodeRole = "intro" | "early" | "mid" | "late" | "pre-final" | "final";
 export type ArcPhase = "intro" | "early" | "mid" | "late" | "pre_final" | "final" | "unknown";
 
 export interface NarrativeContract {
@@ -197,13 +197,14 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
 
   // narrative_contract: 연재 흐름 제약
   const remaining = resolvedFinal - ctx.episode_number;
+  const arc_ratio = resolvedFinal > 0 ? ctx.episode_number / resolvedFinal : 0;
   const episode_role: EpisodeRole =
     ending_constraint === "final" ? "final"
     : remaining <= 1             ? "pre-final"
     : remaining <= 5             ? "late"
+    : arc_ratio < 0.15           ? "intro"
+    : arc_ratio < 0.35           ? "early"
     : "mid";
-
-  const arc_ratio = resolvedFinal > 0 ? ctx.episode_number / resolvedFinal : 0;
   const arc_phase: ArcPhase =
     resolvedFinal <= 0   ? "unknown"
     : arc_ratio < 0.15   ? "intro"

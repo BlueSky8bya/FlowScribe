@@ -43,12 +43,16 @@ function _renderPostprocStats() {
   if (!el) return;
   const kv2 = (k, v, cls) => `<div class="eq-kv"><span class="eq-kv-key">${k}</span><span class="eq-kv-val${cls ? ' '+cls : ''}">${v}</span></div>`;
   const any = Object.values(_ppStats).some(v => v > 0);
+  const _outputText = document.getElementById('output')?.textContent ?? '';
+  const _hasQuotes = /[“「『"]/.test(_outputText);
+  const _tagWarn = _hasQuotes && _ppStats.dialogueLinesTagged === 0;
   el.innerHTML = `<div class="eq-kv-list">
     ${kv2('따옴표 병합', _ppStats.quoteMerges + '회', _ppStats.quoteMerges ? 'warn' : '')}
     ${kv2('대괄호 병합', _ppStats.bracketMerges + '회', _ppStats.bracketMerges ? 'warn' : '')}
-    ${kv2('대화/지문 분리', _ppStats.dialogueSplits + '개 단락', _ppStats.dialogueSplits ? '' : '')}
-    ${kv2('분리 건너뜀(40%↓)', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
-    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄')}
+    ${kv2('대화/지문 분리', _ppStats.dialogueSplits + '개 단락', '')}
+    ${kv2('분리 건너뜀(20%↓)', _ppStats.dialogueSkipped + '회', _ppStats.dialogueSkipped ? 'warn' : '')}
+    ${kv2('대화줄 태깅', _ppStats.dialogueLinesTagged + '줄', _tagWarn ? 'warn' : '')}
+    ${_tagWarn ? kv2('⚠ 대화 태깅 0', '따옴표 있음에도 태깅 없음 — 확인 필요', 'warn') : ''}
     ${kv2('외국어 제거', _ppStats.foreignCharsRemoved + '회', _ppStats.foreignCharsRemoved ? 'bad' : '')}
   </div>`;
   if (sec) sec.hidden = false;
@@ -192,7 +196,8 @@ function splitDialogueNarration(container) {
     for (const [open, close] of DIAL_PAIRS) {
       const escapedO = open.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const escapedC = close.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp(escapedO + '([^' + escapedC + '\n]{1,300})' + escapedC, 'g');
+      // [\s\S]{1,600}: 멀티라인 대사 허용 (최대 600자)
+      const re = new RegExp(escapedO + '([\\s\\S]{1,600}?)' + escapedC, 'g');
       let m;
       while ((m = re.exec(text)) !== null) {
         matches.push({ index: m.index, end: m.index + m[0].length, text: m[0] });
@@ -222,9 +227,9 @@ function splitDialogueNarration(container) {
 
     // 순수 대사 or 순수 지문은 그대로
     if (parts.length < 2) return;
-    // 대사가 단락 전체의 30% 미만이면 단어 강조 인용 → 분리하지 않음
+    // 대사가 단락 전체의 20% 미만이면 단어 강조 인용 → 분리하지 않음 (30%→20%로 완화)
     const dialLen = parts.filter(pt => pt.type === "dial").reduce((s, pt) => s + pt.text.length, 0);
-    if (dialLen < text.length * 0.30) { _ppStats.dialogueSkipped++; return; }
+    if (dialLen < text.length * 0.20) { _ppStats.dialogueSkipped++; return; }
 
     const frag = document.createDocumentFragment();
     parts.forEach(pt => {
@@ -370,10 +375,13 @@ function regenerate() {
   if (_generating) return;
   if (displayedEpisode == null) return;
   // 현재 화를 캐시에서 제거하고 동일 번호로 재생성
-  delete episodeCache[displayedEpisode];
-  currentEpisode = displayedEpisode;
+  const regenEp = displayedEpisode;
+  delete episodeCache[regenEp];
+  currentEpisode = regenEp;
   displayedEpisode = null;
   document.getElementById("output").textContent = "";
+  // 1화 재생성: regen_nonce로 플랜 다양성 유도
+  window._regenNonce = (regenEp === 1) ? Date.now().toString(36) : null;
   generate();
 }
 
@@ -432,12 +440,13 @@ function generate() {
     currentEpisode++;
     updateEpisodeUI();
     syncBookEpisode?.();
-    if (currentEpisode > 1) applySettingsLock?.(true);
+    if (episodeNum >= 2) applySettingsLock?.(true);
     btn.disabled = false;
   }
   let _generateFinished = false;
 
-  const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${bookId}&use_planner=true`);
+  const _regenParam = window._regenNonce ? `&regen_nonce=${encodeURIComponent(window._regenNonce)}` : "";
+  const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${bookId}&use_planner=true${_regenParam}`);
   es.onmessage = e => {
     if (e.data === "[DONE]") { _finishGeneration(); return; }
     try {
@@ -777,7 +786,18 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('POV', gc?.pov ?? null);
     rows += kv('문체', gc?.style ?? null);
     rows += kv('회차 역할', a?.episode_role ?? null);
-    rows += kv('남은 화수', a?.remaining_episodes != null ? a.remaining_episodes + '화' : null);
+    // 확정 최종화: resolved_final_episode 우선, 없으면 gen_config.totalEpisodes
+    const _resolvedFinal = a?.resolved_final_episode ?? gc?.totalEpisodes;
+    if (_resolvedFinal != null) {
+      const _curEp = a?.episode_number ?? null;
+      const _remaining = a?.remaining_episodes;
+      let _finalTxt = `${_resolvedFinal}화`;
+      if (_curEp != null) _finalTxt += ` (현재 ${_curEp}화)`;
+      rows += kv('확정 최종화', _finalTxt);
+      if (_remaining != null) rows += kv('남은 화수', _remaining + '화');
+    } else {
+      rows += kv('남은 화수', a?.remaining_episodes != null ? a.remaining_episodes + '화' : null);
+    }
     rows += kv('서사 국면', a?.planner_arc_phase
       ? `${a.planner_arc_phase}${a?.planner_arc_ratio != null ? ' (' + a.planner_arc_ratio + '%)' : ''}` : null);
     rows += kv('엔딩 유형', a?.ending_constraint ?? null);

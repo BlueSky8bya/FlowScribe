@@ -28,7 +28,7 @@ export interface PlannerTrace {
     ending_constraint: "cliff" | "final";
     resolved_final: number;
     remaining_episodes: number;
-    episode_role: "mid" | "late" | "pre-final" | "final";
+    episode_role: "intro" | "early" | "mid" | "late" | "pre-final" | "final";
     // Character contract
     absent_characters: string[];
     // Rule / Intervention contract
