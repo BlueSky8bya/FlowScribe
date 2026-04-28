@@ -177,6 +177,13 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       });
 
       clearInterval(heartbeat);
+      const _epNum = (ctx as any).episode_number ?? episode;
+      const _rf = (ctx.gen_config as any)?.resolved_final_episode ?? (ctx.gen_config as any)?.totalEpisodes ?? null;
+      const _arcRatio = (_rf && _rf > 0) ? _epNum / _rf : null;
+      const _freshRole = (_epNum && _rf && _rf > 0)
+        ? (_epNum >= _rf ? "final" : _rf - _epNum <= 1 ? "pre-final" : _rf - _epNum <= 5 ? "late"
+            : _arcRatio! < 0.15 ? "intro" : _arcRatio! < 0.35 ? "early" : "mid")
+        : null;
       res.write(`data: ${JSON.stringify({
         done: true, chars: result.generated_text.length, char_states: freshCharStates,
         episode_meta: {
@@ -184,6 +191,17 @@ generateRouter.get("/", async (req: Request, res: Response) => {
           final_score: result.final_score,
           revision_count: result.revision_count,
           plan_fallback_used: result.plan_fallback_used,
+          episode_number: _epNum,
+          resolved_final_episode: _rf,
+          remaining_episodes: _rf ? _rf - _epNum : null,
+          episode_role: _freshRole,
+          gen_config: ctx.gen_config ? {
+            episodeLength:    (ctx.gen_config as any).episodeLength,
+            episodeLengthVar: (ctx.gen_config as any).episodeLengthVar,
+            totalEpisodes:    (ctx.gen_config as any).totalEpisodes,
+            pov:              (ctx.gen_config as any).pov,
+            style:            (ctx.gen_config as any).style,
+          } : null,
         },
       })}\n\n`);
       res.end();
@@ -481,14 +499,22 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       const type   = canonical?.type   ?? (typeof wb === "object" ? wb?.type   : null) ?? (typeof wb === "string" ? wb.match(/유형:\s*([^,|\]]+)/)?.[1]?.trim() : null) ?? null;
       const gender = canonical?.gender ?? (typeof wb === "object" ? wb?.gender : null) ?? (typeof wb === "string" ? wb.match(/성별:\s*([^,|\]]+)/)?.[1]?.trim() : null) ?? null;
       // dynamic items 우선, 없으면 canonical initial_items 폴백
+      // dynItem에 grade가 없으면 canonical initial_items의 동명 아이템 grade 상속
       const dynItems: any[] = s.items ?? [];
       const fallbackItems: any[] = canonicalMap[s.character_name]?.initial_items ?? [];
+      const canonicalItemGradeMap: Record<string, string> = {};
+      for (const ci of fallbackItems) {
+        if (ci.name && ci.grade) canonicalItemGradeMap[ci.name] = ci.grade;
+      }
+      const mergedItems = dynItems.length > 0
+        ? dynItems.map((it: any) => (!it.grade && canonicalItemGradeMap[it.name]) ? { ...it, grade: canonicalItemGradeMap[it.name] } : it)
+        : fallbackItems;
       return {
         character_name:  s.character_name,
         type, gender,
         location:        s.location        ?? null,
         physical_state:  s.physical_state  ?? null,
-        items:           dynItems.length > 0 ? dynItems : fallbackItems,
+        items:           mergedItems,
         emotional_state: s.emotional_state ?? null,
         visibility_state: s.visibility_state ?? "present",
         recent_goal:     s.recent_goal     ?? null,
@@ -637,11 +663,22 @@ generateRouter.get("/audit-status", async (req: Request, res: Response) => {
       plan_verdict:        pval?.verdict ?? null,
       plan_issues:         pval?.issues ?? [],
       plan_passed_checks:  pval?.passed_checks ?? [],
-      // 연재 계약
-      episode_role:            ic?.episode_role ?? null,
-      remaining_episodes:      ic?.remaining_episodes ?? null,
-      resolved_final_episode:  ic?.resolved_final ?? (ctx?.gen_config as any)?.resolved_final_episode ?? (ctx?.gen_config as any)?.totalEpisodes ?? null,
-      episode_number:          (ctx?.episode_number as number) ?? null,
+      // 연재 계약 (episode_role은 저장값이 낡을 수 있으므로 fresh 재계산)
+      ...(() => {
+        const _ep  = (ctx?.episode_number as number) ?? null;
+        const _rf  = ic?.resolved_final ?? (ctx?.gen_config as any)?.resolved_final_episode ?? (ctx?.gen_config as any)?.totalEpisodes ?? null;
+        const _ar  = (_ep && _rf && _rf > 0) ? _ep / _rf : null;
+        const _role = (_ep && _rf && _rf > 0)
+          ? (_ep >= _rf ? "final" : _rf - _ep <= 1 ? "pre-final" : _rf - _ep <= 5 ? "late"
+              : _ar! < 0.15 ? "intro" : _ar! < 0.35 ? "early" : "mid")
+          : (ic?.episode_role ?? null);
+        return {
+          episode_role:           _role,
+          remaining_episodes:     ic?.remaining_episodes ?? (_ep && _rf ? _rf - _ep : null),
+          resolved_final_episode: _rf,
+          episode_number:         _ep,
+        };
+      })(),
       ending_constraint:       pt?.parsed_plan?.ending_constraint ?? null,
       // 서사 국면 (planner input_contract 기반)
       planner_arc_phase:   ic?.planner_arc_phase ?? null,

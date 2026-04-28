@@ -184,6 +184,9 @@ textarea.char-input{resize:none;line-height:1.6;min-height:3rem;overflow:hidden;
 .char-lock-btn:disabled{opacity:.3;cursor:not-allowed;}
 .char-card-header{cursor:pointer;}
 .char-card.locked{border-color:var(--accent-border);border-left-color:var(--accent);animation:char-lock-flash .5s ease-out;}
+.char-card.locked[data-gender="여성"]{border-left-color:#c07090;}
+.char-card.locked[data-gender="남성"]{border-left-color:#7090c8;}
+.char-card.locked[data-gender="기타"]{border-left-color:#70a878;}
 
 /* 로딩 오버레이 */
 @keyframes spin{to{transform:rotate(360deg);}}

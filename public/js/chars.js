@@ -248,7 +248,6 @@ function appendCharCard(container, i, p) {
   });
 
   card.querySelector(".char-card-header").addEventListener("click", e => {
-    if (card.classList.contains("locked")) return;
     if (e.target.closest(".char-lock-btn, .char-ai-btn")) return;
     card.classList.toggle("expanded");
   });

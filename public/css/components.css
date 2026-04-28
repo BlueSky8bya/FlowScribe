@@ -149,9 +149,9 @@
 .section-locked .tag{pointer-events:none;cursor:default;}
 .section-locked .tag-input-field{display:none!important;}
 /* 인물카드 잠금 — 잠금 이후 카드 입력 전체 비활성화 */
-.section-locked .char-card{pointer-events:none;}
 .section-locked .char-card .char-confirm-btn,.section-locked .char-card .char-lock-btn,
 .section-locked .char-card .char-refine-btn,.section-locked .char-card .char-ai-btn{opacity:.25;pointer-events:none;}
+.section-locked .char-card input,.section-locked .char-card textarea{pointer-events:none;}
 /* 분량·슬라이더 시각 표시 */
 .section-locked .vol-input,.section-locked .story-slider{cursor:not-allowed;}
 .section-locked .slider-grid-vertical,.section-locked .volume-row{opacity:.6;pointer-events:none;}
