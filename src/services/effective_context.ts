@@ -244,7 +244,7 @@ export async function buildEffectiveContext(opts: {
     foreshadows.status === "fulfilled" ? (foreshadows.value as any[]).map(f => ({ id: f.id, planted_episode: f.planted_episode, content: f.content, keywords: f.keywords })) : [];
 
   const continuityContract: ContinuityContract | undefined = episodeNumber >= 2
-    ? buildContinuityContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail)
+    ? buildContinuityContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail, rollingSummary)
     : undefined;
 
   const ctx: EffectiveContext = {
@@ -366,6 +366,7 @@ function buildContinuityContract(
   characterArcs: Record<string, { state: string; key_events: string[] }>,
   foreshadows: Array<{ content: string; keywords: string[] }>,
   prevTail?: string,
+  rollingSummary?: string,
 ): ContinuityContract {
   // known_facts: 인물 아크 key_events + recent_goal
   const known_facts: string[] = [];
@@ -378,10 +379,29 @@ function buildContinuityContract(
     if (s.recent_goal) known_facts.push(`${s.character_name} 현재 목표: ${s.recent_goal}`);
   }
 
-  // relationship_state: 인물 아크 state 필드
+  // arc가 없는 단편(< 10화)에서는 rolling_summary를 known_facts 보충에 사용
+  // rolling_summary 각 줄 "N화: ..." = 이미 발생한 사건의 요약
+  if (known_facts.length < 3 && rollingSummary) {
+    const summaryLines = rollingSummary.split("\n").filter(l => /^\d+화:/.test(l.trim()));
+    for (const line of summaryLines.slice(-(episodeNumber - 1))) {
+      const content = line.replace(/^\d+화:\s*/, "").trim();
+      if (content.length > 10) known_facts.push(content);
+    }
+  }
+
+  // relationship_state: 인물 아크 state 필드 (arc 없으면 dynamic state emotional/goal로 보충)
   const relationship_state: string[] = [];
   for (const [name, arc] of Object.entries(characterArcs)) {
     if (arc.state) relationship_state.push(`${name}: ${arc.state}`);
+  }
+  // arc가 없으면 dynamic state에서 감정/상태로 간이 relationship_state 구성
+  if (relationship_state.length === 0) {
+    for (const s of dynStates) {
+      const parts: string[] = [];
+      if (s.emotional_state) parts.push(`감정: ${s.emotional_state}`);
+      if (s.recent_goal) parts.push(`목표: ${s.recent_goal}`);
+      if (parts.length) relationship_state.push(`${s.character_name}: ${parts.join(", ")}`);
+    }
   }
 
   // open_threads: 복선 메모리

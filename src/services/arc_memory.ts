@@ -75,10 +75,12 @@ export async function getLatestCharacterArcs(
 export async function generateAndSaveArcSummary(
   bookId: string,
   arcNumber: number,
-  characterNames: string[]
+  characterNames: string[],
+  /** 단편 최종화용 명시적 epEnd 오버라이드 (미지정 시 arcNumber * ARC_SIZE) */
+  epEndOverride?: number,
 ): Promise<void> {
   const epStart = (arcNumber - 1) * ARC_SIZE + 1;
-  const epEnd   = arcNumber * ARC_SIZE;
+  const epEnd   = epEndOverride ?? arcNumber * ARC_SIZE;
 
   try {
     const epRes = await pool.query(
@@ -167,23 +169,40 @@ export async function generateAndSaveArcSummary(
       }
     }
 
+    // arc_summary의 "[주요 사건]" 섹션에서 key_events 추출
+    const keyEventsFromSummary: string[] = [];
+    const mainEventMatch = arcSummary.match(/\[주요 사건\]([\s\S]*?)(?=\[|$)/);
+    if (mainEventMatch?.[1]) {
+      keyEventsFromSummary.push(
+        ...mainEventMatch[1].trim().split(/[.。]\s+/).filter(s => s.trim().length > 4).slice(0, 5)
+      );
+    }
+
     // DB 저장
     await pool.query(
       `INSERT INTO arc_summaries (book_id, arc_number, episode_start, episode_end, summary, key_events)
        VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (book_id, arc_number) DO UPDATE SET summary=$5, key_events=$6`,
-      [bookId, arcNumber, epStart, epEnd, arcSummary, JSON.stringify([])]
+      [bookId, arcNumber, epStart, epEnd, arcSummary, JSON.stringify(keyEventsFromSummary)]
     );
 
     if (charArcs.length) {
-      await Promise.all(charArcs.map(c =>
-        pool.query(
+      // character_arcs key_events: arc summary의 "[인물 현재 상태]" 섹션에서 해당 인물 관련 문장 추출
+      const charStateSection = arcSummary.match(/\[인물 현재 상태\]([\s\S]*?)(?=\[|$)/)?.[1] ?? "";
+      await Promise.all(charArcs.map(c => {
+        // 해당 인물 이름이 포함된 문장들 → key_events
+        const charKeyEvents = charStateSection
+          .split(/\n+/)
+          .filter(line => line.includes(c.name) && line.trim().length > 4)
+          .map(line => line.replace(/^-?\s*/, "").trim())
+          .slice(0, 4);
+        return pool.query(
           `INSERT INTO character_arcs (book_id, character_name, arc_number, state, key_events)
            VALUES ($1, $2, $3, $4, $5)
-           ON CONFLICT (book_id, character_name, arc_number) DO UPDATE SET state=$4`,
-          [bookId, c.name, arcNumber, c.state, JSON.stringify([])]
-        )
-      ));
+           ON CONFLICT (book_id, character_name, arc_number) DO UPDATE SET state=$4, key_events=$5`,
+          [bookId, c.name, arcNumber, c.state, JSON.stringify(charKeyEvents)]
+        );
+      }));
     }
 
     logInfo("service:arc_memory", "아크 요약 저장 완료", {

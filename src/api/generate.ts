@@ -140,11 +140,14 @@ generateRouter.get("/", async (req: Request, res: Response) => {
         try {
           const clean = result.generated_text
             .replace(/\[CLIFF[\]\n]?/g, "").replace(/\[END\]/gi, "").trim();
+          // fallback summary: 첫 문장 (saveEpisode의 LLM 요약이 올 때까지 임시 사용)
+          const fallbackSummary = clean.split(/[.。!?]/)[0]?.trim() ?? "";
           await pool.query(
-            `INSERT INTO episodes (book_id, episode_number, content)
-             VALUES ($1, $2, $3)
-             ON CONFLICT (book_id, episode_number) DO UPDATE SET content = EXCLUDED.content`,
-            [bookId!, episode, clean]
+            `INSERT INTO episodes (book_id, episode_number, content, summary)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (book_id, episode_number) DO UPDATE SET content = EXCLUDED.content,
+               summary = CASE WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary ELSE episodes.summary END`,
+            [bookId!, episode, clean, fallbackSummary]
           );
           await pool.query(
             `UPDATE books SET current_episode = GREATEST(current_episode, $1), updated_at = NOW() WHERE id = $2`,

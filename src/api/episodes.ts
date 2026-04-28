@@ -84,17 +84,37 @@ episodesRouter.post("/", async (req: Request, res: Response) => {
         });
 
         // 아크 완료 시 (10화 단위) 아크 요약 생성
-        if (ep % ARC_SIZE === 0) {
-          const arcNumber = ep / ARC_SIZE;
+        // 또는 단편(totalEpisodes < ARC_SIZE)의 최종화 시 임시 아크(arc_number=1) 생성
+        // gen_config.totalEpisodes를 episode_snapshots에서 읽어 단편 여부 판단
+        const snapRow = await pool.query(
+          `SELECT effective_context->'gen_config'->>'totalEpisodes' AS total_episodes
+           FROM episode_snapshots WHERE book_id=$1 ORDER BY episode_number DESC LIMIT 1`,
+          [bookId]
+        ).catch(() => ({ rows: [] }));
+        const totalEpisodes: number = parseInt(snapRow.rows[0]?.total_episodes ?? "0", 10) || 0;
+        const isShortFinal = totalEpisodes > 0 && totalEpisodes < ARC_SIZE && ep >= totalEpisodes;
+        const isArcComplete = ep % ARC_SIZE === 0;
+
+        if (isArcComplete || isShortFinal) {
           const charRes = await pool.query(
             `SELECT DISTINCT name FROM characters WHERE book_id = $1`, [bookId]
           );
           const characterNames = charRes.rows.map((r: any) => r.name);
-          logInfo("api:episodes:save", `아크 ${arcNumber} 완료 — 요약 생성 시작`, {
-            book_id: bookId, arc_number: arcNumber,
-            ep_range: `${(arcNumber - 1) * ARC_SIZE + 1}~${ep}화`,
-          });
-          await generateAndSaveArcSummary(bookId, arcNumber, characterNames);
+
+          if (isArcComplete) {
+            const arcNumber = ep / ARC_SIZE;
+            logInfo("api:episodes:save", `아크 ${arcNumber} 완료 — 요약 생성 시작`, {
+              book_id: bookId, arc_number: arcNumber,
+              ep_range: `${(arcNumber - 1) * ARC_SIZE + 1}~${ep}화`,
+            });
+            await generateAndSaveArcSummary(bookId, arcNumber, characterNames);
+          } else if (isShortFinal) {
+            // 단편 최종화: 전체 에피소드를 arc 1로 요약 저장 (arc_number=1, ep_range=1~ep)
+            logInfo("api:episodes:save", `단편 최종화 — 미니 아크 요약 생성 시작`, {
+              book_id: bookId, total_episodes: totalEpisodes, ep_range: `1~${ep}화`,
+            });
+            await generateAndSaveArcSummary(bookId, 1, characterNames, ep);
+          }
         }
       } catch (err) {
         logError("api:episodes:save", err, { context: "비동기 사후처리 실패", book_id: bookId, episode: ep });
