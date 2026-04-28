@@ -215,4 +215,78 @@ Gemini key 없음                  → 자동으로 로컬 fallback (현재 구�
 
 ---
 
+---
+
+## 11. 장편 관점 모델 라우팅 전략 (30화/100화 검증 기반)
+
+> 근거: `scripts/verify_long_story_memory.mjs` fixture 시뮬레이션 결과 (2026-04-28)
+> - 30화 fixture: **READY** (30/30 PASS)
+> - 100화 fixture: **READY** (93/100 PASS, WARN 7개 — open_thread 과다)
+
+### 11.1 장편에서 나타나는 병목 역할
+
+| 역할 | 30화 | 100화 | 위험 요인 |
+|------|------|-------|----------|
+| **Planner** | 보통 | **병목 가능** | 30화 이후 continuity_contract 크기 증가(known_facts 15개+) → JSON 크기 비례 증가. 12b 모델에서 지시 준수율 저하 우려. |
+| **Renderer** | 보통 | **병목 가능** | 100화 이상 arc_summary × 10개 + continuity_contract를 시스템 프롬프트에 모두 주입 시 컨텍스트 길이 초과 위험. |
+| **summaryModel** | 안정 | 안정 | rolling_summary는 최근 10화 창으로 고정 → 토큰 부하 안정적. |
+| **arc_memory 생성** | 안정 (10화마다) | **부하 증가** | 100화 = 10회 arc 생성 × 5인물 = 최대 50개 character_arcs row. 조회 쿼리 비용 선형 증가. |
+| **foreshadow checker** | 안정 | **누적 위험** | 100화 시뮬레이션 기준 open_thread 최대 14개 (threshold 15 근접). 능동적 회수 로직 없으면 ep85+ WARN 발생. |
+| **continuity checker** | 안정 | 안정 | 현재 deterministic 패턴 매칭 — 모든 구간 overhead 없음. |
+
+### 11.2 플래너 모델 충분성 평가
+
+- **현재 qwen2.5:14b 플래너**: 30화까지는 JSON 계획 품질 유지 예상. 단, 30화 이후 continuity_contract.known_facts가 15개 이상으로 고정되므로 프롬프트 복잡도 정체 → 12b 이상이면 이 부분은 안정.
+- **100화 이상에서의 우려**: planner 프롬프트에 arc_summary 10개 누적 주입 시 컨텍스트 길이 증가. `qwen2.5:14b`의 context window가 충분한지 실측 필요 (모델에 따라 4K~32K).
+- **Gemma3:27b 플래너 실험 권장 시점**: 30화 실제 생성 결과에서 plan 구조 붕괴(missing_fields, wrong arc_phase) 횟수가 3회 이상이면 27b 교체 검토.
+
+### 11.3 렌더러 모델 충분성 평가
+
+- **현재 qwen2.5:14b 렌더러**: renderer 시스템 프롬프트에 prev_episode_tail(500자) + continuity_contract(금지사항 + known_facts) + arc_summary(500자) + finaleSection이 순차 주입됨.
+- **100화 시 시스템 프롬프트 추정 크기**: ~3,000~5,000 tokens. `qwen2.5:14b`의 context window 내이지만, 소설 본문(목표 2,000자) 포함 시 총 ~8,000 tokens 수준. 실측 권장.
+- **위험 구간**: ep 90+ — finaleSection + pre_final + arc × 10개 동시 주입 시. 이 구간에서 모델 지시 준수율이 저하되면 Gemini 2.5 Pro 또는 DeepSeek으로 렌더러 교체 고려.
+
+### 11.4 Validator/Audit 필요성
+
+- **현재**: continuity checker는 deterministic (패턴 매칭). 비용 없음, 지연 없음.
+- **30화 이상 실제 생성 시 추가 필요**:
+  - `arc_phase` 정합성 검증 (planner가 올바른 phase를 선택했는지)
+  - `known_facts` 반영 여부 (생성된 본문에 continuity_contract facts가 실제로 반영됐는지)
+  - B플롯 소실 감지 (open_threads 중 연속 미언급 횟수 추적)
+- **Gemini 2.5 Flash 또는 DeepSeek를 background audit으로**: 고비용이지만 30화 단위 아크 완료 시점에 한 번씩 적용하면 호출 수는 3회(30화 기준).
+
+### 11.5 Gemma3:27b 실험 필요성
+
+- **플래너**: `qwen2.5:14b` 대비 JSON 구조 안정성 실측 필요. 특히 `continuity_contract` 소비 품질.
+- **렌더러**: 30화 이상 장문 생성에서 서사 일관성 유지력 비교.
+- **우선순위**: 30화 실제 생성 PASS 후, ep 20~30 구간 plan 품질을 수동 평가한 뒤 필요 시 도입.
+
+### 11.6 100화 이상 구체적 위험과 대응
+
+| 위험 | 100화 fixture 결과 | 권장 대응 |
+|------|-------------------|----------|
+| open_thread 과다 누적 | ep85+ WARN (최대 14개) | `checkAndResolveForeshadows` 매칭 민감도 향상 또는 ep 20마다 강제 정리 로직 |
+| rolling_summary 초반 목표 유실 | ep 10 이후 최근 10화만 유지 | arc_summary가 이를 보완하는 구조 — arc가 정상 생성되는 한 허용 범위 |
+| character_arcs DB 누적 | 10개 아크 × 5인물 = 50 row | `getLatestCharacterArcs` 이미 `DISTINCT ON` 사용 → 쿼리 부하 낮음 |
+| finalization directive 미작동 | fixture 기준 정상 (score 1.0) | 실제 생성에서는 ending_constraint=final 조건 확인 필수 |
+
+### 11.7 30화 실제 생성 진행 여부
+
+**판정: CONDITIONAL READY**
+
+조건:
+1. `npm run build` clean ✓ (확인됨)
+2. 모든 verify 스크립트 PASS ✓ (확인됨)
+3. fixture 30화 READY ✓ (확인됨)
+
+사전 확인 필요:
+- 예상 생성 시간: 화당 ~30~90초(로컬 qwen2.5:14b) → 30화 = 15~45분
+- 예상 API 호출: summaryModel × 30 + suggestModel × 0 → Gemini 호출 없음(로컬만)
+- DB row 증가: episodes × 30 + episode_snapshots × 30 + foreshadows × ~10 + character_arcs × 5(ep30 단편 아크 또는 ep10,20,30 각 아크)
+- 실패 시 재개: `episode_number`가 unique key → 중간 중단 후 재시작 가능 (ON CONFLICT DO NOTHING 구현 확인 필요)
+- 결과 snapshot: `episode_snapshots` 테이블에 자동 저장됨
+
+---
+
 *보고서 기준: 2026-04-28, FlowScribe checkpoint/phase1-launch-prep*
+*장편 검증 섹션 추가: 30화/100화 fixture 결과 반영*
