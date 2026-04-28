@@ -48,8 +48,6 @@ function closeModal() { document.getElementById("modalOverlay").classList.remove
 function closeModalOutside(e) { /* 바깥 클릭으로 닫지 않음 — 저장 후 닫기 버튼만 사용 */ }
 
 async function saveContext() {
-  const genres = [...settingVals, ...moodVals];
-
   // 이름 미입력 인물카드 검증
   const unnamedCards = [...document.querySelectorAll(".char-card")].filter(
     card => !card.querySelector(".char-name")?.value?.trim()
@@ -67,13 +65,15 @@ async function saveContext() {
     return;
   }
 
+  // 데이터 수집
+  const genres = [...(settingVals || []), ...(moodVals || [])];
   const characterDefaults = {};
   const characterRows = [];
   document.querySelectorAll(".char-card").forEach(card => {
     const name        = card.querySelector(".char-name")?.value?.trim() ?? "";
     const personality = card.querySelector(".char-personality")?.value?.trim() ?? "";
-    let type   = card.dataset.type;
-    let gender = card.dataset.gender;
+    let type   = card.dataset.type ?? "기타";
+    let gender = card.dataset.gender ?? "기타";
     if (type   === "기타") type   = card.querySelector(".type-inp")?.value?.trim()   || "기타";
     if (gender === "기타") gender = card.querySelector(".gender-inp")?.value?.trim() || "기타";
     if (!name) return;
@@ -91,45 +91,60 @@ async function saveContext() {
   const worldBible = {
     world_rules: [
       ...(genres.length ? [`장르: ${genres.join(", ")}`] : []),
-      ...ruleEntries.filter(e => !e.hard).map(e => e.val),
+      ...(ruleEntries || []).filter(e => !e.hard).map(e => e.val),
     ],
     character_defaults: characterDefaults,
     fixed_relationships: [],
-    forbidden_settings: ruleEntries.filter(e => e.hard).map(e => e.val),
+    forbidden_settings: (ruleEntries || []).filter(e => e.hard).map(e => e.val),
   };
 
+  // 세계관 저장 (critical — 실패 시 모달 유지)
   try {
-    await fetch("/api/context", {
+    const contextRes = await fetch("/api/context", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ book_id: bookId, worldBible, storyConfig }),
     });
+    if (!contextRes.ok) {
+      const errText = await contextRes.text().catch(() => "");
+      throw new Error(`context save failed: ${contextRes.status} ${errText}`);
+    }
+  } catch (err) {
+    console.error("[saveContext] /api/context failed:", err);
+    showToast("세계관 저장 실패 — 다시 시도해 주세요", "err");
+    return; // 모달 유지
+  }
 
-    if (characterRows.length > 0) {
-      await fetch("/api/characters", {
+  // 인물 저장 (non-critical — 실패해도 모달 닫기)
+  if (characterRows.length > 0) {
+    try {
+      const charRes = await fetch("/api/characters", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ book_id: bookId, characters: characterRows }),
       });
+      if (!charRes.ok) {
+        const errText = await charRes.text().catch(() => "");
+        console.warn("[saveContext] /api/characters warning:", charRes.status, errText);
+        showToast("인물 정보 일부 저장에 문제가 발생했습니다", "warning");
+      }
+    } catch (err) {
+      console.warn("[saveContext] /api/characters exception:", err);
+      showToast("인물 정보 저장 중 오류 — 세계관은 저장됐습니다", "warning");
     }
-
-    // 저장 완료 — 1화 이후면 이 시점부터 모든 카드 이름/유형/성별 잠금
-    if (currentEpisode > 1) {
-      document.querySelectorAll(".char-card").forEach(card => {
-        card.dataset.saved = "true";
-        lockCharCardFields(card, true);
-      });
-    }
-    // 저장 성공 — 버튼 상태 갱신 후 모달 닫기
-    const sb = document.getElementById("settingsBtn");
-    if (sb) {
-      sb.classList.add("active");
-      sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`;
-    }
-    closeModal();
-  } catch (err) {
-    console.error("[saveContext] error:", err);
-    showToast("서버 연결 실패 — 설정은 로컬에 유지됩니다", "warning");
-    // API 실패 시 모달 닫지 않음 — 사용자가 재시도할 수 있도록 유지
   }
+
+  // 저장 완료 후 UI 갱신 및 모달 닫기
+  if (typeof currentEpisode !== "undefined" && currentEpisode > 1) {
+    document.querySelectorAll(".char-card").forEach(card => {
+      card.dataset.saved = "true";
+      if (typeof lockCharCardFields === "function") lockCharCardFields(card, true);
+    });
+  }
+  const sb = document.getElementById("settingsBtn");
+  if (sb) {
+    sb.classList.add("active");
+    sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`;
+  }
+  closeModal(); // context 저장 성공 후 항상 호출
 }

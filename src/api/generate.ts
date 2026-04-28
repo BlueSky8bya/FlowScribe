@@ -665,6 +665,32 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       });
     }
 
+    // 최종 description 보장 — LLM 생성 실패 시에도 카테고리 기반 fallback 적용
+    const CATEGORY_DESC_FALLBACK: Record<string, string> = {
+      "무기": "위협에 대응하기 위한 전투 장비",
+      "방어구": "위험으로부터 사용자를 보호하는 장비",
+      "소모품": "필요한 순간 사용하는 소모성 물품",
+      "문서": "기록이나 분석에 활용되는 정보 장치",
+      "마법": "마력을 담거나 발현하는 도구",
+      "통신": "전파나 신호를 통해 정보를 전달하는 장비",
+      "전자": "전자 신호나 데이터를 처리하는 장비",
+      "의복": "신체를 보호하거나 신분을 나타내는 의류",
+      "식량": "체력과 지속력을 보충하는 식품",
+      "귀중품": "가치 있는 물품이나 거래 수단",
+      "악기": "음악을 연주하거나 신호를 보내는 도구",
+      "탈것": "이동을 보조하는 수단",
+      "도구": "작업이나 탐색에 쓰이는 실용 도구",
+      "기타": "인물이 상황에 따라 활용하는 소지품",
+    };
+    for (const s of charStates) {
+      s.items = (s.items ?? []).map((it: any) => {
+        if (it.description && it.description.trim()) return it;
+        const category = it.category || "기타";
+        const fallbackDesc = CATEGORY_DESC_FALLBACK[category] ?? CATEGORY_DESC_FALLBACK["기타"];
+        return { ...it, description: fallbackDesc };
+      });
+    }
+
     logInfo("api:generate", "char-states 조회", { book_id: bookId, episode, count: charStates.length });
     res.json({ char_states: charStates });
   } catch (err) {
