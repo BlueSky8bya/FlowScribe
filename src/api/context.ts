@@ -14,16 +14,54 @@ function autoGradeItem(item: { name: string; grade?: string; condition?: string;
   const n = item.name.toLowerCase();
   const d = (item.description ?? "").toLowerCase();
   const combined = n + " " + d;
-  // S: 전설/신성/신기/불멸/마왕/천계/신수/최강/신령/고신/유일/세계 최강
   if (/전설|신성|신기|불멸|마왕|천계|신수|최강|신령|고신|유일|세계\s*최강|신검|신창|신궁|신갑|신환|신의|천신|천마|신인|신계/.test(combined)) return "S";
-  // A: 마법/정령/마검/마창/마도구/고대/희귀/마나/특수/영혼/마력/봉인/고급 무기
   if (/마법|정령|마검|마창|마갑|마도구|고대|희귀|마나|특수|영혼|마력|봉인|정화|성스|여신|신비|마석|룬|인챈|환생|소울|마왕의|신룡/.test(combined)) return "A";
-  // B: 강화/강철/고급/특제/명품/개조/합금/마정석|은/미스릴/아다만
   if (/강화|강철|고급|특제|명품|개조|합금|마정석|미스릴|아다만|오리하|나이트메탈|드래곤 스케일|드래곤스케일|에너지 크리|에너지크리/.test(combined)) return "B";
-  // D: 낡은/파손/부서/저급/녹슨/임시/폐기
   if (/낡은|파손|부서|저급|녹슨|임시|폐기|손상|반파|망가/.test(combined)) return "D";
-  // default C
   return "C";
+}
+
+/**
+ * 사용자가 입력한 소지품 raw 객체를 구조화한다.
+ * 이미 condition/description/hidden_note 필드가 있으면 그대로 유지한다.
+ * 괄호 내용의 의미:
+ *   - S/A/B/C/D 또는 S급 → grade
+ *   - 파손/고장/손상 등 상태어 → condition
+ *   - 숨겨/있음/보관 등 위치어 → hidden_note
+ *   - 그 외 → description
+ */
+export function parseItemEntry(raw: any): Record<string, any> {
+  const obj: Record<string, any> = typeof raw === "string" ? { name: raw } : { ...raw };
+  const fullName: string = obj.name ?? "";
+
+  // 이미 구조화된 경우 name 안의 괄호는 건드리지 않음
+  if (obj.condition != null || obj.description != null || obj.hidden_note != null) {
+    return obj;
+  }
+
+  const m = fullName.match(/^(.+?)\((.+)\)\s*$/);
+  if (!m) return obj;
+
+  const baseName = m[1].trim();
+  const bracket  = m[2].trim();
+
+  // grade: S/A/B/C/D 또는 S급 형식
+  if (/^[SABCD]$/.test(bracket) || /^[SABCD]급$/.test(bracket)) {
+    return { ...obj, name: baseName, grade: bracket.replace("급", "") };
+  }
+
+  // condition: 상태 이상어
+  if (/파손|고장|손상|녹슨|낡은|반파|망가|부서/.test(bracket)) {
+    return { ...obj, name: baseName, condition: bracket };
+  }
+
+  // hidden_note: 위치/은닉어
+  if (/숨겨|있음|위치|넣어|보관|숨긴|안에|속에|밑에|아래/.test(bracket)) {
+    return { ...obj, name: baseName, hidden_note: bracket };
+  }
+
+  // 그 외는 description
+  return { ...obj, name: baseName, description: bracket };
 }
 
 const TTL = 60 * 60 * 24 * 7; // 7일
@@ -35,12 +73,43 @@ contextRouter.post("/", async (req: Request, res: Response) => {
     return;
   }
   try {
-    const payload = storyConfig
+    const payload: Record<string, any> = storyConfig
       ? { ...worldBible, story_config: storyConfig }
-      : worldBible;
+      : { ...worldBible };
+
+    // resolved_final_episode: 이미 있으면 유지, 없으면 기존 컨텍스트에서 복구 or 신규 생성
+    const sc = payload.story_config as Record<string, any> | undefined;
+    if (sc?.totalEpisodes != null) {
+      if (!sc.resolved_final_episode) {
+        // 기존 저장 값 우선 보존 (재저장 시 재샘플링 방지)
+        let existingRf: number | null = null;
+        try {
+          const existingRaw = await redis.get(`context:${book_id}`);
+          if (existingRaw) {
+            const existing = JSON.parse(existingRaw);
+            existingRf = existing?.story_config?.resolved_final_episode ?? null;
+          }
+          if (!existingRf) {
+            const dbRow = await pool.query(`SELECT context FROM books WHERE id = $1`, [book_id]);
+            existingRf = dbRow.rows[0]?.context?.story_config?.resolved_final_episode ?? null;
+          }
+        } catch { /* 조회 실패 시 신규 생성으로 진행 */ }
+
+        if (existingRf) {
+          sc.resolved_final_episode = existingRf;
+        } else {
+          const variance: number = sc.totalEpisodesVar ?? 0;
+          const delta = variance > 0
+            ? Math.round((Math.random() * 2 - 1) * variance)
+            : 0;
+          sc.resolved_final_episode = (sc.totalEpisodes as number) + delta;
+        }
+      }
+    }
 
     await redis.set(`context:${book_id}`, JSON.stringify(payload), "EX", TTL);
-    logInfo("api:context:save", "World Bible 캐시 저장", { book_id });
+    logInfo("api:context:save", "World Bible 캐시 저장", { book_id,
+      resolved_final_episode: sc?.resolved_final_episode ?? null });
 
     // books 테이블에도 영속화 (Redis 만료 대비)
     await pool.query(
@@ -71,17 +140,17 @@ contextRouter.post("/", async (req: Request, res: Response) => {
              ON CONFLICT (book_id, name) DO NOTHING`,
             [book_id, name, role, desc, gender]
           ),
-          // canonical_characters 테이블 (type/gender/initial_items 정본) — grade 자동 부여
+          // canonical_characters 테이블 (type/gender/initial_items 정본) — 괄호 파싱 + grade 자동 부여
           upsertCanonicalCharacter(book_id, {
             name, personality, type: type ?? "", gender: gender ?? "",
             initial_items: (() => {
               const rawItems: Array<any> = (typeof info === "object" && Array.isArray((info as any).initial_items))
                 ? (info as any).initial_items : [];
               return rawItems.map((it: any) => {
-                const obj = typeof it === "string" ? { name: it } : { ...it };
-                obj.grade = autoGradeItem(obj);
-                return obj;
-              });
+                const parsed = parseItemEntry(it) as any;
+                parsed.grade = autoGradeItem(parsed);
+                return parsed;
+              }) as import("../types/canonical.js").ItemEntry[];
             })(),
           }),
         ]);

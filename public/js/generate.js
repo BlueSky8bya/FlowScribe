@@ -666,9 +666,10 @@ function updateSceneCharPanel(charStates) {
 
         const itemCards = s.items.map((it, idx) => {
           const rawName = typeof it === 'string' ? it : (it.name ?? '');
-          const grade = typeof it === 'object' ? it.grade  : null;
-          const cond  = typeof it === 'object' ? it.condition : null;
-          const desc  = typeof it === 'object' ? it.description : null;
+          const grade     = typeof it === 'object' ? it.grade       : null;
+          const cond      = typeof it === 'object' ? it.condition   : null;
+          const desc      = typeof it === 'object' ? it.description : null;
+          const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
 
           const { displayName, inferredDesc } = _parseItemName(rawName);
           const effectiveDesc = desc || inferredDesc;
@@ -679,8 +680,9 @@ function updateSceneCharPanel(charStates) {
             ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
             : _qlabelBadgeHtml(_qlabel(displayName));
           const bodyRows = [
-            cond ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
+            cond       ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
             effectiveDesc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${effectiveDesc}</span></div>` : '',
+            hiddenNote ? `<div class="item-card-row"><span class="item-card-lbl">위치</span><span class="item-card-val">${hiddenNote}</span></div>` : '',
           ].filter(Boolean).join('');
           const hasDetail = !!bodyRows;
           const name = displayName;
@@ -1520,11 +1522,12 @@ async function captureEpisode(withChars = false) {
             };
             const isFantasyCap = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
             const itemsHtml = (s.items ?? []).map(it => {
-              const rawName = typeof it === 'string' ? it : (it.name ?? '');
-              const grade = typeof it === 'object' ? it.grade : null;
-              const cond  = typeof it === 'object' ? it.condition : null;
-              const desc  = typeof it === 'object' ? it.description : null;
-              // 이름에서 상태 설명 파싱
+              const rawName    = typeof it === 'string' ? it : (it.name ?? '');
+              const grade      = typeof it === 'object' ? it.grade       : null;
+              const cond       = typeof it === 'object' ? it.condition   : null;
+              const desc       = typeof it === 'object' ? it.description : null;
+              const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
+              // 이름에서 상태 설명 파싱 (구조화 필드 없을 때만)
               const _pm = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
               let displayName = rawName, inferredDesc = null;
               if (_pm && !/^[SABCD]$|^[SABCD][급등]\b/.test(_pm[2].trim()) && /있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(_pm[2])) {
@@ -1540,8 +1543,9 @@ async function captureEpisode(withChars = false) {
                   ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
                   ${displayName}
                 </div>
-                ${cond ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);font-size:1.06em;letter-spacing:.04em;">상태:</span><span style="color:var(--text2);font-size:.95em;">${cond}</span></div>` : ''}
-                ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);font-size:1.06em;letter-spacing:.04em;">설명:</span><span style="color:var(--text2);font-size:.95em;">${effectiveDesc}</span></div>` : ''}
+                ${cond       ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);letter-spacing:.04em;">상태:</span><span style="color:var(--text2);font-size:.95em;">${cond}</span></div>` : ''}
+                ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);letter-spacing:.04em;">설명:</span><span style="color:var(--text2);font-size:.95em;">${effectiveDesc}</span></div>` : ''}
+                ${hiddenNote ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);letter-spacing:.04em;">위치:</span><span style="color:var(--text2);font-size:.95em;">${hiddenNote}</span></div>` : ''}
               </div>`;
             }).join('');
             const _capEmotBadges = (e) => {

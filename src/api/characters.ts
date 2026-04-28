@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { pool } from "../lib/db.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { upsertCanonicalCharacter } from "../services/character_state.js";
+import { parseItemEntry } from "./context.js";
 
 export const charactersRouter = Router();
 
@@ -59,7 +60,9 @@ charactersRouter.post("/", async (req: Request, res: Response) => {
         personality: c.personality ?? "",
         type: c.type ?? "인간",
         gender: c.gender ?? "해당없음",
-        initial_items: Array.isArray(c.initial_items) ? c.initial_items : [],
+        initial_items: Array.isArray(c.initial_items)
+          ? c.initial_items.map((it: any) => parseItemEntry(it))
+          : [],
       });
     }
     logInfo("api:characters:save", "인물 upsert 완료", { book_id, count: characters.length });

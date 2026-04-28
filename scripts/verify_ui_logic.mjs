@@ -280,6 +280,107 @@ for (const [text, expSpans, expHasSpan, expNarrOutside] of dlTests) {
   }
 }
 
+// ─── G. resolved_final_episode 랜덤 확정 로직 ───────────────────────────────
+console.log('\n[G] resolved_final_episode fixture');
+
+function sampleResolvedFinal(totalEpisodes, totalEpisodesVar, existingRf) {
+  // context.ts POST 핸들러와 동일한 로직
+  if (existingRf != null) return existingRf;
+  const variance = totalEpisodesVar ?? 0;
+  const delta = variance > 0 ? Math.round((Math.random() * 2 - 1) * variance) : 0;
+  return totalEpisodes + delta;
+}
+
+{
+  // var=0 → 중앙값 고정
+  ok('var=0: resolved_final === totalEpisodes', sampleResolvedFinal(30, 0, null) === 30);
+
+  // 이미 resolved 값 존재 → 유지 (100회 반복해도 동일)
+  let preserved = true;
+  for (let i = 0; i < 100; i++) {
+    if (sampleResolvedFinal(30, 5, 48) !== 48) { preserved = false; break; }
+  }
+  ok('existing resolved_final → preserved across 100 calls', preserved);
+
+  // 50±5 → 45~55 범위 (1000 샘플)
+  let inRange50 = true;
+  for (let i = 0; i < 1000; i++) {
+    const r = sampleResolvedFinal(50, 5, null);
+    if (r < 45 || r > 55) { inRange50 = false; break; }
+  }
+  ok('50±5: 1000 samples all in [45,55]', inRange50);
+
+  // 30±5 → 25~35 범위 (1000 샘플)
+  let inRange30 = true;
+  for (let i = 0; i < 1000; i++) {
+    const r = sampleResolvedFinal(30, 5, null);
+    if (r < 25 || r > 35) { inRange30 = false; break; }
+  }
+  ok('30±5: 1000 samples all in [25,35]', inRange30);
+
+  // 분포 확인 (±5 범위에서 다양성 있는지)
+  const samples = new Set();
+  for (let i = 0; i < 200; i++) samples.add(sampleResolvedFinal(50, 5, null));
+  ok('50±5: 200 samples produce ≥3 distinct values (not fixed)', samples.size >= 3);
+
+  // episode=1, resolved=48 → remaining=47
+  const rf = sampleResolvedFinal(50, 5, 48);
+  ok('episode=1, resolved=48 → remaining=47', rf - 1 === 47);
+}
+
+// ─── H. 소지품 괄호 파싱 (parseItemEntry 동일 로직) ──────────────────────
+console.log('\n[H] Item bracket parsing');
+
+function parseItemEntry(raw) {
+  const obj = typeof raw === 'string' ? { name: raw } : { ...raw };
+  const fullName = obj.name ?? '';
+  if (obj.condition != null || obj.description != null || obj.hidden_note != null) return obj;
+  const m = fullName.match(/^(.+?)\((.+)\)\s*$/);
+  if (!m) return obj;
+  const baseName = m[1].trim();
+  const bracket  = m[2].trim();
+  if (/^[SABCD]$/.test(bracket) || /^[SABCD]급$/.test(bracket)) {
+    return { ...obj, name: baseName, grade: bracket.replace('급', '') };
+  }
+  if (/파손|고장|손상|녹슨|낡은|반파|망가|부서/.test(bracket)) {
+    return { ...obj, name: baseName, condition: bracket };
+  }
+  if (/숨겨|있음|위치|넣어|보관|숨긴|안에|속에|밑에|아래/.test(bracket)) {
+    return { ...obj, name: baseName, hidden_note: bracket };
+  }
+  return { ...obj, name: baseName, description: bracket };
+}
+
+{
+  const t1 = parseItemEntry('구시대의 태블릿(태양광 충전식)');
+  ok('태블릿(태양광 충전식) → name분리, description=태양광 충전식', t1.name === '구시대의 태블릿' && t1.description === '태양광 충전식');
+
+  const t2 = parseItemEntry('방독면(파손)');
+  ok('방독면(파손) → name=방독면, condition=파손', t2.name === '방독면' && t2.condition === '파손');
+
+  const t3 = parseItemEntry('통신기(고장)');
+  ok('통신기(고장) → condition=고장', t3.name === '통신기' && t3.condition === '고장');
+
+  const t4 = parseItemEntry("리볼버 '저스터스'(수첩 아래 숨겨져 있음)");
+  ok("리볼버(수첩 아래 숨겨져 있음) → hidden_note", t4.hidden_note === '수첩 아래 숨겨져 있음');
+
+  const t5 = parseItemEntry('마검(S)');
+  ok('마검(S) → grade=S, name=마검', t5.name === '마검' && t5.grade === 'S');
+
+  const t6 = parseItemEntry('검(S급)');
+  ok('검(S급) → grade=S', t6.name === '검' && t6.grade === 'S');
+
+  const t7 = parseItemEntry('메모리 큐브 슬롯');
+  ok('메모리 큐브 슬롯 → no bracket, name unchanged', t7.name === '메모리 큐브 슬롯' && !t7.description);
+
+  const t8 = parseItemEntry({ name: '정전기 유도 소형 폭탄' });
+  ok('object input: name unchanged', t8.name === '정전기 유도 소형 폭탄');
+
+  // 이미 구조화된 경우 덮어쓰기 금지
+  const t9 = parseItemEntry({ name: '마검(S)', description: '사용자가 직접 입력한 설명' });
+  ok('already structured → not overwritten', t9.description === '사용자가 직접 입력한 설명');
+}
+
 // ─── File patch verification ─────────────────────────────────────────────────
 console.log('\n[ALL] File patch verification');
 
@@ -324,6 +425,26 @@ ok('generate.js: mergeUnclosedQuotes uses innerHTML',     genJs.includes('p.inne
 ok('layout.css: .dialogue-span style',                    layoutCss.includes('.dialogue-span'));
 ok('layout.css: mode-aloud .dialogue-span',               layoutCss.includes('mode-aloud #output .dialogue-span'));
 ok('layout.css: box-decoration-break',                    layoutCss.includes('box-decoration-break'));
+
+// G: resolved_final_episode in context.ts
+const ctxTs = readFileSync(join(process.cwd(), 'src/api/context.ts'), 'utf8');
+ok('context.ts: resolved_final_episode generation',       ctxTs.includes('resolved_final_episode'));
+ok('context.ts: totalEpisodesVar randomization',          ctxTs.includes('Math.round'));
+ok('context.ts: existing rf preservation from Redis',     ctxTs.includes('existingRf'));
+ok('context.ts: parseItemEntry exported',                 ctxTs.includes('export function parseItemEntry'));
+
+// H: item bracket parsing in characters.ts
+const charsTs = readFileSync(join(process.cwd(), 'src/api/characters.ts'), 'utf8');
+ok('characters.ts: imports parseItemEntry',               charsTs.includes('parseItemEntry'));
+ok('characters.ts: applies parseItemEntry to items',      charsTs.includes('.map((it: any) => parseItemEntry(it))'));
+
+// G/H: hidden_note in generate.js item render
+ok('generate.js: hidden_note in sidebar item render',     genJs.includes('hidden_note'));
+ok('generate.js: 위치 label in item body rows',           genJs.includes('위치'));
+
+// G: debug panel shows 확정 최종화
+ok('generate.js: 확정 최종화 in debug',  genJs.includes('확정 최종화'));
+ok('generate.js: 설정 범위 in debug',    genJs.includes('설정 범위'));
 
 // ─── Summary ─────────────────────────────────────────────────────────────────
 console.log(`\n${'─'.repeat(55)}`);
