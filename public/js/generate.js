@@ -87,10 +87,10 @@ function _renderPostprocStats() {
   if (_ppStats.foreignCharsRemoved) rows.push({ k:'외국어 제거',   v:_ppStats.foreignCharsRemoved+'회', cls:'bad' });
   if (_tagWarn)                     rows.push({ k:'⚠ 대화 미탐지', v:'따옴표 있음', cls:'warn' });
   if (!rows.length) {
-    el.innerHTML = '<div class=”eq-empty”>이상 없음</div>';
+    el.innerHTML = '<div class="eq-empty">이상 없음</div>';
   } else {
-    el.innerHTML = '<div class=”eq-kv-list”>' + rows.map(r =>
-      `<div class=”eq-kv”><span class=”eq-kv-key”>${r.k}</span><span class=”eq-kv-val${r.cls ? ' '+r.cls : ''}”>${r.v}</span></div>`
+    el.innerHTML = '<div class="eq-kv-list">' + rows.map(r =>
+      `<div class="eq-kv"><span class="eq-kv-key">${r.k}</span><span class="eq-kv-val${r.cls ? ' '+r.cls : ''}">${r.v}</span></div>`
     ).join('') + '</div>';
   }
   if (sec) sec.hidden = false;
@@ -1045,7 +1045,7 @@ function updateDebugMeta(meta, auditStatus = null) {
     if (a?.absent_characters?.length)  rows += kv('미등장 인물', a.absent_characters.join(', '));
     if (a?.trace_id) rows += kv('추적 ID', a.trace_id);
     if (a?.created_at) rows += kv('생성일시', new Date(a.created_at).toLocaleString('ko-KR'));
-    basicEl.innerHTML = `<div class="eq-info-grid">${rows || '<span class="eq-empty">에피소드 생성 후 표시됩니다</span>'}</div>`;
+    basicEl.innerHTML = `<div class="eq-kv-list">${rows || '<span class="eq-empty">에피소드 생성 후 표시됩니다</span>'}</div>`;
     // 후처리 완료 텍스트 길이로 실제 분량 업데이트 (innerHTML 재생성 후 요소 접근)
     const _postText = document.getElementById('output')?.textContent?.trim() ?? '';
     const _actualEl2 = document.getElementById('eqActualChars');

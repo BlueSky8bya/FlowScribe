@@ -120,14 +120,16 @@ async function saveContext() {
         lockCharCardFields(card, true);
       });
     }
-  } catch {
-    showToast("서버 연결 실패 — 설정은 로컬에 유지됩니다", "warning");
-  } finally {
+    // 저장 성공 — 버튼 상태 갱신 후 모달 닫기
     const sb = document.getElementById("settingsBtn");
     if (sb) {
       sb.classList.add("active");
       sb.innerHTML = `세계관 설정 <span class="badge">ON</span>`;
     }
     closeModal();
+  } catch (err) {
+    console.error("[saveContext] error:", err);
+    showToast("서버 연결 실패 — 설정은 로컬에 유지됩니다", "warning");
+    // API 실패 시 모달 닫지 않음 — 사용자가 재시도할 수 있도록 유지
   }
 }

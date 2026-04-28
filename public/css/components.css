@@ -240,7 +240,7 @@ body.mode-tts span.char-name-ref { cursor:help; }
 }
 .rp-debug-panel .eq-section-label:hover{background:var(--bg2);}
 .rp-debug-panel .eq-section-body{padding:6px 10px 9px;}
-.rp-debug-panel .eq-info-grid{grid-template-columns:1fr 1fr;}
+.rp-debug-panel .eq-info-grid{grid-template-columns:1fr;}
 .rp-debug-panel .eq-score-name{width:90px;font-size:.82rem;}
 .rp-debug-panel .eq-score-num{font-size:.80rem;}
 .rp-debug-panel .eq-char-row{padding:6px 8px;}
@@ -317,10 +317,10 @@ body.mode-tts span.char-name-ref { cursor:help; }
 .eq-score-num{font-size:.72rem;color:var(--text4);width:28px;text-align:right;flex-shrink:0;}
 /* 플래너 정보 */
 .eq-kv-list{display:flex;flex-direction:column;gap:4px;}
-.eq-kv{display:flex;gap:10px;font-size:.77rem;align-items:center;}
+.eq-kv{display:flex;gap:10px;font-size:.77rem;align-items:flex-start;}
 .eq-kv-key{color:var(--text4);min-width:90px;flex-shrink:0;font-size:1.06em;letter-spacing:.04em;}
 .eq-kv-key::after{content:':';margin-left:.05em;}
-.eq-kv-val{color:var(--text2);font-weight:500;font-size:.95em;}
+.eq-kv-val{color:var(--text2);font-weight:500;font-size:.95em;word-break:keep-all;overflow-wrap:break-word;}
 .eq-kv-val.ok{color:var(--ok-text);}
 .eq-kv-val.warn{color:var(--warn-text);}
 .eq-kv-val.bad{color:var(--err-text);}
