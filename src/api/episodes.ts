@@ -96,9 +96,21 @@ episodesRouter.post("/", async (req: Request, res: Response) => {
         const isArcComplete = ep % ARC_SIZE === 0;
 
         if (isArcComplete || isShortFinal) {
-          const charRes = await pool.query(
+          // characters 테이블을 우선 조회하고, 비어 있으면 canonical_characters에서 fallback
+          // (test 환경에서는 canonical_characters에만 인물이 등록되는 경우가 있음)
+          let charRes = await pool.query(
             `SELECT DISTINCT name FROM characters WHERE book_id = $1`, [bookId]
           );
+          if (!charRes.rows.length) {
+            charRes = await pool.query(
+              `SELECT DISTINCT name FROM canonical_characters WHERE book_id = $1`, [bookId]
+            );
+          }
+          if (!charRes.rows.length) {
+            charRes = await pool.query(
+              `SELECT DISTINCT character_name AS name FROM character_dynamic_states WHERE book_id = $1`, [bookId]
+            );
+          }
           const characterNames = charRes.rows.map((r: any) => r.name);
 
           if (isArcComplete) {

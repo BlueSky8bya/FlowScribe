@@ -52,8 +52,14 @@ function resolveCanonicalCharName(
     }
   }
 
-  // 3. 비한국어 문자 포함 (영문 알파벳 또는 CJK 중국/일본 전용 범위) → orphan 스킵
-  const hasNonKorean = /[A-Za-z]/.test(trimmed) || /[一-鿿㐀-䶿]/.test(trimmed);
+  // 3. 비한국어 문자 포함 → orphan 스킵
+  // Latin, CJK (중국/일본), 태국어(U+0E00-U+0E7F), 기타 비한글 비공백 유니코드
+  const hasNonKorean = /[A-Za-z]/.test(trimmed)
+    || /[一-鿿㐀-䶿]/.test(trimmed)         // CJK
+    || /[฀-๿]/.test(trimmed)       // Thai
+    || /[Ѐ-ӿ]/.test(trimmed)       // Cyrillic
+    || /[؀-ۿ]/.test(trimmed)       // Arabic
+    || /[぀-ゟ゠-ヿ]/.test(trimmed); // Hiragana/Katakana
   if (hasNonKorean) {
     logWarn("pipeline:charNorm", "orphan_skipped — 비한국어 이름", { raw: trimmed });
     return { name: null, event: "orphan_skipped" };

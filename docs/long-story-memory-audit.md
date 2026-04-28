@@ -258,7 +258,8 @@ node scripts/verify_long_story_memory.mjs --episodes 30 --mode trace --book-id <
 |------|------|------|------|
 | 30화 fixture | `--mode fixture` | ✓ READY (30/30 PASS) | 2026-04-28 |
 | 100화 fixture | `--mode fixture` | ✓ READY (93/100, WARN 7) | 2026-04-28 |
-| 30화 actual trace | `run_30ep_trace.mjs` | △ CONDITIONAL PASS (9 PASS / 21 WARN / 0 FAIL) | 2026-04-28 |
+| 30화 actual trace v1 | `run_30ep_trace.mjs` | △ CONDITIONAL PASS (9 PASS / 21 WARN / 0 FAIL) | 2026-04-28 |
+| 30화 actual trace v2 | `run_30ep_trace.mjs` (BUG-1/2 수정 후) | ✓ READY (30/30 PASS, 100%) | 2026-04-29 |
 | 50화 fixture | `--mode fixture` | 미실행 (Phase A 완료 후) | — |
 | 50화 trace | `--mode trace` | 미실행 | — |
 
@@ -287,9 +288,23 @@ node scripts/verify_long_story_memory.mjs --episodes 30 --mode trace --book-id <
 \** foreshadow resolved=110 is inflated — double POST /api/episodes trigger per episode.  
 \*** gemma3:12b가 화당 ~240 chars summary 생성 → 10화 × 240 = 2400 chars가 정상. fixture 기준(120 chars) 조정 필요.
 
-### 발견된 버그 / 이슈
+### v2 재검증 결과 (2026-04-29, BUG-1/2/WARN 수정 후)
 
-#### BUG-1: character_arcs 테이블 미채움 (HIGH)
+| 지표 | v1 (2026-04-28) | v2 (2026-04-29) | 변화 |
+|------|-----------------|-----------------|------|
+| PASS/WARN/FAIL | 9/21/0 | **30/0/0** | ✓ |
+| continuity_pass_rate | 30% | **100%** | ✓ |
+| character_arcs rows | 0 | **12** (arc1~3 × 4인물) | ✓ BUG-1 수정 |
+| foreshadow_recall_rate | 92% (inflated) | **88%** (정상) | ✓ BUG-2 수정 |
+| 태국어 인물명 | 발생 | **0개** | ✓ WARN-1 수정 |
+| summary_compression_stab | 0% (기준 불일치) | 재보정 후 정상 | ✓ WARN-2 수정 |
+| finalization_directive (ep30) | true | true | — |
+| stop_triggered | false | false | — |
+| avg gen time | 33s/ep | 32s/ep | — |
+
+### 발견된 버그 / 이슈 (v1 기준, v2에서 모두 수정됨)
+
+#### BUG-1: character_arcs 테이블 미채움 (HIGH → ✓ FIXED)
 - **원인**: `episodes.ts` L100이 `characters` 테이블 조회 (`SELECT DISTINCT name FROM characters`)
 - **실제 상황**: 테스트북 인물은 `canonical_characters`에만 등록됨 → `characterNames=[]` → `charArcs` 비어 있음 → INSERT 안 됨
 - **수정 방향**: `characters` OR `canonical_characters` 중 존재하는 것 사용, 또는 ensureCharacters()에서 두 테이블 모두 채우기

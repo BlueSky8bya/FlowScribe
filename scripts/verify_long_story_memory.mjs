@@ -126,9 +126,9 @@ function fixtureSimulate(totalEpisodes) {
     const foreshadow_open = foreshadow_planted - foreshadow_resolved;
 
     // ── rolling_summary ────────────────────────────────────
-    // 최근 10화 × 120자. ep < 10이면 ep × 120.
+    // 최근 10화 × 240자(gemma3:12b 실측 기준). ep < 10이면 ep × 240.
     const window_size           = Math.min(ep, 10);
-    const rolling_summary_chars = window_size * 120;
+    const rolling_summary_chars = window_size * 240;
     const rolling_summary_lines = window_size;
 
     // ── arc_summary ────────────────────────────────────────
@@ -322,9 +322,10 @@ function computeSummaryMetrics(metrics_all, totalEpisodes) {
   const foreshadow_recall =
     foreshadow_total > 0 ? last.foreshadow_resolved_count / foreshadow_total : 0;
 
-  // summary_compression_stability: rolling_summary_chars가 ep 10 이후 1000~1400 범위를 유지하는가
+  // summary_compression_stability: rolling_summary_chars가 ep 10 이후 1800~3500 범위를 유지하는가
+  // (gemma3:12b 실측: ~240 chars/ep × 10화 = ~2400 기준; qwen2.5 기준 800~1600에서 재보정)
   const post10 = metrics_all.filter(m => m.episode > 10);
-  const stable = post10.filter(m => m.rolling_summary_chars >= 800 && m.rolling_summary_chars <= 1600).length;
+  const stable = post10.filter(m => m.rolling_summary_chars >= 1800 && m.rolling_summary_chars <= 3500).length;
   const summary_compression_stability = post10.length > 0 ? stable / post10.length : 1;
 
   // finalization_score: 최종화에서 finalization_directive 있고 arc_phase=final이면 1
