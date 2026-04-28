@@ -638,9 +638,11 @@ generateRouter.get("/audit-status", async (req: Request, res: Response) => {
       plan_issues:         pval?.issues ?? [],
       plan_passed_checks:  pval?.passed_checks ?? [],
       // 연재 계약
-      episode_role:        ic?.episode_role ?? null,
-      remaining_episodes:  ic?.remaining_episodes ?? null,
-      ending_constraint:   pt?.parsed_plan?.ending_constraint ?? null,
+      episode_role:            ic?.episode_role ?? null,
+      remaining_episodes:      ic?.remaining_episodes ?? null,
+      resolved_final_episode:  ic?.resolved_final ?? (ctx?.gen_config as any)?.resolved_final_episode ?? (ctx?.gen_config as any)?.totalEpisodes ?? null,
+      episode_number:          (ctx?.episode_number as number) ?? null,
+      ending_constraint:       pt?.parsed_plan?.ending_constraint ?? null,
       // 서사 국면 (planner input_contract 기반)
       planner_arc_phase:   ic?.planner_arc_phase ?? null,
       planner_arc_ratio:   ic?.planner_arc_ratio != null ? Math.round(ic.planner_arc_ratio * 100) : null,
@@ -661,6 +663,7 @@ generateRouter.get("/audit-status", async (req: Request, res: Response) => {
       gen_config: ctx?.gen_config ? {
         episodeLength:    (ctx.gen_config as any).episodeLength,
         episodeLengthVar: (ctx.gen_config as any).episodeLengthVar,
+        totalEpisodes:    (ctx.gen_config as any).totalEpisodes,
         pov:              (ctx.gen_config as any).pov,
         style:            (ctx.gen_config as any).style,
       } : null,

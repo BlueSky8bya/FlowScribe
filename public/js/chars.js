@@ -148,7 +148,14 @@ function appendCharCard(container, i, p) {
         <div class="char-fields-full char-items-row">
           <div class="char-personality-label">초기 소지품 <span style="font-size:.75rem;opacity:.55;font-weight:400">Enter로 항목 구분</span></div>
           <div class="char-items-tag-wrap" id="charItemsWrap-${i}">
-            ${(p.initialItems||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(item=>`<span class="tag char-item-tag">${esc(item)}<span class="tag-del" data-item="${esc(item)}">×</span></span>`).join("")}
+            ${(p.initialItems||"").split(/[\n,]/).map(s=>s.trim()).filter(Boolean).map(raw=>{
+              const _gMap={S:'#d4a000',A:'#9b5de0',B:'#3b82c8',C:'#2e8a55',D:'#888'};
+              let nm=raw,gr=null;
+              const pm=raw.match(/^([SABCD]):(.+)$/i); if(pm&&['S','A','B','C','D'].includes(pm[1].toUpperCase())){gr=pm[1].toUpperCase();nm=pm[2].trim();}
+              else{const sm=raw.match(/^(.+)\(([SABCD])급?\)$/i);if(sm&&['S','A','B','C','D'].includes(sm[2].toUpperCase())){gr=sm[2].toUpperCase();nm=sm[1].trim();}}
+              const gb=gr?`<span style="font-size:.68rem;font-weight:700;color:${_gMap[gr]};border:1px solid ${_gMap[gr]};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${gr}</span>`:'';
+              return `<span class="tag char-item-tag"${gr?` data-grade="${gr}" data-item-name="${esc(nm)}"`:``}>${gb}${esc(nm)}<span class="tag-del" data-item="${esc(raw)}">×</span></span>`;
+            }).join("")}
             <input class="tag-input-field char-items-input" type="text" placeholder="소지품 입력 후 Enter" />
           </div>
         </div>
@@ -198,12 +205,30 @@ function appendCharCard(container, i, p) {
   const itemsWrap = card.querySelector(".char-items-tag-wrap");
   const itemsInp  = card.querySelector(".char-items-input");
   if (itemsWrap && itemsInp) {
+    // 등급 파싱: "S:검" 또는 "검(S)" 또는 "검(S급)" 형식 지원
+    const ITEM_GRADES = ['S','A','B','C','D'];
+    const GRADE_COLOR_MAP = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
+    function _parseGrade(raw) {
+      let name = raw.trim(), grade = null;
+      const prefixM = name.match(/^([SABCD]):(.+)$/i);
+      if (prefixM && ITEM_GRADES.includes(prefixM[1].toUpperCase())) { grade = prefixM[1].toUpperCase(); name = prefixM[2].trim(); }
+      else {
+        const suffixM = name.match(/^(.+)\(([SABCD])급?\)$/i);
+        if (suffixM && ITEM_GRADES.includes(suffixM[2].toUpperCase())) { grade = suffixM[2].toUpperCase(); name = suffixM[1].trim(); }
+      }
+      return { name, grade };
+    }
     function _addItemTag(val) {
       val = val.trim();
       if (!val) return;
+      const { name, grade } = _parseGrade(val);
       const tag = document.createElement("span");
       tag.className = "tag char-item-tag";
-      tag.innerHTML = `${esc(val)}<span class="tag-del">×</span>`;
+      const gc = grade ? GRADE_COLOR_MAP[grade] : null;
+      const gBadge = grade ? `<span class="char-item-grade-badge" style="font-size:.68rem;font-weight:700;color:${gc};border:1px solid ${gc};border-radius:3px;padding:0 .22rem;margin-right:.2rem;">${grade}</span>` : '';
+      tag.innerHTML = `${gBadge}${esc(name)}<span class="tag-del">×</span>`;
+      if (grade) tag.dataset.grade = grade;
+      tag.dataset.itemName = name;
       tag.querySelector(".tag-del").addEventListener("click", () => tag.remove());
       itemsWrap.insertBefore(tag, itemsInp);
     }
@@ -265,7 +290,11 @@ function renderCharCards() {
       typeCustom: c.querySelector(".type-inp")?.value || "",
       gender: c.dataset.gender || "해당없음",
       genderCustom: c.querySelector(".gender-inp")?.value || "",
-      initialItems: Array.from(c.querySelectorAll(".char-item-tag")).map(t => t.childNodes[0].textContent.trim()).filter(Boolean).join("\n"),
+      initialItems: Array.from(c.querySelectorAll(".char-item-tag")).map(t => {
+        const nm = (t.dataset.itemName || Array.from(t.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')).trim();
+        const gr = t.dataset.grade;
+        return nm ? (gr ? `${gr}:${nm}` : nm) : null;
+      }).filter(Boolean).join("\n"),
     });
   });
   container.innerHTML = "";

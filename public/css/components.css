@@ -88,7 +88,7 @@
 .tag-text{cursor:text;outline:none;}
 .tag.editing{box-shadow:0 0 0 2px var(--accent);outline:none;}
 .tag.hard.editing{box-shadow:0 0 0 2px var(--tag-hard-border);}
-.tag-input-field{background:none;border:none;color:var(--text);font-family:inherit;font-size:.95rem;outline:none;flex:1 1 100%;min-width:0;width:100%;padding:.2rem .2rem;margin-top:.1rem;}
+.tag-input-field{background:none;border:none;color:var(--text);font-family:inherit;font-size:.95rem;outline:none;flex:0 0 100%;min-width:0;width:100%;padding:.2rem .2rem;margin-top:.35rem;display:block;}
 
 /* 세계관 규칙 안내 */
 .rules-guide{margin-top:.65rem;background:var(--bg2);border:1px solid var(--border);border-radius:8px;overflow:hidden;}

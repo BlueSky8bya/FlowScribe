@@ -214,15 +214,19 @@ function splitDialogueNarration(container) {
 
     if (!deduped.length) return;
 
+    // 브래킷 전용 문자 제거 헬퍼 (LLM이 [대화] 형태로 단락 감쌀 때 생기는 [ ] 잔여 프래그먼트 제거)
+    const stripBracketNoise = s => s.replace(/^[\[\]【】「」『』\s]+$/, '').trim();
     const parts = [];
     let lastIdx = 0;
     for (const hit of deduped) {
-      const before = text.slice(lastIdx, hit.index).trim();
+      const beforeRaw = text.slice(lastIdx, hit.index).trim();
+      const before = stripBracketNoise(beforeRaw);
       if (before) parts.push({ type: "narr", text: before });
       parts.push({ type: "dial", text: hit.text.trim() });
       lastIdx = hit.end;
     }
-    const after = text.slice(lastIdx).trim();
+    const afterRaw = text.slice(lastIdx).trim();
+    const after = stripBracketNoise(afterRaw);
     if (after) parts.push({ type: "narr", text: after });
 
     // 순수 대사 or 순수 지문은 그대로
@@ -763,7 +767,7 @@ function updateDebugMeta(meta, auditStatus = null) {
   // ── 기본 정보 ──────────────────────────────────────────────
   const basicEl = document.getElementById('eqBasicInfo');
   if (basicEl) {
-    const gc = a?.gen_config;
+    const gc = a?.gen_config ?? meta?.gen_config;
     // 사용자가 설정한 값 (episodeLength ±episodeLengthVar)
     const userRange = gc && gc.episodeLength != null
       ? (gc.episodeLengthVar != null
@@ -783,9 +787,31 @@ function updateDebugMeta(meta, auditStatus = null) {
     rows += kv('실제 분량', a?.actual_chars ? a.actual_chars + '자' : null);
     rows += kv('생성 모델', a?.renderer_model ?? null);
     rows += kv('플래너 모델', a?.planner_model ?? null);
+    // 회차 역할 / 서사 국면 한글 레이블 매핑
+    const EPISODE_ROLE_KO = { intro:'도입', early:'초반', mid:'중반', late:'후반', 'pre-final':'최종 직전', final:'최종화' };
+    const ARC_PHASE_KO    = { intro:'도입', early:'초반', mid:'중반', late:'후반', pre_final:'클라이맥스 직전', final:'결말', unknown:'미정' };
+    const HOOK_TYPE_KO = {
+      immediate_threat:    '즉각적 위협',
+      unexpected_discovery:'예상 밖 발견',
+      new_problem:         '새로운 문제 발생',
+      unresolved_situation:'미완 상황',
+      revelation:          '충격적 폭로',
+      betrayal_hint:       '배신 암시',
+      emotional_break:     '감정 폭발',
+      ironic_reversal:     '아이러니한 반전',
+      cliffhanger_choice:  '선택 기로',
+      tender_moment:       '감동적 연결',
+      ominous_calm:        '불길한 고요',
+      memory_trigger:      '과거 기억 촉발',
+      last_moment_failure: '마지막 순간 좌절',
+      sudden_loss:         '갑작스러운 상실',
+      alliance_shift:      '동맹 관계 역전',
+      time_pressure:       '시간 압박',
+    };
     rows += kv('POV', gc?.pov ?? null);
     rows += kv('문체', gc?.style ?? null);
-    rows += kv('회차 역할', a?.episode_role ?? null);
+    const _epRole = a?.episode_role ?? null;
+    rows += kv('회차 역할', _epRole ? (EPISODE_ROLE_KO[_epRole] ?? _epRole) : null);
     // 확정 최종화: resolved_final_episode 우선, 없으면 gen_config.totalEpisodes
     const _resolvedFinal = a?.resolved_final_episode ?? gc?.totalEpisodes;
     if (_resolvedFinal != null) {
@@ -798,11 +824,13 @@ function updateDebugMeta(meta, auditStatus = null) {
     } else {
       rows += kv('남은 화수', a?.remaining_episodes != null ? a.remaining_episodes + '화' : null);
     }
-    rows += kv('서사 국면', a?.planner_arc_phase
-      ? `${a.planner_arc_phase}${a?.planner_arc_ratio != null ? ' (' + a.planner_arc_ratio + '%)' : ''}` : null);
+    const _arcPhase = a?.planner_arc_phase ?? null;
+    rows += kv('서사 국면', _arcPhase
+      ? `${ARC_PHASE_KO[_arcPhase] ?? _arcPhase}${a?.planner_arc_ratio != null ? ' (' + a.planner_arc_ratio + '%)' : ''}` : null);
     rows += kv('엔딩 유형', a?.ending_constraint ?? null);
     if (a?.is_regen) rows += kv('재생성', '✓ regen_prev 주입됨', 'warn');
-    rows += kv('hook 유형', a?.hook_type ?? meta?.hook_type ?? null);
+    const _hookRaw = a?.hook_type ?? meta?.hook_type ?? null;
+    rows += kv('hook 유형', _hookRaw ? (HOOK_TYPE_KO[_hookRaw] ?? _hookRaw) : null);
     rows += kv('장면 수', (a?.scene_beats_count ?? meta?.scene_beats_count) != null ? (a?.scene_beats_count ?? meta?.scene_beats_count) + '개' : null);
     rows += kv('플랜 판정', a?.plan_verdict ?? null);
     rows += kv('플랜 폴백', a?.fallback_used != null ? (a.fallback_used ? `있음${a.fallback_reason ? ': '+a.fallback_reason : ''}` : '없음') : null, a?.fallback_used ? 'warn' : '');

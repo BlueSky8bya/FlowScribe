@@ -133,6 +133,7 @@ textarea.char-input{resize:none;line-height:1.6;min-height:3rem;overflow:hidden;
 
 /* 성격 레이블 */
 .char-personality-preview-box{width:100%;box-sizing:border-box;background:var(--bg);border:1px solid var(--border2);border-radius:8px;color:var(--text4);font-family:inherit;font-size:.92rem;padding:.45rem .85rem;cursor:text;line-height:1.6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:border-color .18s;}
+.char-card.expanded .char-personality-preview-box{white-space:pre-wrap;overflow:visible;height:auto;text-overflow:unset;}
 .char-personality-preview-box:hover{border-color:var(--accent-border);}
 .char-personality-label-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:.3rem;}
 .char-personality-label{font-size:.72rem;letter-spacing:.1em;text-transform:uppercase;color:var(--text4);padding-left:.1rem;}

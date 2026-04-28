@@ -76,8 +76,12 @@ async function saveContext() {
     if (gender === "기타") gender = card.querySelector(".gender-inp").value.trim() || "기타";
     if (!name) return;
     // 초기 소지품: tag 시스템에서 텍스트 추출 → [{name}] 배열
-    const initial_items = Array.from(card.querySelectorAll(".char-item-tag"))
-      .map(t => t.childNodes[0]?.textContent?.trim()).filter(Boolean).map(s => ({ name: s }));
+    const initial_items = Array.from(card.querySelectorAll(".char-item-tag")).map(t => {
+      const nm = (t.dataset.itemName || Array.from(t.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')).trim();
+      const gr = t.dataset.grade || null;
+      if (!nm) return null;
+      return gr ? { name: nm, grade: gr } : { name: nm };
+    }).filter(Boolean);
     characterDefaults[name] = `[유형: ${type}, 성별: ${gender}]${personality ? " " + personality : ""}`;
     characterRows.push({ name, personality, type, gender, source: "user", initial_items });
   });
