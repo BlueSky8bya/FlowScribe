@@ -72,7 +72,7 @@ function makeTagInput(wrapId, inputId) {
   function addTag(val) {
     val = val.trim();
     if (!val || ruleEntries.find(e => e.val === val)) return;
-    if (ruleEntries.length >= 20) { showToast("세계관 규칙은 최대 20개까지 설정할 수 있습니다.", "warn"); return; }
+    if (ruleEntries.length >= 10) { showToast("세계관 규칙은 최대 10개까지 설정할 수 있습니다.", "warn"); return; }
     const entry = { val, hard: false };
     ruleEntries.push(entry);
     makeRuleTag(entry);

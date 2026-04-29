@@ -95,6 +95,35 @@ export function isSkillLike(name: string): boolean {
 }
 
 // ══════════════════════════════════════════════════════════════
+// 환경 사물 감지 — 소지품이 아닌 장면 소품/가구/식기
+// ══════════════════════════════════════════════════════════════
+
+const ENVIRONMENT_OBJECT_WORDS = new Set([
+  // 가구/시설
+  "식탁", "테이블", "의자", "침대", "소파", "책상", "선반", "서랍", "서랍장", "옷장",
+  "문", "창문", "창문틀", "창문유리", "벽", "바닥", "천장", "계단", "복도", "방", "건물",
+  "기둥", "통로", "출구", "비상구", "문고리", "손잡이", "경첩",
+  // 식기/주방
+  "숟가락", "젓가락", "포크", "나이프식기", "컵", "접시", "그릇", "냄비", "후라이팬",
+  "쟁반", "밥그릇", "국그릇", "물잔", "유리잔", "머그컵", "냄비뚜껑",
+  // 조명/전기
+  "전등", "조명", "전구", "형광등", "스탠드", "촛대", "양초", "횃불",
+  // 일반 장소 소품
+  "난로", "화로", "벽난로", "라디에이터", "에어컨", "선풍기", "환기구",
+  // 건물/구조물
+  "철장", "우리", "창살", "격자",
+]);
+
+const ENVIRONMENT_SUFFIX_RE = /^(낡은|오래된|금이\s*간|부서진|깨진)\s*(식탁|테이블|의자|침대|소파|책상|선반|서랍|문|창문|벽|바닥|천장|계단)$/;
+
+export function isEnvironmentObject(name: string): boolean {
+  const trimmed = name.trim();
+  if (ENVIRONMENT_OBJECT_WORDS.has(trimmed)) return true;
+  if (ENVIRONMENT_SUFFIX_RE.test(trimmed)) return true;
+  return false;
+}
+
+// ══════════════════════════════════════════════════════════════
 // 괄호/접두어 condition 분리
 // ══════════════════════════════════════════════════════════════
 
@@ -190,6 +219,15 @@ export function resolveItemName(
       canonical_name: null,
       resolution: "skill_rejected",
       reason: `skill-like item rejected: ${rawItemName}`,
+    };
+  }
+
+  // 1b. 환경 사물 reject (식탁, 의자, 가구 등 scene object)
+  if (isEnvironmentObject(rawItemName)) {
+    return {
+      canonical_name: null,
+      resolution: "rejected",
+      reason: `environment object rejected (not a character item): ${rawItemName}`,
     };
   }
 

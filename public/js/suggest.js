@@ -255,7 +255,7 @@ function _buildWorldSetupBody(target, extra) {
     limits: {
       settingsMax: 3,
       moodsMax: 3,
-      charactersMax: 10,
+      charactersMax: 5,
       characterCount: typeof charCount !== "undefined" ? charCount : 1,
       ...(extra || {}),
     },
@@ -438,7 +438,7 @@ async function runWorldSetupSuggest() {
         rules:      typeof ruleEntries  !== "undefined" ? ruleEntries.map(e => e.val) : [],
         characters: getCharacterDataForSuggest(),
       },
-      limits: { settingsMax: 4, moodsMax: 4, rulesMax: 20, charactersMax: 6 },
+      limits: { settingsMax: 4, moodsMax: 4, rulesMax: 10, charactersMax: 5 },
     };
 
     if (!body.book_id) {
@@ -515,7 +515,7 @@ function applyWorldSuggestResult(data, locked) {
   if (data.characters?.length) {
     const lockedNames = new Set(locked.characters);
     data.characters.forEach(c => {
-      if (!lockedNames.has(c.name) && charCount < 10) {
+      if (!lockedNames.has(c.name) && charCount < 5) {
         charCount++;
         document.getElementById("charCountNum").textContent = charCount;
         renderCharCards();
@@ -681,7 +681,7 @@ function applySuggestion(section, data) {
     data.forEach(val => addChipDirect("moodGrid", moodVals, 3, val));
   } else if (section === "characters") {
     data.forEach(c => {
-      if (charCount >= 10) return;
+      if (charCount >= 5) return;
       charCount++;
       document.getElementById("charCountNum").textContent = charCount;
       renderCharCards();

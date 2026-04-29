@@ -128,7 +128,13 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
         ];
         if (dc.must_not_repeat.length) {
           lines.push(
-            `[반복 금지]\n` + dc.must_not_repeat.slice(0, 4).map(s => `- ${s}`).join("\n")
+            `[반복 금지]\n` + dc.must_not_repeat.slice(0, 6).map(s => `- ${s}`).join("\n")
+          );
+          // 감정 루프 억제 추가 지시
+          lines.push(
+            `[감정 묘사 반복 금지] 인물이 두려워했다/혼란스러웠다/불안했다는 감정 서술로 화를 마무리하지 말 것. ` +
+            `감정은 그것이 유발한 구체적 선택·행동·관계 변화로 표현할 것. ` +
+            `"그는 두려움에 떨었다"로 끝내지 말고 "그 두려움에 이끌려 ○○을 선택했다"처럼 서술할 것.`
           );
         }
         if (dc.must_progress.length) {

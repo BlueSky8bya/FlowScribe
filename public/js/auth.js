@@ -759,7 +759,7 @@ async function selectBook(book) {
   // 다른 책으로 이동 시 진행 중 생성이 있으면 즉시 안내
   const _ag = window._fsActiveGen;
   if (_ag && _ag.status === "generating" && _ag.bookId !== book.id) {
-    showToast(`《${_ag.title}》 ${_ag.episode}화 생성 중입니다. 다른 책으로 이동했습니다. 생성 결과는 원래 책에 저장됩니다.`, "info", 7000);
+    showToast(`《${_ag.title}》 ${_ag.episode}화 생성 중입니다.`, "info", 7000);
   }
 
   _setActiveBook(book);

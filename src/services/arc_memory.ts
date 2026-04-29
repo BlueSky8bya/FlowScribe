@@ -113,7 +113,57 @@ export async function generateAndSaveArcSummary(
       episodes_found: epRes.rows.length,
     });
 
-    // 아크 요약 생성 — 구조화 포맷으로 인물명 보존 강제
+    // ── deterministic evidence: arc 구간 character_dynamic_states 집계 ──
+    type CharEvidence = {
+      episode_count: number;
+      latest_emotional_state: string | null;
+      latest_physical_state: string | null;
+      latest_location: string | null;
+      latest_recent_goal: string | null;
+    };
+    const charEvidenceMap: Record<string, CharEvidence> = {};
+    if (characterNames.length) {
+      try {
+        const evidenceRes = await pool.query(
+          `SELECT character_name,
+                  COUNT(DISTINCT episode_number)::int AS episode_count,
+                  (ARRAY_AGG(emotional_state ORDER BY episode_number DESC))[1] AS latest_emotional_state,
+                  (ARRAY_AGG(physical_state  ORDER BY episode_number DESC))[1] AS latest_physical_state,
+                  (ARRAY_AGG(location        ORDER BY episode_number DESC))[1] AS latest_location,
+                  (ARRAY_AGG(recent_goal     ORDER BY episode_number DESC))[1] AS latest_recent_goal
+           FROM character_dynamic_states
+           WHERE book_id = $1 AND episode_number BETWEEN $2 AND $3
+             AND character_name = ANY($4)
+           GROUP BY character_name`,
+          [bookId, epStart, epEnd, characterNames]
+        );
+        for (const row of evidenceRes.rows) {
+          charEvidenceMap[row.character_name] = {
+            episode_count: row.episode_count,
+            latest_emotional_state: row.latest_emotional_state,
+            latest_physical_state: row.latest_physical_state,
+            latest_location: row.latest_location,
+            latest_recent_goal: row.latest_recent_goal,
+          };
+        }
+      } catch (err) {
+        logWarn("service:arc_memory", "character_dynamic_states evidence 수집 실패 (arc summary는 계속)", { err });
+      }
+    }
+
+    // 인물별 등장 evidence 주입 텍스트 생성
+    const charEvidenceText = characterNames.map(name => {
+      const ev = charEvidenceMap[name];
+      if (!ev || ev.episode_count === 0) return `${name}: 이 아크에서 DB 기록 없음 (미등장 가능성)`;
+      const parts = [`등장 ${ev.episode_count}화`];
+      if (ev.latest_emotional_state) parts.push(`최근감정: ${ev.latest_emotional_state}`);
+      if (ev.latest_physical_state)  parts.push(`신체: ${ev.latest_physical_state}`);
+      if (ev.latest_location)         parts.push(`위치: ${ev.latest_location}`);
+      if (ev.latest_recent_goal)      parts.push(`목표: ${ev.latest_recent_goal.slice(0, 40)}`);
+      return `${name}: ${parts.join(" | ")}`;
+    }).join("\n");
+
+    // 아크 요약 생성 — deterministic evidence 주입
     const charList = characterNames.join(", ");
     const arcRes = await getLLMClient().chat.completions.create({
       model: getSummaryModel(),
@@ -124,22 +174,54 @@ export async function generateAndSaveArcSummary(
             "당신은 소설 아크 분석 전문가다.",
             "반드시 아래 3개 섹션 형식을 정확히 지켜서 출력한다. 다른 형식 금지.",
             "[주요 사건] 이 아크에서 일어난 핵심 사건 2~3문장. 반드시 인물 이름을 직접 사용한다.",
-            "[인물 현재 상태] 각 인물의 상태를 '이름: 한 문장' 형식으로 한 줄씩 나열한다. '그', '그녀' 대신 반드시 이름을 쓴다. 등장하지 않은 인물도 '이름: 이 아크에서 미등장' 형식으로 기록한다.",
+            "[인물 현재 상태] 각 인물의 상태를 '이름: 한 문장' 형식으로 한 줄씩 나열한다. '그', '그녀' 대신 반드시 이름을 쓴다.",
+            "⚠ 중요: '인물 등장 데이터' 섹션에서 해당 인물의 등장 화수가 1 이상이면 절대 '미등장'이라고 쓰지 않는다. 대신 최근 감정·위치·목표를 기반으로 상태를 한 문장으로 기술한다.",
+            "등장 화수가 0인 인물만 '이름: 이 아크에서 미등장'으로 기록 가능하다.",
             "[미해결 긴장] 다음 아크로 이어지는 갈등·복선·의문 1~2문장. 반드시 인물 이름을 직접 사용한다.",
             "모든 출력은 한국어만 허용한다.",
           ].join("\n"),
         },
         {
           role: "user",
-          content: `등장인물 목록(반드시 이름 직접 사용): ${charList}\n\n${epStart}화~${epEnd}화 요약:\n\n${epSummaries}\n\n위 3개 섹션 형식으로 아크 요약을 작성해줘.`,
+          content: [
+            `등장인물 목록: ${charList}`,
+            "",
+            `[인물 등장 데이터 — 이 데이터를 기반으로 인물 상태를 작성할 것]`,
+            charEvidenceText,
+            "",
+            `${epStart}화~${epEnd}화 에피소드 요약:`,
+            epSummaries,
+            "",
+            "위 3개 섹션 형식으로 아크 요약을 작성해줘.",
+          ].join("\n"),
         },
       ],
       temperature: 0.2,
       max_tokens: 500,
     });
-    const arcSummary = arcRes.choices[0]?.message?.content?.trim() ?? "";
+    const rawArcSummary = arcRes.choices[0]?.message?.content?.trim() ?? "";
 
-    // 인물별 상태 생성
+    // ── post-validation: DB에 row가 있는 인물이 "미등장"이면 수정 ────
+    let arcSummary = rawArcSummary;
+    for (const name of characterNames) {
+      const ev = charEvidenceMap[name];
+      if (!ev || ev.episode_count === 0) continue;  // 실제 미등장이면 그대로
+      // "이름: ... 미등장" 패턴 감지
+      const miPattern = new RegExp(`${name}\\s*:\\s*[^\\n]*미등장`, "g");
+      if (miPattern.test(arcSummary)) {
+        const parts = [`등장 ${ev.episode_count}화`];
+        if (ev.latest_emotional_state) parts.push(`감정 상태: ${ev.latest_emotional_state}`);
+        if (ev.latest_location)         parts.push(`위치: ${ev.latest_location}`);
+        const fallback = `${name}: ${parts.join(", ")} — 세부 상황은 에피소드 본문 참조`;
+        arcSummary = arcSummary.replace(miPattern, fallback);
+        logWarn("service:arc_memory", "arc summary 미등장 hallucination 보정", {
+          book_id: bookId, arc_number: arcNumber, character: name,
+          episode_count: ev.episode_count,
+        });
+      }
+    }
+
+    // 인물별 상태 생성 — evidence 기반으로 LLM 호출
     const charArcs: { name: string; state: string }[] = [];
     if (characterNames.length) {
       const charRes = await getLLMClient().chat.completions.create({
@@ -148,14 +230,25 @@ export async function generateAndSaveArcSummary(
           {
             role: "system",
             content: [
-              "소설 요약에서 각 인물의 현재 상태를 한 문장으로 추출한다.",
-              "등장하지 않은 인물은 '미등장'으로 표시한다.",
+              "소설 아크 데이터에서 각 인물의 현재 상태를 한 문장으로 요약한다.",
+              "⚠ 등장 화수가 1 이상인 인물은 절대 '미등장'으로 표시하지 않는다.",
+              "등장 화수가 0인 인물만 '미등장'으로 표시 가능하다.",
               '반드시 JSON 형식만 출력한다. 형식: [{"name":"인물명","state":"상태 한 문장"}]',
             ].join("\n"),
           },
           {
             role: "user",
-            content: `인물 목록: ${characterNames.join(", ")}\n\n아크 요약:\n${arcSummary}\n\n각 인물의 현재 상태를 JSON으로 출력해줘.`,
+            content: [
+              `인물 목록: ${characterNames.join(", ")}`,
+              "",
+              "[인물 등장 데이터]",
+              charEvidenceText,
+              "",
+              "[아크 요약]",
+              arcSummary,
+              "",
+              "각 인물의 현재 상태를 JSON으로 출력해줘.",
+            ].join("\n"),
           },
         ],
         temperature: 0.1,
@@ -165,7 +258,20 @@ export async function generateAndSaveArcSummary(
       const matchChar = rawChar.match(/\[[\s\S]*\]/);
       if (matchChar) {
         const parsed: { name: string; state: string }[] = JSON.parse(matchChar[0]);
-        charArcs.push(...parsed.filter(c => c.name && c.state));
+        // post-validation: DB row 있는데 state에 "미등장"이면 fallback
+        for (const c of parsed.filter(x => x.name && x.state)) {
+          const ev = charEvidenceMap[c.name];
+          if (ev && ev.episode_count > 0 && /미등장/.test(c.state)) {
+            const parts = [ev.latest_emotional_state, ev.latest_location].filter(Boolean);
+            c.state = parts.length
+              ? `이 아크 ${ev.episode_count}화 등장, ${parts.join(", ")}`
+              : `이 아크 ${ev.episode_count}화 등장`;
+            logWarn("service:arc_memory", "character_arcs 미등장 hallucination 보정", {
+              book_id: bookId, arc_number: arcNumber, character: c.name,
+            });
+          }
+          charArcs.push(c);
+        }
       }
     }
 

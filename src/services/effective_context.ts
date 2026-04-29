@@ -570,6 +570,15 @@ function buildEpisodeDeltaContract(
   for (const fact of previous_episode_facts.slice(0, 3)) {
     must_not_repeat.push(`이미 확정된 사건 — "${fact}" — 을 다시 처음처럼 서술하지 말 것.`);
   }
+  // ── 감정 루프 억제: 직전 화와 같은 감정 상태로 끝나지 말 것 ────
+  for (const s of dynStates.slice(0, 4)) {
+    if (s.emotional_state && s.emotional_state !== "알 수 없음") {
+      must_not_repeat.push(
+        `${s.character_name}의 화 말미 감정이 다시 "${s.emotional_state}"로 끝나지 말 것. ` +
+        `그 감정을 느끼는 장면 묘사에서 끝내지 말고, 그 감정이 유발한 선택·행동·관계 변화로 화를 마무리하라.`
+      );
+    }
+  }
 
   // ── must_progress: 반드시 전진해야 할 항목 ───────────────────
   const must_progress: string[] = [

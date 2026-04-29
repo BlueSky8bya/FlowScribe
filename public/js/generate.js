@@ -489,6 +489,8 @@ function regenerate() {
   document.getElementById("output").textContent = "";
   // 1화 재생성: regen_nonce로 플랜 다양성 유도
   window._regenNonce = (regenEp === 1) ? Date.now().toString(36) : null;
+  // 재생성 플래그: _finishGeneration에서 currentEpisode++ 방지
+  window._regenMode = regenEp;
   generate();
 }
 
@@ -568,7 +570,10 @@ function generate() {
     saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
     _sendLog(episodeNum, 1.0, null);
     displayedEpisode = episodeNum;
-    currentEpisode++;
+    // 재생성이면 currentEpisode를 올리지 않는다 — 같은 화를 덮어쓴 것
+    const _wasRegen = window._regenMode === episodeNum;
+    window._regenMode = null;
+    if (!_wasRegen) currentEpisode++;
     updateEpisodeUI();
     syncBookEpisode?.();
     if (episodeNum >= 2) applySettingsLock?.(true);
@@ -641,7 +646,9 @@ function generate() {
         applyFocusLine?.();
         episodeCache[episodeNum] = rawText;
         displayedEpisode = episodeNum;
-        currentEpisode++;
+        const _wasRegenErr = window._regenMode === episodeNum;
+        window._regenMode = null;
+        if (!_wasRegenErr) currentEpisode++;
         updateEpisodeUI();
       } else {
         console.warn("[generate] onerror: session stale — saved to original book, skipping UI update", _genSession);
@@ -1790,7 +1797,7 @@ async function captureEpisode(withChars = false) {
               const gc2 = showGrade ? GRADE_COLOR[grade] ?? '#888' : null;
               const ql  = !showGrade ? QLABEL_CAP(displayName) : null;
               const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
-              return `<div style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
+              return `<div class="cap-item-row" style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
                 <div style="font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3rem;">
                   ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
                   ${displayName}
@@ -1816,7 +1823,7 @@ async function captureEpisode(withChars = false) {
                 ? `<div style="margin-top:4px;"><div style="font-size:.72rem;color:var(--text4);">소지</div>${itemsHtml}</div>`
                 : stateRow('소지', '빈손')),
             ].join('');
-            return `<div style="background:var(--bg2);border-radius:10px;padding:.75rem 1rem;border:1px solid var(--border);">
+            return `<div class="cap-char-card" style="background:var(--bg2);border-radius:10px;padding:.75rem 1rem;border:1px solid var(--border);">
               <div style="font-size:.86rem;font-weight:700;color:${gc};margin-bottom:.5rem;">${s.character_name}${s.gender && s.gender !== '해당없음' ? ` <span style="font-size:.7rem;opacity:.6">${s.gender}</span>` : ''}</div>
               ${rows}
             </div>`;
@@ -1885,7 +1892,7 @@ ${resolveVars(wrap.innerHTML)}
     const canvas = await html2canvas(pngWrap, { backgroundColor: bgColor, scale, useCORS: true, logging: false, width: 900 });
     // 단락 하단 위치 수집 — removeChild 전에 측정해야 레이아웃이 살아있음
     const wrapTop = pngWrap.getBoundingClientRect().top;
-    const splitCandidates = Array.from(pngWrap.querySelectorAll('p, .scene-para, .dialogue-line'))
+    const splitCandidates = Array.from(pngWrap.querySelectorAll('p, .scene-para, .dialogue-line, .cap-char-card, .cap-item-row'))
       .map(el => Math.round((el.getBoundingClientRect().bottom - wrapTop) * scale))
       .filter(y => y > 0 && y < canvas.height)
       .sort((a, b) => a - b);

@@ -125,6 +125,7 @@ function appendCharCard(container, i, p) {
           <span class="char-card-num">Character · ${i + 1}</span>
           <span class="char-card-name-preview">${esc(p.name||"이름 미입력")}</span>
           <button class="card-ai-btn char-ai-btn" style="margin-left:auto;flex-shrink:0" onclick="suggestCharacter(this)">✦ AI 추천</button>
+          <button class="char-delete-btn" style="flex-shrink:0" onclick="deleteCharCard(this)" title="인물 삭제">✕</button>
           <button class="char-lock-btn" style="flex-shrink:0" onclick="toggleCharLock(this)">확정</button>
         </div>
         <span class="char-card-meta">
@@ -496,7 +497,7 @@ function applyItemsToCard(card, items) {
 }
 
 function changeCharCount(d) {
-  const next = Math.max(1, Math.min(10, charCount + d));
+  const next = Math.max(1, Math.min(5, charCount + d));
   if (next === charCount) return;
   const container = document.getElementById("charCards");
   if (next > charCount) {
@@ -516,7 +517,39 @@ function _syncCharCounterBtns() {
   const minBtn = document.querySelector(".counter-btn[onclick*='-1']");
   const maxBtn = document.querySelector(".counter-btn[onclick*='1']");
   if (minBtn) minBtn.disabled = charCount <= 1;
-  if (maxBtn) maxBtn.disabled = charCount >= 10;
+  if (maxBtn) maxBtn.disabled = charCount >= 5;
+}
+
+function deleteCharCard(btn) {
+  // 뷰어모드(locked) 또는 2화 이상 생성 상태에서는 삭제 불가
+  const container = document.getElementById("charCards");
+  const cards = container.querySelectorAll(".char-card");
+  if (cards.length <= 1) { showToast("최소 1명의 인물이 필요합니다.", "warn", 2000); return; }
+
+  const isViewerMode = document.getElementById("worldBibleModal")?.classList.contains("viewer-mode") ||
+    document.querySelector(".bible-page-left")?.classList.contains("viewer-locked");
+  if (isViewerMode) return;
+
+  const card = btn.closest(".char-card");
+  const name = card.querySelector(".char-name")?.value?.trim() || "이 인물";
+  if (!confirm(`"${name}" 인물카드를 삭제할까요?`)) return;
+
+  card.remove();
+  charCount = Math.max(1, charCount - 1);
+  document.getElementById("charCountNum").textContent = charCount;
+  _syncCharCounterBtns();
+}
+
+function syncCharDeleteBtns() {
+  // 뷰어모드이거나 2화 이상 존재 시 삭제 버튼 숨김
+  const container = document.getElementById("charCards");
+  if (!container) return;
+  const isViewerMode = document.getElementById("worldBibleModal")?.classList.contains("viewer-mode") ||
+    document.querySelector(".bible-page-left")?.classList.contains("viewer-locked");
+  const hidden = isViewerMode;
+  container.querySelectorAll(".char-delete-btn").forEach(btn => {
+    btn.style.display = hidden ? "none" : "";
+  });
 }
 
 renderCharCards();

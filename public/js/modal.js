@@ -76,6 +76,13 @@ function openModal() {
   overlay.style.removeProperty("display");
   overlay.removeAttribute("aria-hidden");
   overlay.classList.add("open");
+  // 열릴 때마다 현재 episodeCache 기준으로 잠금 상태 재계산
+  if (typeof episodeCache !== "undefined" && typeof applySettingsLock === "function") {
+    const locked = Object.keys(episodeCache).some(k => Number(k) >= 2);
+    applySettingsLock(locked);
+    if (typeof _updateSettingsBtnLabel === "function") _updateSettingsBtnLabel(locked);
+    if (typeof syncCharDeleteBtns === "function") syncCharDeleteBtns();
+  }
   goSpread(0, true);
 }
 

@@ -60,15 +60,12 @@ export async function extractAndStoreForeshadow(
   content: string
 ): Promise<void> {
   try {
-    // idempotency guard: 이미 이 화에서 복선을 추출한 경우 스킵
-    const existing = await pool.query(
-      `SELECT 1 FROM foreshadows WHERE book_id=$1 AND planted_episode=$2 LIMIT 1`,
+    // 재생성 시 같은 화의 기존 open 복선을 먼저 삭제 (중복 누적 방지)
+    // resolved 복선은 보존 (이미 회수된 복선은 유지해야 하기 때문)
+    await pool.query(
+      `DELETE FROM foreshadows WHERE book_id=$1 AND planted_episode=$2 AND status='open'`,
       [bookId, episodeNumber]
     );
-    if (existing.rows.length > 0) {
-      logInfo("service:foreshadow", "복선 추출 스킵 (이미 처리됨)", { book_id: bookId, episode: episodeNumber });
-      return;
-    }
 
     const res = await getLLMClient().chat.completions.create({
       model: getSummaryModel(),

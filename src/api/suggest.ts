@@ -1724,10 +1724,25 @@ function parseAndProtect(raw: string, req: WorldSuggestRequest): WorldSuggestRes
   return {
     settings: [...lockedSettingItems, ...suggestedSettings].slice(0, req.limits.settingsMax || 5),
     moods: [...lockedMoodItems, ...suggestedMoods].slice(0, req.limits.moodsMax || 5),
-    rulesToAdd: ((parsed.rulesToAdd ?? []) as NonNullable<WorldSuggestResponse["rulesToAdd"]>).slice(0, 5),
+    rulesToAdd: ((parsed.rulesToAdd ?? []) as NonNullable<WorldSuggestResponse["rulesToAdd"]>)
+      .slice(0, 5)
+      .map(r => ({ ...r, text: _truncateRule(r.text) })),
     characters: filteredChars.slice(0, 3),
     notes: (parsed.notes ?? []) as string[],
   };
+}
+
+// 규칙 텍스트를 100자 이내로 자르되 문장 경계(마침표·느낌표·물음표) 기준으로 처리
+function _truncateRule(text: string): string {
+  if (!text || text.length <= 100) return text;
+  // 마지막 완성 문장 기준으로 100자 이하 추출
+  const sentences = text.split(/(?<=[.!?。])\s*/);
+  let result = "";
+  for (const s of sentences) {
+    if ((result + s).length > 100) break;
+    result += (result ? " " : "") + s;
+  }
+  return result || text.slice(0, 100);
 }
 
 // AI 응답 설명에서 지시문/메타 문구 제거 (예: "20자 이내", "설명:", "JSON" 등)
@@ -1789,7 +1804,7 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
     case "rules": {
       const rules: Array<{ text: string; hard: boolean }> = ((parsed.rulesToAdd ?? []) as any[])
         .filter(r => r.text?.trim())
-        .map(r => ({ text: r.text.trim(), hard: !!r.hard }));
+        .map(r => ({ text: _truncateRule(r.text.trim()), hard: !!r.hard }));
       return { ...base, rulesToAdd: rules };
     }
     case "characters_all": {

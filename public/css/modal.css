@@ -207,6 +207,8 @@ textarea.char-input{resize:none;line-height:1.6;min-height:3rem;overflow:hidden;
 .char-confirm-btn:hover{filter:brightness(1.15);}
 
 /* 확정 버튼 — AI 추천 버튼과 동일한 pill 스타일 */
+.char-delete-btn{background:transparent;border:1px solid transparent;border-radius:12px;color:var(--text4);cursor:pointer;font-family:inherit;font-size:.72rem;padding:.18rem .5rem;transition:all .18s;white-space:nowrap;opacity:.55;}
+.char-delete-btn:hover{border-color:var(--danger-text);color:var(--danger-text);opacity:1;}
 .char-lock-btn{background:transparent;border:1px solid var(--border2);border-radius:12px;color:var(--text4);cursor:pointer;font-family:inherit;font-size:.68rem;padding:.18rem .72rem;transition:all .18s;white-space:nowrap;letter-spacing:.03em;}
 .char-lock-btn:hover:not(:disabled){border-color:var(--accent);color:var(--accent);}
 .char-lock-btn.locked{background:var(--accent-bg);border-color:var(--accent-border);color:var(--accent);}
