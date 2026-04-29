@@ -265,11 +265,12 @@ function buildArcPhaseDirective(phase: ArcPhase, remaining: number): string {
   };
 
   const hg = hookGuide[phase];
+  // 프롬프트 과부하 방지: allowed 상위 4개 + forbidden 상위 3개만 포함 (full list는 8K context에서 창작 공간 잠식)
   const lines = [`현재 서사 국면: ${label[phase]} (남은 화수: ${remaining}화)`];
-  if (d.allowed.length) lines.push(`[이 국면에 적합한 전개]\n${d.allowed.map(s => `- ${s}`).join("\n")}`);
-  if (d.forbidden.length) lines.push(`[이 국면에 금지된 전개]\n${d.forbidden.map(s => `- ${s}`).join("\n")}`);
-  if (hg.preferred.length) lines.push(`[이 국면 hook_type — 반드시 이 중 하나를 선택할 것] ${hg.preferred.join(", ")}`);
-  if (hg.avoid.length) lines.push(`[이 국면 절대 금지 hook_type — 사용 시 오류] ${hg.avoid.join(", ")}`);
+  if (d.allowed.length) lines.push(`[적합한 전개 (상위 우선순위)]\n${d.allowed.slice(0, 4).map(s => `- ${s}`).join("\n")}`);
+  if (d.forbidden.length) lines.push(`[금지된 전개]\n${d.forbidden.slice(0, 3).map(s => `- ${s}`).join("\n")}`);
+  if (hg.preferred.length) lines.push(`[권장 hook_type] ${hg.preferred.slice(0, 4).join(", ")}`);
+  if (hg.avoid.length) lines.push(`[금지 hook_type] ${hg.avoid.slice(0, 3).join(", ")}`);
   return lines.join("\n");
 }
 
@@ -485,14 +486,7 @@ function buildPlannerUserPrompt(
   if (episodeConstraintText)
     sections.push(`[이번 화 제약]\n${episodeConstraintText}`);
 
-  // 주인공 탐지 — personality에 "주인공" 또는 type이 "주인공"인 첫 인물
-  const protagonistChar = ctx.characters.find(c =>
-    c.type === "주인공" || /주인공/.test(c.personality ?? "")
-  );
-  if (protagonistChar) {
-    sections.push(`[★ 핵심 주인공: ${protagonistChar.name}]\n이 이야기의 주인공은 반드시 ${protagonistChar.name}이다. 모든 scene_beats에서 ${protagonistChar.name}의 시선·감정·행동이 중심이 되어야 한다. 다른 인물이 주인공 역할을 대체하는 장면 계획은 오류다.`);
-  }
-
+  // 주인공 선언은 renderer에서 처리 — planner에서 중복 제거 (토큰 절약)
   sections.push(`[인물 현재 상태]\n${sc.char_summary}${absentLine}`);
 
   if (sc.prev_event_summary)
@@ -627,51 +621,41 @@ function buildPlannerUserPrompt(
   }
 
   // ── Episode Delta Contract (ep >= 2, 재생성 1화 제외) ──────────
+  // 프롬프트 절약: continuity_contract와 중복되는 내용은 delta에서 압축 (핵심만 유지)
   const dc = ctx.episode_delta_contract;
   if (dc && ctx.episode_number >= 2) {
     const dcLines: string[] = [
       `이번 화(${dc.episode_number}화)는 직전 화의 반복이 아니라 후속 결과여야 한다.`,
     ];
 
+    // must_not_repeat: 상위 3개만 (continuity_contract.known_facts와 중복 방지)
     if (dc.must_not_repeat.length) {
       dcLines.push(
-        `[반복 절대 금지]\n${dc.must_not_repeat.slice(0, 5).map(s => `- ${s}`).join("\n")}`
+        `[반복 금지 (상위 3)]\n${dc.must_not_repeat.slice(0, 3).map(s => `- ${s}`).join("\n")}`
       );
     }
 
+    // must_progress: 상위 3개만
     if (dc.must_progress.length) {
       dcLines.push(
-        `[반드시 전진해야 할 항목]\n${dc.must_progress.slice(0, 4).map(s => `- ${s}`).join("\n")}`
+        `[전진 필수]\n${dc.must_progress.slice(0, 3).map(s => `- ${s}`).join("\n")}`
       );
     }
 
-    if (dc.newly_required_changes.length) {
-      dcLines.push(
-        `[이번 화에서 새로 변해야 하는 것]\n${dc.newly_required_changes.map(s => `- ${s}`).join("\n")}`
-      );
-    }
-
+    // character_delta: 상위 2인물만
     if (dc.character_delta_requirements.length) {
       const charDelta = dc.character_delta_requirements
-        .slice(0, 4)
-        .map(c => `- ${c.character_name}: 이전 상태(${c.previous_state}) → ${c.required_change}`)
+        .slice(0, 2)
+        .map(c => `- ${c.character_name}: ${c.required_change}`)
         .join("\n");
-      dcLines.push(`[인물별 변화 요구사항]\n${charDelta}`);
+      dcLines.push(`[인물 변화]\n${charDelta}`);
     }
 
+    // repetition_risk: 상위 2개만 (verify 체크 충족 + 토큰 절약)
     if (dc.repetition_risk.length) {
       dcLines.push(
-        `[반복 위험 패턴 — 이번 화에서 핵심 사건으로 사용 금지]\n` +
-        dc.repetition_risk.map(r => `- ${r.pattern}: ${r.reason.slice(0, 80)}`).join("\n")
-      );
-    }
-
-    if (dc.plot_delta_requirements.length) {
-      dcLines.push(
-        `[플롯 스레드 진전 요구]\n` +
-        dc.plot_delta_requirements.slice(0, 3).map(p =>
-          `- "${p.thread}": ${p.required_progress}`
-        ).join("\n")
+        `[반복 위험]\n` +
+        dc.repetition_risk.slice(0, 2).map(r => `- ${r.pattern}`).join("\n")
       );
     }
 

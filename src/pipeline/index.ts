@@ -19,6 +19,7 @@ import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
 import { commitDynamicState, getLatestDynamicStates } from "../services/character_state.js";
 import { normalizeStateUpdate, normalizeEmotionalState, normalizeLocation, normalizePhysicalState, normalizeRecentGoal } from "../services/language_guard.js";
+import { sanitizeGeneratedBody } from "../services/text_sanitizer.js";
 import { normalizeItems, checkLocationChange, emptyItemLedgerCheck, emptyLocationLedgerCheck, type ItemLedgerCheck, type LocationLedgerCheck } from "../lib/item_ledger.js";
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
@@ -275,7 +276,17 @@ export async function runPlannerPipeline(
         drifts: proseNormLog,
       });
     }
-    generatedText = rawRenderedText;
+    // ── Body Sanitizer: special token / foreign fragment 제거 ──────
+    const sanitized = sanitizeGeneratedBody(rawRenderedText);
+    if (sanitized.warnings.length > 0) {
+      logWarn("pipeline:sanitizer", "body sanitization applied", {
+        episode: ctx.episode_number,
+        removed_special_tokens: sanitized.removed_special_tokens,
+        removed_foreign_fragments: sanitized.removed_foreign_fragments,
+        warnings: sanitized.warnings.slice(0, 10),
+      });
+    }
+    generatedText = sanitized.text;
     tracer?.setRendererTrace({
       system_prompt:  renderResult.system_prompt,
       user_prompt:    renderResult.user_prompt,

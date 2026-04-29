@@ -186,7 +186,10 @@ export async function buildEffectiveContext(opts: {
     }
   }
 
-  const dynStates = dynamicStates.status === "fulfilled" ? dynamicStates.value : [];
+  const dynStatesRaw = dynamicStates.status === "fulfilled" ? dynamicStates.value : [];
+  // canonical 필터: non-canonical 인물 오염 방지 (예: 재생성 시 생긴 아리아, 리라 등)
+  const canonicalNameSetForFilter = new Set(canonical.map(c => c.name));
+  const dynStates = dynStatesRaw.filter(d => canonicalNameSetForFilter.has(d.character_name));
   const infStates = inferredStates.status === "fulfilled" ? inferredStates.value : [];
 
   // ── Character Arcs (기존 서비스) ──────────────────────────────

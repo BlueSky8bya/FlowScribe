@@ -96,6 +96,21 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
   });
 
   try {
+    // ── 재생성 시 derived memory isolation ────────────────────────
+    // 해당 화의 기존 dynamic states / foreshadows를 정리해 이전 재생성 오염 방지
+    // (canonical world bible / characters / initial items는 유지)
+    if (episode >= 1) {
+      await pool.query(
+        `DELETE FROM character_dynamic_states WHERE book_id=$1 AND episode_number=$2`,
+        [bookId, episode]
+      ).catch(() => {});
+      await pool.query(
+        `DELETE FROM foreshadows WHERE book_id=$1 AND planted_episode=$2`,
+        [bookId, episode]
+      ).catch(() => {});
+      logInfo("api:generate_v2", "재생성 memory isolation 완료", { book_id: bookId, episode });
+    }
+
     // ── 유효 컨텍스트 조립 ─────────────────────────────────────
     const ctx = await buildEffectiveContext({
       bookId, episodeNumber: episode,
