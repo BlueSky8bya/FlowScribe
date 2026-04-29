@@ -298,18 +298,14 @@ function applySettingsLock(lock) {
     lockCharCardFields(card, lock);
   });
 
-  // 뷰어모드: 모든 인물카드를 확정 상태로 표시 (확정 버튼 잠금 + 성별 하이라이팅)
-  if (lock) {
-    document.querySelectorAll(".char-card").forEach(card => {
-      const lockBtn = card.querySelector(".char-lock-btn");
-      if (!lockBtn) return;
-      // 이미 locked이면 건드리지 않음 (toggleCharLock이 처리한 카드)
-      if (!card.classList.contains("locked")) {
-        const nameInp = card.querySelector(".char-name");
-        if (!nameInp?.value.trim()) return; // 이름 없는 카드는 확정 금지
-        card.classList.add("locked");
-        lockBtn.classList.add("locked");
-      }
+  // 뷰어모드: 확정 버튼 시각 처리 + 성별 하이라이팅
+  // ※ card.classList.add("locked") 금지 — 추가하면 편집모드 복원 시 refinePersonality 등이 막힘
+  // lockCharCardFields([data-saved], lock)이 이미 refineBtn/aiBtn을 처리하므로 중복 불필요
+  document.querySelectorAll(".char-card").forEach(card => {
+    const lockBtn = card.querySelector(".char-lock-btn");
+    if (!lockBtn) return;
+    if (lock) {
+      // 확정 버튼 시각 — locked 클래스 없이 외관만 변경
       lockBtn.textContent = "✔ 확정됨";
       lockBtn.disabled = true;
       lockBtn.style.pointerEvents = "none";
@@ -322,20 +318,17 @@ function applySettingsLock(lock) {
         else if (gender === "남성")  accent.style.background = "var(--male-accent, #5a8fd4)";
         else                         accent.style.background = "";
       }
-    });
-  } else {
-    // 편집모드 복원: 확정 버튼 다시 활성화
-    document.querySelectorAll(".char-card .char-lock-btn").forEach(btn => {
-      const card = btn.closest(".char-card");
-      const isLocked = card?.classList.contains("locked") ?? false;
-      btn.disabled = false;
-      btn.style.pointerEvents = "";
-      btn.style.opacity = "";
-      btn.textContent = isLocked ? "✔ 확정됨" : "확정";
-      const accent = card?.querySelector(".char-card-accent");
+    } else {
+      // 편집모드 복원: 버튼 상태 및 색상 초기화
+      const isLocked = card.classList.contains("locked");
+      lockBtn.textContent = isLocked ? "✔ 확정됨" : "확정";
+      lockBtn.disabled = false;
+      lockBtn.style.pointerEvents = "";
+      lockBtn.style.opacity = "";
+      const accent = card.querySelector(".char-card-accent");
       if (accent) accent.style.background = "";
-    });
-  }
+    }
+  });
 
   // 설정 버튼 레이블 동기화
   _updateSettingsBtnLabel?.(lock);
@@ -580,11 +573,20 @@ function _clearStorySurface() {
   const outEl = document.getElementById("output");
   if (outEl) outEl.innerHTML = "";
   if (typeof _clearDebugPanels   === "function") _clearDebugPanels();
-  if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
   // char panel stale guard: 책 전환 시 진행 중인 char-states 요청을 무효화
   if (typeof _charPanelRequestSeq !== "undefined") _charPanelRequestSeq++;
+  // 책 전환 직후 char panel에 로딩 상태 즉시 표시
+  _showCharPanelLoading();
   clearStoryProgressUI();
   _traceOutput("_clearStorySurface end");
+}
+
+function _showCharPanelLoading() {
+  const panel = document.getElementById("sceneCharPanel");
+  const list  = document.getElementById("sceneCharList");
+  if (!panel || !list) return;
+  list.innerHTML = `<div class="scene-char-loading">인물 정보를 불러오는 중입니다…</div>`;
+  panel.hidden = false;
 }
 
 async function _loadEpisodes(bid) {
@@ -612,7 +614,12 @@ function _renderLatestEpisode(episodes) {
     displayedEpisode = null;
     currentEpisode   = 1;
     const outEl = document.getElementById("output");
-    if (outEl) outEl.innerHTML = "";
+    if (outEl) {
+      const titleHtml = activeBookTitle
+        ? `<h2 class="empty-state-title">${activeBookTitle}</h2>`
+        : "";
+      outEl.innerHTML = `<div class="empty-state-wrap">${titleHtml}<p class="empty-state">아직 생성된 회차가 없습니다.</p><p class="empty-state-hint">1화 생성을 눌러 시작하세요.</p></div>`;
+    }
     if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
     updateEpisodeListUI();
     updateEpisodeUI?.();

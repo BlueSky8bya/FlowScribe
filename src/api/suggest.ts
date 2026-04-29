@@ -1170,31 +1170,34 @@ async function requestModel(userPrompt: string, numPredict: number) {
 
 function buildRefinePrompt(name: string, type: string, gender: string, personality: string, settings: string[], moods: string[], worldRules: string[]): string {
   const minLen = Math.max(120, personality.length + 20);
-  return `인물 정보:
+  return `너는 한국 소설 인물 설정 편집자다.
+
+인물 정보:
 - 이름: ${name || "미입력"}
 - 유형: ${type || "인간"}
 - 성별: ${gender || "미입력"}
-- 설정: ${settings.join(", ") || "없음"}
-- 분위기: ${moods.join(", ") || "없음"}
+- 배경/세계관: ${settings.join(", ") || "없음"}
+- 장르/분위기: ${moods.join(", ") || "없음"}
 - 세계 규칙: ${worldRules.slice(0, 3).join(" | ") || "없음"}
 
 현재 성격·특징 (${personality.length}자):
-"${personality}"
+${personality}
 
-위 인물의 성격·특징을 확장·구체화하라. 압축하거나 짧게 만들지 마라.
-반드시 포함해야 할 5가지 요소:
-1. 핵심 성격 (행동으로 드러나는 구체적 특징)
-2. 결핍 또는 두려움 (무엇을 피하려 하는가)
+위 인물의 성격·특징을 확장·구체화해라. 압축하거나 짧게 만들지 마라.
+반드시 포함해야 할 요소:
+1. 핵심 성격 — 행동·말투·반응으로 드러나는 구체적 특징
+2. 결핍 또는 두려움 — 무엇을 피하거나 숨기려 하는가
 3. 갈등 상황에서의 행동 경향
-4. 세계관/장르와 연결되는 특징
+4. 세계관/장르와 연결되는 특징 (능력·역할·환경과의 관계)
 5. 다른 인물과 충돌하거나 보완될 수 있는 지점
+6. 첫 화에서 드러나기 좋은 행동 단서
 
-규칙:
-- 기존 묘사의 핵심 의미를 반드시 보존
-- 결과는 반드시 ${minLen}자 이상의 한국어
-- 사용자가 직접 입력한 문장은 삭제하지 말 것
-- 추상적 표현은 관찰 가능한 행동·말투·반응으로 변환
-- 출력: {"val":"..."}`;
+출력 규칙:
+- 기존 문장의 핵심 의미를 반드시 보존하라
+- 결과는 한국어 ${minLen}자 이상, 최대 1000자 이내
+- 자연스러운 한국어 산문으로 작성 (목록 형식 금지)
+- JSON, 마크다운, 설명 문구, "1.", "2." 같은 번호 매기기 금지
+- 성격·특징 텍스트만 바로 출력해라`;
 }
 
 suggestRouter.post("/refine", async (req: Request, res: Response) => {
@@ -1214,12 +1217,21 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
   const prompt = buildRefinePrompt(name, type, gender, personality, settingsArr, moodsArr, worldRules);
 
   try {
-    const raw = await requestModel(prompt, 600);
-    const parsed = safeJsonParse(raw);
-    const rawVal = parsed && typeof (parsed as any).val === "string"
-      ? (parsed as any).val : personality;
-    const val = `${rawVal}`.replace(/["'`]/g, "").replace(/\s+/g, " ").trim().slice(0, 500);
-    logInfo("api:suggest", "refine 완료", { name, type });
+    // Gemini 사용 (requestModel은 "JSON array only" 시스템 프롬프트 → plain text 응답 불가)
+    const raw = await callWorldSuggest(prompt);
+    // plain text 응답 — JSON 코드블록 제거 후 그대로 사용
+    const val = raw
+      .replace(/^```[\w]*\n?/gm, "").replace(/```$/gm, "")
+      .replace(/^["'`]|["'`]$/g, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 1000);
+    if (!val || val.length < 20) {
+      logWarn("api:suggest", "refine 결과 너무 짧음 — 원문 반환", { val_len: val.length });
+      res.json({ ok: true, val: personality });
+      return;
+    }
+    logInfo("api:suggest", "refine 완료", { name, type, orig_len: personality.length, result_len: val.length });
     res.json({ ok: true, val });
   } catch (err) {
     logError("api:suggest", err, { section: "refine" });
@@ -1716,9 +1728,11 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
     return { notes: ["JSON parse failed"], target: req.target };
   }
 
-  const lockedSettingSet = new Set(req.locked.settings);
-  const lockedMoodSet = new Set(req.locked.moods);
-  const lockedCharSet = new Set(req.locked.characters);
+  // item_detail/item_refine 등 locked 없는 요청을 안전하게 처리
+  const _locked = req.locked ?? { settings: [] as string[], moods: [] as string[], characters: [] as string[] };
+  const lockedSettingSet = new Set(_locked.settings);
+  const lockedMoodSet = new Set(_locked.moods);
+  const lockedCharSet = new Set(_locked.characters);
 
   function isLockedVariant(label: string, lockedSet: Set<string>): boolean {
     if (lockedSet.has(label)) return true;

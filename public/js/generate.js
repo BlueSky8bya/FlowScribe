@@ -526,8 +526,10 @@ function generate() {
     id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
     bookIdAtStart: bookId,
     episodeAtStart: currentEpisode,
+    titleAtStart: (typeof activeBookTitle !== "undefined" ? activeBookTitle : "") || "이전 책",
   };
   const episodeNum = currentEpisode;
+  let _staleMsgShown = false;  // 책 이동 안내 toast 1회만 표시
   displayedEpisode = episodeNum;
   btn.disabled = true; prevBtn.disabled = true;
   updateEpisodeUI();
@@ -545,6 +547,7 @@ function generate() {
     if (sessionStale) {
       console.warn("[generate] session stale — saving to original book only, skipping UI update", _genSession);
       saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
+      showToast?.(`《${_genSession.titleAtStart}》 ${episodeNum}화 생성이 완료되었습니다.`, "success", 5000);
       btn.disabled = false;
       return;
     }
@@ -603,6 +606,10 @@ function generate() {
         // stale check — 책이 바뀌었으면 스트림 토큰을 화면에 반영하지 않음
         if (bookId !== _genSession.bookIdAtStart) {
           console.debug("[generate] token discarded (stale session)", _genSession.id);
+          if (!_staleMsgShown) {
+            _staleMsgShown = true;
+            showToast?.(`《${_genSession.titleAtStart}》 ${episodeNum}화 생성 중입니다. 다른 책으로 이동했습니다. 생성 결과는 원래 책에 저장됩니다.`, "info", 6000);
+          }
           return;
         }
         rawText += json.token; _renderQueue = rawText; pacingAppend(json.token);
@@ -628,6 +635,7 @@ function generate() {
         updateEpisodeUI();
       } else {
         console.warn("[generate] onerror: session stale — saved to original book, skipping UI update", _genSession);
+        showToast?.(`《${_genSession.titleAtStart}》 ${episodeNum}화 생성이 완료되었습니다. (저장됨)`, "success", 5000);
       }
     }
     btn.disabled = false; prevBtn.disabled = false;

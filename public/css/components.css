@@ -161,6 +161,15 @@
 .google-login-btn{display:inline-flex;align-items:center;gap:.65rem;background:var(--bg3);border:1px solid var(--border2);border-radius:8px;color:var(--text2);font-family:inherit;font-size:.95rem;padding:.7rem 1.6rem;cursor:pointer;text-decoration:none;transition:all .2s;letter-spacing:.02em;}
 .google-login-btn:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-bg);}
 
+/* ── Empty state (1화 생성 전) ─────────────────────────────── */
+.empty-state-wrap{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:220px;gap:.5rem;text-align:center;padding:2.5rem 1.5rem;}
+.empty-state-title{font-size:1.3rem;font-weight:600;color:var(--text1);margin:0 0 .3rem;}
+.empty-state{color:var(--text3);font-size:.9rem;margin:0;}
+.empty-state-hint{color:var(--text4);font-size:.82rem;margin:0;}
+
+/* ── Scene Character Panel loading ─────────────────────────── */
+.scene-char-loading{color:var(--text4);font-size:.78rem;padding:.6rem .2rem;font-style:italic;}
+
 /* ── Scene Character Panel (오른쪽 패널 내 배치) ─────────── */
 .scene-char-panel{}
 .scene-char-panel-title{
