@@ -618,7 +618,7 @@ function _renderLatestEpisode(episodes) {
       const titleHtml = activeBookTitle
         ? `<h2 class="empty-state-title">${typeof esc === "function" ? esc(activeBookTitle) : activeBookTitle}</h2>`
         : "";
-      outEl.innerHTML = `<div class="empty-state-wrap">${titleHtml}<p class="empty-state">아직 생성된 회차가 없습니다.</p><p class="empty-state-hint">아래 버튼을 눌러 이야기를 시작하세요.</p><button class="empty-state-cta bc-primary" onclick="generate()">✦ 1화 생성</button></div>`;
+      outEl.innerHTML = `<div class="empty-state-wrap" id="emptyStateCTA">${titleHtml}<p class="empty-state">아직 생성된 회차가 없습니다.</p><p class="empty-state-hint" id="emptyStateHint">먼저 세계관을 설정한 뒤 1화를 생성하세요.</p><div class="empty-state-btns"><button class="empty-state-cta-settings" onclick="openModal()">⚙ 세계관 설정</button><button class="empty-state-cta bc-primary" id="emptyStateGenBtn" onclick="generate()" disabled style="opacity:.45" title="세계관 설정을 먼저 완료해주세요.">✦ 1화 생성</button></div></div>`;
     }
     if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
     updateEpisodeListUI();
@@ -670,6 +670,8 @@ async function _restoreContextSafely(bid) {
       _traceOutput("after restoreContextUI");
     }
     console.debug("[selectBook] context restored");
+    // 설정 복원 후 empty state CTA 상태 갱신
+    window._syncEmptyStateCTA?.();
   } catch (e) { console.error("[selectBook] context restore failed", e); }
   _traceOutput("_restoreContextSafely end");
 }

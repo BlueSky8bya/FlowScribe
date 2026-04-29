@@ -319,6 +319,8 @@ async function saveContext() {
     _restoreBtn();
     console.debug("[saveContext] calling closeModal");
     closeModal();
+    // empty state CTA 버튼 상태 즉시 갱신 (세계관 설정 완료 후 1화 생성 활성화)
+    window._syncEmptyStateCTA?.();
 
     const overlay = document.getElementById("modalOverlay");
     console.debug("[saveContext] DONE", {
