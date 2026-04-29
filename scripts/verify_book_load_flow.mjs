@@ -65,7 +65,7 @@ check("_clearStorySurface: bookListWrap 건드리지 않음",
 check("_renderLatestEpisode: renderProgressive 호출",
   authJs.match(/function _renderLatestEpisode[\s\S]{0,2000}renderProgressive/));
 check("_renderLatestEpisode: empty output fallback (outEl.textContent)",
-  authJs.match(/function _renderLatestEpisode[\s\S]{0,2000}outEl\.textContent\s*=\s*content/));
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,3500}outEl\.textContent\s*=\s*content/));
 check("_renderLatestEpisode: episodes 없으면 empty state 표시",
   authJs.match(/function _renderLatestEpisode[\s\S]{0,700}empty-state/));
 

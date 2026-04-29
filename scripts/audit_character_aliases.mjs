@@ -56,11 +56,16 @@ function levenshtein(a, b) {
   return dp[a.length][b.length];
 }
 
-async function auditBook(bookId) {
+async function auditBook(bookId, opts = {}) {
+  const { afterEpisode = 0, ignoreLegacy = false } = opts;
+
+  // afterEpisode > 0이면 해당 화 이후에 생성된 row만 검사 (legacy 오염 분리)
+  const dynEpFilter = afterEpisode > 0 ? ` AND episode_number > ${afterEpisode}` : "";
+
   const [bookRes, canonRes, dynRes, arcRes, foresRes, epRes] = await Promise.all([
     pool.query("SELECT title FROM books WHERE id=$1", [bookId]),
     pool.query("SELECT name FROM canonical_characters WHERE book_id=$1 ORDER BY created_at", [bookId]),
-    pool.query("SELECT DISTINCT character_name FROM character_dynamic_states WHERE book_id=$1 ORDER BY character_name", [bookId]),
+    pool.query(`SELECT DISTINCT character_name FROM character_dynamic_states WHERE book_id=$1${dynEpFilter} ORDER BY character_name`, [bookId]),
     pool.query("SELECT DISTINCT character_name FROM character_arcs WHERE book_id=$1 ORDER BY character_name", [bookId]),
     pool.query("SELECT keywords FROM foreshadows WHERE book_id=$1", [bookId]),
     pool.query("SELECT COUNT(*) as cnt FROM episodes WHERE book_id=$1", [bookId]),
@@ -71,6 +76,7 @@ async function auditBook(bookId) {
   const dynNames = dynRes.rows.map(r => r.character_name);
   const arcNames = arcRes.rows.map(r => r.character_name);
   const epCount = parseInt(epRes.rows[0]?.cnt ?? "0");
+  const auditMode = afterEpisode > 0 ? `ep${afterEpisode + 1}+ only` : ignoreLegacy ? "legacy-ignored" : "all episodes";
 
   const nonCanonDyn = dynNames.filter(n => !canonNames.includes(n));
   const nonCanonArc = arcNames.filter(n => !canonNames.includes(n));
@@ -125,7 +131,7 @@ async function auditBook(bookId) {
 
   console.log(`\n${"═".repeat(60)}`);
   console.log(`BOOK: ${title} (${bookId})`);
-  console.log(`Episodes: ${epCount}`);
+  console.log(`Episodes: ${epCount}  |  Audit mode: ${auditMode}`);
   console.log(`${"─".repeat(60)}`);
 
   console.log("\n── canonical characters ──");
@@ -193,6 +199,11 @@ async function main() {
   const allBooks = args.includes("--all");
   let bookIds = [];
 
+  const afterIdx = args.indexOf("--after-episode");
+  const afterEpisode = afterIdx !== -1 ? parseInt(args[afterIdx + 1] ?? "0", 10) : 0;
+  const ignoreLegacy = args.includes("--ignore-legacy");
+  const auditOpts = { afterEpisode, ignoreLegacy };
+
   if (allBooks) {
     const res = await pool.query(
       `SELECT b.id FROM books b
@@ -205,7 +216,7 @@ async function main() {
     if (idx !== -1 && args[idx + 1]) {
       bookIds = [args[idx + 1]];
     } else {
-      console.error("Usage: node scripts/audit_character_aliases.mjs --book-id <id> | --all");
+      console.error("Usage: node scripts/audit_character_aliases.mjs --book-id <id> | --all [--after-episode N] [--ignore-legacy]");
       process.exit(1);
     }
   }
@@ -213,7 +224,7 @@ async function main() {
   const results = [];
   for (const id of bookIds) {
     try {
-      results.push(await auditBook(id));
+      results.push(await auditBook(id, auditOpts));
     } catch (e) {
       console.error(`Error auditing ${id}:`, e.message);
     }

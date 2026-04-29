@@ -348,10 +348,12 @@ export async function runPlannerPipeline(
       }
     }
 
-    // prev state map: name → prev (이전 상태 유지 병합용)
-    const prevMap = new Map(
-      ctx.character_dynamic_states.map(d => [d.character_name, d]),
-    );
+    // prev state map: canonical resolved name → prev (non-canonical legacy rows 제외)
+    const prevMap = new Map<string, typeof ctx.character_dynamic_states[0]>();
+    for (const d of ctx.character_dynamic_states) {
+      const { name: rn } = resolveCanonicalCharName(d.character_name, canonicalNames, { episode: ctx.episode_number, bookId });
+      if (rn) prevMap.set(rn, d);  // descriptive/orphan 제외
+    }
     const canonicalItemMap = new Map(
       ctx.characters.map(c => [c.name, c.initial_items ?? []]),
     );
@@ -432,7 +434,10 @@ export async function runPlannerPipeline(
       } catch { /* skip */ }
     }
     // canonical 인물 중 prev state도 없고 planner 언급도 없는 인물 → absent seed
-    const prevNames = new Set(ctx.character_dynamic_states.map(d => d.character_name));
+    // prevNames: canonical resolved name 기준 (non-canonical legacy row가 absent seed를 막지 않도록)
+    const prevNames = new Set<string>(
+      [...prevMap.keys()]  // prevMap은 이미 canonical-only로 필터됨
+    );
     for (const canonical of ctx.characters) {
       if (updatedNames.has(canonical.name) || prevNames.has(canonical.name)) continue;
       try {
