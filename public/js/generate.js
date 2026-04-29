@@ -351,18 +351,14 @@ function renderProgressiveRaw(text, done) {
   // 문장 끝 부호 바로 뒤에 공백 없이 한글·영문자가 이어지는 경우 공백 삽입
   text = text.replace(/([.!?。!?])([가-힣A-Za-z])/g, '$1 $2');
   // malformed quote repair:
-  // Case A: 줄 시작 '" 지문' — 여는 따옴표 뒤 공백+지문, 닫는 따옴표 없는 줄 → 따옴표 제거 (지문 간주)
-  text = text.replace(/^["“”]s+([^"“”
-]{3,})$/mg, (m, body) => {
-    if (/["“”]/.test(body)) return m; // 닫는 따옴표 있으면 유지
+  // Case A: 줄 시작 '” 지문' — 여는 따옴표 뒤 공백+지문, 닫는 따옴표 없는 줄 → 따옴표 제거 (지문 간주)
+  text = text.replace(/^[“””“”]\s+([^”””“”\n]{3,})$/mg, (m, body) => {
+    if (/[“””“”]/.test(body)) return m;
     return body.trim();
   });
-  // Case B: '지문."대사"' 형태로 붙어있는 경우 → 단락 분리
-  text = text.replace(/([가-힣.!?]{2,})(["“])([^"“”
-]+["”])/g, (_m, narr, oq, dial) => {
-    return narr + '
-
-' + oq + dial;
+  // Case B: '지문.”대사”' 형태로 붙어있는 경우 → 단락 분리
+  text = text.replace(/([가-힣.!?]{2,})([“”“])([^”””“”\n]+[“””“”])/g, (_m, narr, oq, dial) => {
+    return narr + '\n\n' + oq + dial;
   });
   // 직선 따옴표 → 곡선 따옴표 변환 (모델이 " 사용 시 교정)
   // 1단계: 완전한 쌍 변환 (straight-straight 또는 straight-curlyclose)
