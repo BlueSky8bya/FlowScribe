@@ -744,9 +744,9 @@ async function toggleBookList() {
   const toggle = document.getElementById("bookListToggle");
   if (!wrap || !toggle) return;
 
-  showBookListToggle();
-
+  // willOpen must be computed BEFORE showBookListToggle() — which removes .collapsed
   const willOpen = wrap.classList.contains("collapsed") || !document.querySelector("#bookList .book-item");
+  showBookListToggle();
 
   if (willOpen) {
     await ensureBookListLoaded();
