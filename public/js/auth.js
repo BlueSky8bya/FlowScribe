@@ -585,7 +585,7 @@ function _showCharPanelLoading() {
   const panel = document.getElementById("sceneCharPanel");
   const list  = document.getElementById("sceneCharList");
   if (!panel || !list) return;
-  list.innerHTML = `<div class="scene-char-loading">인물 정보를 불러오는 중입니다…</div>`;
+  list.innerHTML = `<div class="scene-char-loading"><span class="scene-char-loading-text">인물 정보를 불러오는 중입니다</span><span class="scene-char-loading-dots"><span></span><span></span><span></span></span></div>`;
   panel.hidden = false;
 }
 
@@ -616,9 +616,9 @@ function _renderLatestEpisode(episodes) {
     const outEl = document.getElementById("output");
     if (outEl) {
       const titleHtml = activeBookTitle
-        ? `<h2 class="empty-state-title">${activeBookTitle}</h2>`
+        ? `<h2 class="empty-state-title">${typeof esc === "function" ? esc(activeBookTitle) : activeBookTitle}</h2>`
         : "";
-      outEl.innerHTML = `<div class="empty-state-wrap">${titleHtml}<p class="empty-state">아직 생성된 회차가 없습니다.</p><p class="empty-state-hint">1화 생성을 눌러 시작하세요.</p></div>`;
+      outEl.innerHTML = `<div class="empty-state-wrap">${titleHtml}<p class="empty-state">아직 생성된 회차가 없습니다.</p><p class="empty-state-hint">아래 버튼을 눌러 이야기를 시작하세요.</p><button class="empty-state-cta bc-primary" onclick="generate()">✦ 1화 생성</button></div>`;
     }
     if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
     updateEpisodeListUI();
@@ -742,6 +742,12 @@ async function _updateSidebarsSafely(bid) {
 
 async function selectBook(book) {
   console.debug("[selectBook] start", { id: book?.id, title: book?.title });
+
+  // 다른 책으로 이동 시 진행 중 생성이 있으면 즉시 안내
+  const _ag = window._fsActiveGen;
+  if (_ag && _ag.status === "generating" && _ag.bookId !== book.id) {
+    showToast(`《${_ag.title}》 ${_ag.episode}화 생성 중입니다. 다른 책으로 이동했습니다. 생성 결과는 원래 책에 저장됩니다.`, "info", 7000);
+  }
 
   _setActiveBook(book);
   _clearStorySurface();

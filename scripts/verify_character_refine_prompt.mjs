@@ -15,7 +15,7 @@ console.log("── buildRefinePrompt 검증 ──");
 check("buildRefinePrompt 함수 정의", suggestTs.includes("buildRefinePrompt"));
 check("minLen 계산 (personality.length + 20)", suggestTs.includes("personality.length + 20"));
 check("plain text 출력 지시 (JSON 금지)", suggestTs.includes("JSON") && suggestTs.includes("금지"));
-check("최대 1000자 이내 언급", suggestTs.includes("1000자 이내") || suggestTs.includes("최대 1000자"));
+check("최대 500자 이내 언급", suggestTs.includes("500자 이내") || suggestTs.includes("최대 500자"));
 check("목록 형식 금지 언급", suggestTs.includes("목록 형식 금지"));
 
 console.log("\n── /refine 엔드포인트 callWorldSuggest 사용 검증 ──");
@@ -29,6 +29,8 @@ check("requestModel 대신 callWorldSuggest 사용", (() => {
 })());
 check("응답 코드블록 제거 (.replace)", suggestTs.includes('replace(/^```[\\w]*\\n?/gm'));
 check("20자 미만이면 원본 반환", suggestTs.includes("val.length < 20") || suggestTs.includes("length < 20"));
+check("sentence-bound trim 500자", suggestTs.includes("_trimToSentence") && suggestTs.includes("500"));
+check("already_long guard (450자 이상 skip)", suggestTs.includes("already_long"));
 
 console.log(`\n${"─".repeat(55)}`);
 const result = failed === 0 ? "✅  ALL PASSED" : `❌  ${failed} FAILED`;

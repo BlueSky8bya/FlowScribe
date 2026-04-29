@@ -42,6 +42,11 @@ function updateEpisodeUI() {
 
   prevBtn.disabled = displayedEpisode === null || !_prevEpNum?.(displayedEpisode);
 
+  // 에피소드가 전혀 없는 상태(1화 생성 전)이면 footer sendBtn 숨기고 empty state CTA 사용
+  // 에피소드가 있거나 생성 중이면 footer sendBtn 표시
+  const _noEpisodes = displayedEpisode === null && currentEpisode === 1 && !_generating;
+  if (btn) btn.style.display = _noEpisodes ? "none" : "";
+
   console.debug("[updateEpisodeUI]", {
     displayedEpisode,
     currentEpisode,

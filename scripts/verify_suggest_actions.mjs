@@ -30,8 +30,8 @@ check("_sanitizeItemDescription 함수 존재", suggestTs.includes("_sanitizeIte
 check("sanitize: 자 이내 제거", suggestTs.includes("자\\s*(이내|내외|이상|이하|정도)"));
 check("item parsing uses cleaned (not raw)", suggestTs.includes("cleaned.match(/\\{[\\s\\S]*\\}/)"));
 check("item name = req.item_name (요청 원본 우선)", suggestTs.includes("req.item_name || item.name"));
-check("refine max_tokens 600 이상", suggestTs.includes("requestModel(prompt, 600)"));
-check("refine val slice 500 이상", suggestTs.includes(".slice(0, 500)"));
+check("refine: callWorldSuggest 사용 (requestModel 대신)", suggestTs.includes("callWorldSuggest(prompt)") && suggestTs.includes("buildRefinePrompt"));
+check("refine: sentence-bound trim 500자", suggestTs.includes("_trimToSentence") && suggestTs.includes("500"));
 check("buildRefinePrompt: minLen 계산", suggestTs.includes("personality.length + 20"));
 check("buildRefinePrompt: 5요소 포함", suggestTs.includes("결핍 또는 두려움"));
 

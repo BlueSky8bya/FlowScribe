@@ -33,7 +33,7 @@ check("/refine에 callWorldSuggest 사용", (() => {
   return refineBlock.includes("callWorldSuggest");
 })());
 check("refine 응답 plain text 파싱 (replace JSON 제거)", suggestTs.includes('replace(/^```'));
-check("refine 결과 최대 1000자", suggestTs.includes(".slice(0, 1000)"));
+check("refine: sentence-bound trim 500자", suggestTs.includes("_trimToSentence") && suggestTs.includes("500"));
 
 console.log(`\n${"─".repeat(55)}`);
 const result = failed === 0 ? "✅  ALL PASSED" : `❌  ${failed} FAILED`;

@@ -30,15 +30,15 @@ check("_updateSidebarsSafely 함수 존재",   authJs.includes("async function _
 
 // ── selectBook 오케스트레이션 ─────────────────────────────
 check("selectBook: _setActiveBook 호출",
-  authJs.match(/async function selectBook[\s\S]{0,200}_setActiveBook/));
+  authJs.match(/async function selectBook[\s\S]{0,500}_setActiveBook/));
 check("selectBook: _clearStorySurface 호출",
-  authJs.match(/async function selectBook[\s\S]{0,200}_clearStorySurface/));
+  authJs.match(/async function selectBook[\s\S]{0,600}_clearStorySurface/));
 check("selectBook: _loadEpisodes 호출",
-  authJs.match(/async function selectBook[\s\S]{0,300}_loadEpisodes/));
+  authJs.match(/async function selectBook[\s\S]{0,700}_loadEpisodes/));
 check("selectBook: _renderLatestEpisode 호출",
-  authJs.match(/async function selectBook[\s\S]{0,400}_renderLatestEpisode/));
+  authJs.match(/async function selectBook[\s\S]{0,800}_renderLatestEpisode/));
 check("selectBook: _restoreContextSafely 호출",
-  authJs.match(/async function selectBook[\s\S]{0,500}_restoreContextSafely/));
+  authJs.match(/async function selectBook[\s\S]{0,900}_restoreContextSafely/));
 check("selectBook: [selectBook] debug 로그",
   authJs.includes('[selectBook] start'));
 
@@ -66,8 +66,8 @@ check("_renderLatestEpisode: renderProgressive 호출",
   authJs.match(/function _renderLatestEpisode[\s\S]{0,2000}renderProgressive/));
 check("_renderLatestEpisode: empty output fallback (outEl.textContent)",
   authJs.match(/function _renderLatestEpisode[\s\S]{0,2000}outEl\.textContent\s*=\s*content/));
-check("_renderLatestEpisode: episodes 없으면 output 비움",
-  authJs.match(/function _renderLatestEpisode[\s\S]{0,600}innerHTML\s*=\s*""/));
+check("_renderLatestEpisode: episodes 없으면 empty state 표시",
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,700}empty-state/));
 
 // ── _loadEpisodes: 실패 시 [] 반환 ──────────────────────────
 check("_loadEpisodes: 실패 시 [] 반환",
@@ -85,7 +85,7 @@ check("_updateSidebarsSafely: try-catch 보호",
 check("_traceOutput 함수 존재",            authJs.includes("function _traceOutput"));
 check("_assertEpisodeRendered 함수 존재",  authJs.includes("function _assertEpisodeRendered"));
 check("_renderLatestEpisode: _assertEpisodeRendered 호출",
-  authJs.match(/function _renderLatestEpisode[\s\S]{0,1400}_assertEpisodeRendered/));
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,2200}_assertEpisodeRendered/));
 check("_renderLatestEpisode: updateEpisodeUI 호출",
   authJs.match(/function _renderLatestEpisode[\s\S]{0,1400}updateEpisodeUI/));
 check("selectBook: updateEpisodeUI 최종 무조건 호출",

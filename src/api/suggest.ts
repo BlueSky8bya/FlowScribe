@@ -1168,8 +1168,22 @@ async function requestModel(userPrompt: string, numPredict: number) {
   return raw;
 }
 
+// 마지막 완성 문장 단위로 maxLen 이하에서 자르기
+function _trimToSentence(text: string, maxLen: number): string {
+  if (text.length <= maxLen) return text;
+  const sub = text.slice(0, maxLen);
+  // 한국어 문장 종결 위치 탐색: 마침표/!/?/다./요./음. 등
+  const m = sub.match(/^([\s\S]*[.!?다요음함])\s*[^.!?다요음함]*$/);
+  if (m) return m[1].trim();
+  // fallback: 마지막 종결 위치
+  const last = Math.max(
+    sub.lastIndexOf("."), sub.lastIndexOf("!"), sub.lastIndexOf("?")
+  );
+  return last > 20 ? sub.slice(0, last + 1).trim() : sub.trim();
+}
+
 function buildRefinePrompt(name: string, type: string, gender: string, personality: string, settings: string[], moods: string[], worldRules: string[]): string {
-  const minLen = Math.max(120, personality.length + 20);
+  const minLen = Math.max(100, Math.min(personality.length + 20, 250));
   return `너는 한국 소설 인물 설정 편집자다.
 
 인물 정보:
@@ -1190,11 +1204,12 @@ ${personality}
 3. 갈등 상황에서의 행동 경향
 4. 세계관/장르와 연결되는 특징 (능력·역할·환경과의 관계)
 5. 다른 인물과 충돌하거나 보완될 수 있는 지점
-6. 첫 화에서 드러나기 좋은 행동 단서
 
 출력 규칙:
-- 기존 문장의 핵심 의미를 반드시 보존하라
-- 결과는 한국어 ${minLen}자 이상, 최대 1000자 이내
+- 기존 문장의 핵심 의미를 반드시 보존하고 확장하라
+- 결과는 한국어 ${minLen}자 이상, 최대 500자 이내
+- 500자를 절대 넘기지 마라
+- 마지막 문장이 완성된 형태로 끝나야 한다
 - 자연스러운 한국어 산문으로 작성 (목록 형식 금지)
 - JSON, 마크다운, 설명 문구, "1.", "2." 같은 번호 매기기 금지
 - 성격·특징 텍스트만 바로 출력해라`;
@@ -1216,16 +1231,24 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
 
   const prompt = buildRefinePrompt(name, type, gender, personality, settingsArr, moodsArr, worldRules);
 
+  // 기존 텍스트가 이미 450자 이상이면 API 호출 없이 안내
+  if (personality.length >= 450) {
+    logInfo("api:suggest", "refine skip — already long enough", { len: personality.length });
+    res.json({ ok: true, val: personality, already_long: true });
+    return;
+  }
+
   try {
     // Gemini 사용 (requestModel은 "JSON array only" 시스템 프롬프트 → plain text 응답 불가)
     const raw = await callWorldSuggest(prompt);
     // plain text 응답 — JSON 코드블록 제거 후 그대로 사용
-    const val = raw
+    const cleaned = raw
       .replace(/^```[\w]*\n?/gm, "").replace(/```$/gm, "")
       .replace(/^["'`]|["'`]$/g, "")
       .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 1000);
+      .trim();
+    // 500자 sentence-bound trim
+    const val = _trimToSentence(cleaned, 500);
     if (!val || val.length < 20) {
       logWarn("api:suggest", "refine 결과 너무 짧음 — 원문 반환", { val_len: val.length });
       res.json({ ok: true, val: personality });

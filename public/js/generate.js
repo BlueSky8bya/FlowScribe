@@ -1,5 +1,9 @@
 ﻿// ── 에피소드 생성 & SSE 스트리밍 ─────────────────────────────
 
+// 진행 중 생성 세션 전역 상태 — selectBook에서 즉시 안내에 사용
+// { bookId, title, episode, status: "generating"|"completed"|"failed" }
+window._fsActiveGen = null;
+
 // 소지품 vocab 캐시 { [itemName]: { category, badge_label, color } }
 let _itemVocab = {};
 let _itemVocabBookId = null;
@@ -522,13 +526,16 @@ function generate() {
   _markAuditPending(null);
 
   // generation session — capture bookId at start to prevent cross-book save
+  const _titleAtStart = (typeof activeBookTitle !== "undefined" ? activeBookTitle : "") || "이전 책";
   const _genSession = {
     id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
     bookIdAtStart: bookId,
     episodeAtStart: currentEpisode,
-    titleAtStart: (typeof activeBookTitle !== "undefined" ? activeBookTitle : "") || "이전 책",
+    titleAtStart: _titleAtStart,
   };
   const episodeNum = currentEpisode;
+  // 전역 생성 상태 등록 — 책 이동 시 즉시 안내에 사용
+  window._fsActiveGen = { bookId, title: _titleAtStart, episode: episodeNum, status: "generating" };
   let _staleMsgShown = false;  // 책 이동 안내 toast 1회만 표시
   displayedEpisode = episodeNum;
   btn.disabled = true; prevBtn.disabled = true;
@@ -547,10 +554,12 @@ function generate() {
     if (sessionStale) {
       console.warn("[generate] session stale — saving to original book only, skipping UI update", _genSession);
       saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
+      window._fsActiveGen = null;
       showToast?.(`《${_genSession.titleAtStart}》 ${episodeNum}화 생성이 완료되었습니다.`, "success", 5000);
       btn.disabled = false;
       return;
     }
+    window._fsActiveGen = null;
     renderProgressive(rawText, true);
     _renderPostprocStats();
     if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
@@ -589,6 +598,7 @@ function generate() {
         }
       } else if (json.error) {
         _generating = false;
+        window._fsActiveGen = null;
         output.textContent = "오류가 발생했습니다.";
         es.close(); btn.disabled = false; prevBtn.disabled = false;
       } else if (json.done) {
@@ -635,6 +645,7 @@ function generate() {
         updateEpisodeUI();
       } else {
         console.warn("[generate] onerror: session stale — saved to original book, skipping UI update", _genSession);
+        window._fsActiveGen = null;
         showToast?.(`《${_genSession.titleAtStart}》 ${episodeNum}화 생성이 완료되었습니다. (저장됨)`, "success", 5000);
       }
     }

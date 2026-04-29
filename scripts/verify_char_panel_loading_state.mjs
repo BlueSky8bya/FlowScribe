@@ -15,6 +15,7 @@ console.log("── _showCharPanelLoading 검증 ──");
 check("_showCharPanelLoading 함수 정의", authJs.includes("function _showCharPanelLoading"));
 check("sceneCharPanel hidden=false", authJs.includes('panel.hidden = false'));
 check("인물 정보 로딩 중 메시지", authJs.includes("인물 정보를 불러오는 중입니다"));
+check("animated dots HTML 구조", authJs.includes("scene-char-loading-dots"));
 check("_clearStorySurface에서 _showCharPanelLoading 호출", (() => {
   const clearIdx = authJs.indexOf("function _clearStorySurface");
   if (clearIdx === -1) return false;
@@ -26,7 +27,7 @@ console.log("\n── empty state 책 제목 표시 검증 ──");
 check("empty-state-wrap 마크업", authJs.includes("empty-state-wrap"));
 check("empty-state-title (책 제목)", authJs.includes("empty-state-title"));
 check("아직 생성된 회차가 없습니다 메시지", authJs.includes("아직 생성된 회차가 없습니다"));
-check("1화 생성 안내 메시지", authJs.includes("1화 생성을 눌러 시작하세요"));
+check("1화 생성 안내 메시지", authJs.includes("시작하세요") || authJs.includes("버튼을 눌러"));
 check("activeBookTitle 조건부 표시", authJs.includes("activeBookTitle") && authJs.includes("empty-state-title"));
 
 console.log(`\n${"─".repeat(55)}`);

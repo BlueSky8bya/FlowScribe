@@ -170,7 +170,9 @@ async function refinePersonality(btn) {
       throw new Error(`refine API ${res.status}`);
     }
     const json = await res.json();
-    if (json.val) {
+    if (json.already_long) {
+      showToast("이미 충분히 구체화되어 있습니다. (450자 이상)", "info", 3000);
+    } else if (json.val) {
       // 구체화 결과가 기존보다 20% 이상 짧으면 반영하지 않음 (압축이 아닌 확장이어야 함)
       if (json.val.length < personality.length * 0.8) {
         console.warn("[refine] result too short, discarded", { orig: personality.length, result: json.val.length });

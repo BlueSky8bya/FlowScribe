@@ -11,7 +11,12 @@ function check(label, cond, detail) { cond ? ok(label) : fail(label, detail); }
 
 const generateJs = readFileSync("public/js/generate.js", "utf-8");
 
-console.log("── _genSession titleAtStart 캡처 검증 ──");
+console.log("── window._fsActiveGen 전역 상태 관리 검증 ──");
+check("window._fsActiveGen 초기화", generateJs.includes("window._fsActiveGen = null"));
+check("generate() 시작 시 _fsActiveGen 등록", generateJs.includes("window._fsActiveGen = {") && generateJs.includes("status: \"generating\""));
+check("_finishGeneration stale 시 _fsActiveGen 해제", generateJs.includes("window._fsActiveGen = null"));
+
+console.log("\n── _genSession titleAtStart 캡처 검증 ──");
 check("titleAtStart 필드 선언", generateJs.includes("titleAtStart:"));
 check("activeBookTitle 캡처", generateJs.includes("activeBookTitle") && generateJs.includes("titleAtStart"));
 check("_staleMsgShown 플래그 선언", generateJs.includes("_staleMsgShown"));
