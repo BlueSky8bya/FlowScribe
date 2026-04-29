@@ -1474,12 +1474,25 @@ window.__fsDiag = async function () {
       : null;
   } catch (e) { eps = { error: String(e) }; }
 
+  const _cacheKeys = Object.keys(episodeCache || {});
+  const _hasEpisodes = _cacheKeys.length > 0;
+  const _sendBtnEl  = document.getElementById("sendBtn");
+  const _regenBtnEl = document.getElementById("regenBtn");
+  const _isEmptyState = typeof displayedEpisode !== "undefined" && displayedEpisode === null
+    && typeof currentEpisode !== "undefined" && currentEpisode === 1 && !_hasEpisodes;
+
   return {
     bookId: currentId,
     activeBookTitle,
     currentEpisode,
     displayedEpisode,
-    episodeCacheKeys: Object.keys(episodeCache || {}),
+    episodeCacheKeys: _cacheKeys,
+    hasEpisodes:      _hasEpisodes,
+    isEmptyState:     _isEmptyState,
+    regenButtonVisible: _regenBtnEl ? getComputedStyle(_regenBtnEl).display !== "none" : null,
+    sendButtonText:   _sendBtnEl?.textContent?.trim() || null,
+    footerButtonVisible: _sendBtnEl ? getComputedStyle(_sendBtnEl).display !== "none" : null,
+    regenMode:        window._regenMode ?? null,
     outputTextLen:  document.getElementById("output")?.textContent?.length,
     outputHTMLLen:  document.getElementById("output")?.innerHTML?.length,
     episodesApiCount: eps?.episodes?.length ?? null,
@@ -1488,8 +1501,8 @@ window.__fsDiag = async function () {
       : null,
     bookItemCount:       document.querySelectorAll("#bookList .book-item").length,
     bookListText:        document.getElementById("bookList")?.textContent?.trim(),
-    generateButtonText:  document.getElementById("sendBtn")?.textContent || null,
-    generateButtonId:    document.getElementById("sendBtn")?.id || null,
+    generateButtonText:  _sendBtnEl?.textContent || null,
+    generateButtonId:    _sendBtnEl?.id || null,
     epInfoText:          document.getElementById("epInfo")?.textContent || null,
     episodeListText:     document.getElementById("episodeList")?.textContent?.trim() || null,
     authScript:          Array.from(document.scripts).map(s => s.src).filter(s => s.includes("auth.js")),

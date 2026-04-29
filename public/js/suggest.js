@@ -331,6 +331,10 @@ async function runRulesSuggestV2() {
   const hasContext = (typeof settingVals !== "undefined" && settingVals.length > 0)
                   || (typeof moodVals    !== "undefined" && moodVals.length    > 0);
   if (!hasContext) { showToast("배경/세계관과 장르/분위기를 먼저 선택해 주세요", "warn"); return; }
+  // 이미 10개이면 API 호출 없이 안내만
+  const remaining = typeof _remainingRuleSlots === "function" ? _remainingRuleSlots()
+    : Math.max(0, 10 - (typeof ruleEntries !== "undefined" ? ruleEntries.length : 0));
+  if (remaining <= 0) { showToast("세계관 규칙은 최대 10개까지 설정할 수 있습니다.", "warn"); return; }
   const btn = document.getElementById("rulesAiBtn");
   if (!btn) return;
   const origHtml = btn.innerHTML;
@@ -344,9 +348,17 @@ async function runRulesSuggestV2() {
       const rules = data.rulesToAdd ?? [];
       if (!rules.length) { showToast("AI가 생성한 규칙이 없습니다", "warn"); return; }
       if (typeof addRuleTagDirect === "function") {
-        rules.forEach(r => { if (r.text?.trim()) addRuleTagDirect(r.text.trim(), !!r.hard); });
+        // 남은 슬롯만큼만 적용 (문장 단위 유지, 중간 자르기 없음)
+        const curRemaining = typeof _remainingRuleSlots === "function" ? _remainingRuleSlots()
+          : Math.max(0, 10 - (typeof ruleEntries !== "undefined" ? ruleEntries.length : 0));
+        let added = 0;
+        for (const r of rules) {
+          if (added >= curRemaining) break;
+          if (r.text?.trim()) { addRuleTagDirect(r.text.trim(), !!r.hard); added++; }
+        }
+        if (added > 0) showToast(`규칙 ${added}개가 추가됐습니다`, "info");
+        else showToast("추가할 수 있는 슬롯이 없습니다 (최대 10개)", "warn");
       }
-      showToast(`규칙 ${rules.length}개가 추가됐습니다`, "info");
     })
     .catch(err => {
       console.error("[runRulesSuggestV2]", err);

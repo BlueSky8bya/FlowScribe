@@ -59,11 +59,14 @@ function makeRuleTag(entry) {
 
 function addRuleTagDirect(val, hard) {
   if (ruleEntries.find(e => e.val === val)) return;
-  if (ruleEntries.length >= 20) return;
+  if (ruleEntries.length >= 10) { showToast("세계관 규칙은 최대 10개까지 설정할 수 있습니다.", "warn"); return; }
   const entry = { val, hard };
   ruleEntries.push(entry);
   makeRuleTag(entry);
 }
+
+// 현재 규칙 슬롯 남은 수
+function _remainingRuleSlots() { return Math.max(0, 10 - ruleEntries.length); }
 
 function makeTagInput(wrapId, inputId) {
   const wrap  = document.getElementById(wrapId);

@@ -514,13 +514,13 @@ function changeCharCount(d) {
 }
 
 function _syncCharCounterBtns() {
-  const minBtn = document.querySelector(".counter-btn[onclick*='-1']");
-  const maxBtn = document.querySelector(".counter-btn[onclick*='1']");
+  const minBtn = document.getElementById("charCountMinus");
+  const maxBtn = document.getElementById("charCountPlus");
   if (minBtn) minBtn.disabled = charCount <= 1;
   if (maxBtn) maxBtn.disabled = charCount >= 5;
 }
 
-function deleteCharCard(btn) {
+async function deleteCharCard(btn) {
   // 편집 잠금 상태(2화 이상 생성)에서는 삭제 불가
   const isLocked = document.getElementById("sectionFieldIV")?.classList.contains("section-locked");
   if (isLocked) return;
@@ -531,7 +531,16 @@ function deleteCharCard(btn) {
 
   const card = btn.closest(".char-card");
   const name = card.querySelector(".char-name")?.value?.trim() || "이 인물";
-  if (!confirm(`"${name}" 인물카드를 삭제할까요?`)) return;
+
+  const confirmed = await _fsDialog({
+    title: "인물카드를 삭제할까요?",
+    desc: `"${name}" 설정은 저장 후 복구하기 어렵습니다.`,
+    buttons: [
+      { label: "취소",  cls: "",             value: false },
+      { label: "삭제",  cls: "danger",       value: true  },
+    ],
+  });
+  if (!confirmed) return;
 
   card.remove();
   charCount = Math.max(1, charCount - 1);

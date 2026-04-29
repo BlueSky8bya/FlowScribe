@@ -570,10 +570,18 @@ function generate() {
     saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
     _sendLog(episodeNum, 1.0, null);
     displayedEpisode = episodeNum;
-    // 재생성이면 currentEpisode를 올리지 않는다 — 같은 화를 덮어쓴 것
     const _wasRegen = window._regenMode === episodeNum;
     window._regenMode = null;
-    if (!_wasRegen) currentEpisode++;
+    // 재생성: episodeNum+1이 next — regenerate()에서 currentEpisode=regenEp으로 되돌렸으므로 복원
+    // 신규 생성: 그냥 +1
+    currentEpisode = _wasRegen ? episodeNum + 1 : currentEpisode + 1;
+    console.log("[episode-ui-sync]", {
+      reason: _wasRegen ? "regen-complete" : "new-episode",
+      episodeNum,
+      currentEpisode,
+      displayedEpisode,
+      episodeCacheKeys: Object.keys(episodeCache || {}),
+    });
     updateEpisodeUI();
     syncBookEpisode?.();
     if (episodeNum >= 2) applySettingsLock?.(true);
@@ -648,7 +656,14 @@ function generate() {
         displayedEpisode = episodeNum;
         const _wasRegenErr = window._regenMode === episodeNum;
         window._regenMode = null;
-        if (!_wasRegenErr) currentEpisode++;
+        currentEpisode = _wasRegenErr ? episodeNum + 1 : currentEpisode + 1;
+        console.log("[episode-ui-sync]", {
+          reason: _wasRegenErr ? "regen-onerror" : "new-onerror",
+          episodeNum,
+          currentEpisode,
+          displayedEpisode,
+          episodeCacheKeys: Object.keys(episodeCache || {}),
+        });
         updateEpisodeUI();
       } else {
         console.warn("[generate] onerror: session stale — saved to original book, skipping UI update", _genSession);
