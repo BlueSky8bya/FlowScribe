@@ -49,7 +49,7 @@ check("direct commit에 language guard 적용", (() => {
 check("carry-forward에 language guard 적용", (() => {
   // carry-forward 주석 블록에서 normalizeLocation 호출 확인
   const idx = pipelineSrc.indexOf("carry-forward: 영어 오염 방지");
-  return idx >= 0 && pipelineSrc.indexOf("normalizeLocation(", idx) < idx + 500;
+  return idx >= 0 && pipelineSrc.indexOf("normalizeLocation(", idx) < idx + 700;
 })());
 check("absent-seed에 한국어 기본값 설정", (() => {
   // absent-seed 블록에서 "미등장" 기본값 확인

@@ -19,6 +19,7 @@ import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
 import { commitDynamicState, getLatestDynamicStates } from "../services/character_state.js";
 import { normalizeStateUpdate, normalizeEmotionalState, normalizeLocation, normalizePhysicalState, normalizeRecentGoal } from "../services/language_guard.js";
+import { normalizeItems, checkLocationChange, emptyItemLedgerCheck, emptyLocationLedgerCheck, type ItemLedgerCheck, type LocationLedgerCheck } from "../lib/item_ledger.js";
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
@@ -363,6 +364,9 @@ export async function runPlannerPipeline(
     const canonicalNames = ctx.characters.map(c => c.name);
     // normalization 통계
     const normStats = { exact_match: 0, drift_corrected: 0, orphan_skipped: 0, new_character_allowed: 0, descriptive_mention_skipped: 0 };
+    // item/location ledger 통계
+    const itemLedgerStats: ItemLedgerCheck = emptyItemLedgerCheck();
+    const locationLedgerStats: LocationLedgerCheck = emptyLocationLedgerCheck();
 
     // beat locations fallback: character_state_updates에 location 없을 때 beat에서 추출
     const beatLocationMap = new Map<string, string>();
@@ -397,17 +401,23 @@ export async function runPlannerPipeline(
 
           const prev = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
           const canonicalItems = canonicalItemMap.get(resolvedName) ?? [];
-          // items 우선순위: planner 출력 > prev dynamic > canonical initial_items
-          const resolvedItems = (upd.items?.length ?? 0) > 0
-            ? upd.items!
-            : (prev?.items?.length ?? 0) > 0
-              ? prev!.items!
-              : canonicalItems;
+          // item ledger: skill reject + canonical name 복원 + condition 분리 + carry-forward
+          const normalizedItems = normalizeItems(
+            upd.items as import("../types/canonical.js").ItemEntry[] | undefined,
+            canonicalItems,
+            prev?.items ?? [],
+            itemLedgerStats,
+          );
           const resolvedLocation =
             upd.location ??
             beatLocationMap.get(upd.character_name) ??
             beatLocationMap.get(resolvedName) ??
             prev?.location ?? undefined;
+          // location ledger: 변화 추적
+          const locEntry = checkLocationChange(prev?.location, resolvedLocation ?? undefined, ctx.episode_number, resolvedName);
+          if (locEntry.is_abrupt) locationLedgerStats.abrupt_location_change_count++;
+          else if (resolvedLocation === prev?.location || !resolvedLocation) locationLedgerStats.location_carry_forward_count++;
+          if (!resolvedLocation) locationLedgerStats.missing_location_count++;
           // language guard: planner가 영어로 반환한 상태 필드를 한국어로 정규화
           const rawEmotional = upd.emotional_state ?? prev?.emotional_state ?? undefined;
           const rawPhysical  = upd.physical_state  ?? prev?.physical_state  ?? undefined;
@@ -416,10 +426,10 @@ export async function runPlannerPipeline(
             book_id:        bookId,
             character_name: resolvedName,
             episode_number: ctx.episode_number,
-            location:       normalizeLocation(resolvedLocation ?? undefined) ?? resolvedLocation ?? undefined,
+            location:       normalizeLocation(locEntry.current_location) ?? locEntry.current_location,
             physical_state: normalizePhysicalState(rawPhysical) ?? rawPhysical,
             emotional_state: normalizeEmotionalState(rawEmotional) ?? rawEmotional,
-            items:          resolvedItems as import("../types/canonical.js").ItemEntry[],
+            items:          normalizedItems as import("../types/canonical.js").ItemEntry[],
             visibility_state: upd.visibility_state ?? prev?.visibility_state ?? "present",
             recent_goal:    normalizeRecentGoal(rawGoal) ?? rawGoal,
             relationship_updates:   prev?.relationship_updates   ?? {},
@@ -446,7 +456,15 @@ export async function runPlannerPipeline(
       if (!resolvedPrevName) continue; // orphan → carry-forward 스킵
       if (updatedNames.has(resolvedPrevName)) continue;
       try {
-        // carry-forward: 영어 오염 방지 — 이전 상태도 정규화 후 전파
+        // carry-forward: 영어 오염 방지 + item ledger 정규화
+        const prevCanonItems = canonicalItemMap.get(resolvedPrevName) ?? [];
+        const normalizedPrevItems = normalizeItems(
+          prev.items ?? [],
+          prevCanonItems,
+          [],
+          itemLedgerStats,
+        );
+        locationLedgerStats.location_carry_forward_count++;
         await commitDynamicState({
           book_id:        bookId,
           character_name: resolvedPrevName,
@@ -454,7 +472,7 @@ export async function runPlannerPipeline(
           location:       normalizeLocation(prev.location) ?? prev.location,
           physical_state: normalizePhysicalState(prev.physical_state) ?? prev.physical_state,
           emotional_state: normalizeEmotionalState(prev.emotional_state) ?? prev.emotional_state,
-          items:          prev.items ?? [],
+          items:          normalizedPrevItems as import("../types/canonical.js").ItemEntry[],
           visibility_state: "absent",
           recent_goal:    normalizeRecentGoal(prev.recent_goal) ?? prev.recent_goal,
           relationship_updates:   prev.relationship_updates ?? {},
@@ -498,7 +516,14 @@ export async function runPlannerPipeline(
       state_rows_expected: canonicalExpected,
       state_rows_committed: stateUpdates.length,
       state_rows_missing: Math.max(0, canonicalExpected - stateUpdates.length),
+      item_ledger: itemLedgerStats,
+      location_ledger: locationLedgerStats,
     });
+    // tracer에 item/location ledger 메타데이터 첨부
+    if (tracer) {
+      (tracer as any).item_ledger_check = itemLedgerStats;
+      (tracer as any).location_ledger_check = locationLedgerStats;
+    }
   }
 
   // ─── Step 6: Prose Validation (기존 validator.ts) ────────────

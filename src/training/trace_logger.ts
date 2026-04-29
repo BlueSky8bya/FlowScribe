@@ -85,6 +85,13 @@ export class TraceLogger {
     if (deltaCheck && this.trace.planner_trace) {
       (this.trace.planner_trace as any).episode_delta_check = deltaCheck;
     }
+    // item/location ledger check를 planner_trace에 병합 (pipeline index에서 첨부됨)
+    const itemLedger = (this as any).item_ledger_check;
+    const locationLedger = (this as any).location_ledger_check;
+    if (this.trace.planner_trace) {
+      if (itemLedger) (this.trace.planner_trace as any).item_ledger_check = itemLedger;
+      if (locationLedger) (this.trace.planner_trace as any).location_ledger_check = locationLedger;
+    }
 
     // 학습 적합성 자동 판단
     this.trace.is_planner_sft_eligible =
