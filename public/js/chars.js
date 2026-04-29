@@ -521,9 +521,10 @@ function _syncCharCounterBtns() {
 }
 
 async function deleteCharCard(btn) {
-  // 편집 잠금 상태(2화 이상 생성)에서는 삭제 불가
+  // 모달 열림(편집모드) + 섹션 잠금 없을 때만 삭제 허용
+  const isModalOpen = document.getElementById("modalOverlay")?.classList.contains("open");
   const isLocked = document.getElementById("sectionFieldIV")?.classList.contains("section-locked");
-  if (isLocked) return;
+  if (!isModalOpen || isLocked) return;
 
   const container = document.getElementById("charCards");
   const cards = container.querySelectorAll(".char-card");
@@ -549,7 +550,7 @@ async function deleteCharCard(btn) {
 }
 
 function syncCharDeleteBtns() {
-  // 편집 잠금 상태(2화 이상 생성)이면 삭제 버튼 숨김
+  // CSS .modal-overlay.open .char-delete-btn 규칙으로 처리 — section-locked 시만 추가 숨김
   const container = document.getElementById("charCards");
   if (!container) return;
   const isLocked = document.getElementById("sectionFieldIV")?.classList.contains("section-locked");

@@ -107,8 +107,12 @@ function setTheme(t) {
   localStorage.setItem("fs-theme", t);
 }
 
-// 토스트
+// 토스트 (같은 메시지 2초 내 중복 표시 방지)
+const _toastShownAt = {};
 function showToast(msg, type = "warn", duration = 3000) {
+  const now = Date.now();
+  if (_toastShownAt[msg] && now - _toastShownAt[msg] < 2000) return;
+  _toastShownAt[msg] = now;
   const container = document.getElementById("toast-container");
   const el = document.createElement("div");
   el.className = "toast " + type;

@@ -141,12 +141,12 @@ function restoreContextUI(ctx) {
     }
 
     // 세계관 규칙 복원 (장르 줄 제외, soft 규칙)
-    ctx.world_rules.filter(r => !r.startsWith("장르: ")).forEach(r => addRuleTagDirect(r, false));
+    ctx.world_rules.filter(r => !r.startsWith("장르: ")).forEach(r => addRuleTagDirect(r, false, true));
   }
 
   // 4. 금지 설정 복원 (hard 규칙)
   if (ctx.forbidden_settings?.length) {
-    ctx.forbidden_settings.forEach(r => addRuleTagDirect(r, true));
+    ctx.forbidden_settings.forEach(r => addRuleTagDirect(r, true, true));
   }
 
   // 5. 인물 복원
@@ -759,10 +759,14 @@ async function _updateSidebarsSafely(bid) {
 async function selectBook(book) {
   console.debug("[selectBook] start", { id: book?.id, title: book?.title });
 
-  // 다른 책으로 이동 시 진행 중 생성이 있으면 즉시 안내
+  // 다른 책으로 이동 시 진행 중 생성이 있으면 즉시 안내 (동일 세션 내 1회만)
   const _ag = window._fsActiveGen;
   if (_ag && _ag.status === "generating" && _ag.bookId !== book.id) {
-    showToast(`《${_ag.title}》 ${_ag.episode}화 생성 중입니다.`, "info", 7000);
+    const _bgKey = `${_ag.bookId}:${_ag.episode}`;
+    if (window._fsLastBgToastKey !== _bgKey) {
+      window._fsLastBgToastKey = _bgKey;
+      showToast(`《${_ag.title}》 ${_ag.episode}화 생성 중입니다.`, "info", 7000);
+    }
   }
 
   _setActiveBook(book);

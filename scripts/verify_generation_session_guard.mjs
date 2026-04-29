@@ -25,7 +25,7 @@ check("_charPanelRequestSeq 선언", generateJs.includes("let _charPanelRequestS
 check("reqSeq 캡처", generateJs.includes("const reqSeq = ++_charPanelRequestSeq"));
 check("stale check: reqSeq !== _charPanelRequestSeq", generateJs.includes("reqSeq !== _charPanelRequestSeq"));
 check("stale debug log", generateJs.includes("[char-panel] stale response ignored"));
-check("post-gen refresh on empty items", generateJs.includes("_loadAndApplyCharStates(episodeNum)") && generateJs.includes("3500"));
+check("post-gen refresh (1s vocab wait)", generateJs.includes("_loadAndApplyCharStates(episodeNum)") && generateJs.includes("1000"));
 
 console.log(`\n${"─".repeat(55)}`);
 const result = failed === 0 ? "✅  ALL PASSED" : `❌  ${failed} FAILED`;

@@ -98,6 +98,8 @@ function closeModal() {
   } else {
     overlay.style.removeProperty("display");
   }
+  // 뷰어모드로 전환 — 인물 삭제 버튼 숨김
+  if (typeof syncCharDeleteBtns === "function") syncCharDeleteBtns();
 }
 
 function closeModalOutside(e) { /* 바깥 클릭으로 닫지 않음 — 저장 후 닫기 버튼만 사용 */ }

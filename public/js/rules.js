@@ -57,9 +57,12 @@ function makeRuleTag(entry) {
   wrap.insertBefore(tag, field);
 }
 
-function addRuleTagDirect(val, hard) {
+function addRuleTagDirect(val, hard, silent = false) {
   if (ruleEntries.find(e => e.val === val)) return;
-  if (ruleEntries.length >= 10) { showToast("세계관 규칙은 최대 10개까지 설정할 수 있습니다.", "warn"); return; }
+  if (ruleEntries.length >= 10) {
+    if (!silent) showToast("세계관 규칙은 최대 10개까지 설정할 수 있습니다.", "warn");
+    return;
+  }
   const entry = { val, hard };
   ruleEntries.push(entry);
   makeRuleTag(entry);

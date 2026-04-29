@@ -29,6 +29,42 @@ function check(label, passed) {
 const rulesSrc    = readFileSync("public/js/rules.js",   "utf8");
 const charsSrc    = readFileSync("public/js/chars.js",   "utf8");
 const suggestSrc  = readFileSync("public/js/suggest.js", "utf8");
+const authSrc     = readFileSync("public/js/auth.js",    "utf8");
+const uiSrc       = readFileSync("public/js/ui.js",      "utf8");
+const indexSrc    = readFileSync("public/index.html",    "utf8");
+
+// ── 토스트 dedupe ─────────────────────────────────────────────
+check(
+  "ui.js showToast: _toastShownAt dedupe 맵 존재",
+  uiSrc.includes("_toastShownAt")
+);
+check(
+  "ui.js showToast: 2000ms 내 중복 차단",
+  uiSrc.includes("< 2000")
+);
+check(
+  "rules.js addRuleTagDirect: silent 파라미터 존재",
+  rulesSrc.includes("silent = false") || rulesSrc.includes("silent=false")
+);
+check(
+  "rules.js addRuleTagDirect: silent 시 toast 생략",
+  rulesSrc.includes("if (!silent)")
+);
+check(
+  "auth.js restoreContextUI: addRuleTagDirect silent=true 로 호출",
+  authSrc.includes("addRuleTagDirect(r, false, true)") &&
+  authSrc.includes("addRuleTagDirect(r, true, true)")
+);
+
+// ── 뷰어모드 삭제 버튼 잠금 ──────────────────────────────────
+check(
+  "index.html: sectionFieldIV ID 존재",
+  indexSrc.includes('id="sectionFieldIV"')
+);
+check(
+  "modal.css: section-locked 시 char-delete-btn 숨김 CSS 존재",
+  readFileSync("public/css/modal.css", "utf8").includes("sectionFieldIV.section-locked .char-delete-btn")
+);
 
 // ── 규칙 상한선 ───────────────────────────────────────────────
 check(
