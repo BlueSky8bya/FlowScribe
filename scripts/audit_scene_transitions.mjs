@@ -44,9 +44,19 @@ const ABRUPT_PATTERNS = [
 
 const TRANSITION_PATTERNS = [
   /(?:[가-힣]+을|[가-힣]+를)\s+(?:지나|넘어|거쳐)\s+(?:[가-힣]+에|[가-힣]+으로)/,
-  /(?:발걸음|발자국|이동|향했다|갔다|도착했다)/,
-  /(?:잠시\s*후|한참\s*후|시간이\s*(?:흘러|지나))/,
+  /(?:발걸음|발자국|이동|향했다|갔다|도착했다|이동했다|걸어갔다|들어갔다|찾아갔다|나아갔다)/,
+  /(?:잠시\s*후|한참\s*후|시간이\s*(?:흘러|지나)|그\s*사이에|얼마\s*후|다음\s*날)/,
+  /(?:공기가|냄새가|빛이|온도가|바람이).*(?:맞았다|스쳤다|채웠다|감쌌다|불었다)/,
+  /(?:문을|복도를|계단을|통로를)\s*(?:열고|지나|내려|올라|따라)/,
 ];
+
+// 같은 구역 내 세부 위치 변화는 진짜 장면 전환으로 보지 않는다
+function isSameZone(a, b) {
+  if (!a || !b) return false;
+  const zA = a.split(/[\s-]/)[0];
+  const zB = b.split(/[\s-]/)[0];
+  return zA === zB;
+}
 
 let issues = 0;
 let warnings = 0;
@@ -66,7 +76,7 @@ for (let i = 1; i < episodes.length; i++) {
   const prevEndLoc = prevTrace?.parsed_plan?.scene_beats?.slice(-1)[0]?.location ?? null;
   const currStartLoc = currTrace?.parsed_plan?.scene_beats?.[0]?.location ?? null;
 
-  const locChange = prevEndLoc && currStartLoc && prevEndLoc !== currStartLoc;
+  const locChange = prevEndLoc && currStartLoc && prevEndLoc !== currStartLoc && !isSameZone(prevEndLoc, currStartLoc);
   const hasTransition = TRANSITION_PATTERNS.some(re => re.test(currHead));
   const abruptPattern = ABRUPT_PATTERNS.find(p => p.re.test(currFirstLine));
 

@@ -41,6 +41,10 @@ __pycache__/
 .venv/
 venv/
 
+# ── 장편 trace / 생성 결과 (로컬 전용) ──────────────
+tracking/
+logs/longstory_audit_*.json
+
 # ── 로컬 상태 / 임시 테스트 파일 ─────────────────────
 state.json
 suggest_test.json

@@ -561,17 +561,19 @@ function buildPlannerUserPrompt(
     for (const ch of ctx.characters) {
       const dynState = dynStates.find(d => d.character_name === ch.name);
       const arc      = arcs[ch.name];
-      const hasGoal  = !!dynState?.recent_goal?.trim();
+      const rawGoal   = dynState?.recent_goal?.trim() ?? "";
+      const hasGoal   = !!rawGoal && rawGoal !== "이전 목표 유지";
       const hasEvents = (arc?.key_events?.length ?? 0) > 0;
       if (!hasGoal && !hasEvents) inactive.push(ch.name);
     }
     if (inactive.length > 0) {
       sections.push(
-        `[비활성 인물 로테이션 — 반드시 준수]\n` +
+        `[비활성 인물 로테이션 — JSON 출력 필수 조건]\n` +
         `다음 인물은 최근 화에서 목표·행동·사건 기록이 없다: ${inactive.join(", ")}\n` +
-        `이번 화 scene_beats 중 최소 1개에서 위 인물이 다음 중 하나를 수행하게 배정한다:\n` +
-        `단서 제공 / 갈등 유발 / 반대 의견 표명 / 구체적 행동 수행 / 인물 관계 변화 유발\n` +
-        `단순 "등장만 했다"로 처리하지 않는다. 서사에 영향을 주는 역할이어야 한다.`
+        `이번 화 scene_beats JSON에서 최소 Beat 1개의 "characters_involved" 배열에 반드시 다음 인물 중 하나 이상을 포함해야 한다: [${inactive.map(n => `"${n}"`).join(", ")}]\n` +
+        `이 조건을 충족하지 않는 JSON 출력은 유효하지 않다.\n` +
+        `해당 인물이 수행해야 할 역할 예시: 새 단서 발견 / 다른 인물과 충돌 / 독립적 행동 수행 / 중요 정보 제공\n` +
+        `단순 배경 등장이 아닌, 서사 진행에 실질적 영향을 주는 역할로 배정한다.`
       );
     }
   }
