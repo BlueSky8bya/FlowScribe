@@ -20,7 +20,15 @@ function isWorldSetupReady() {
 function _syncEmptyStateCTA() {
   const hint   = document.getElementById("emptyStateHint");
   const genBtn = document.getElementById("emptyStateGenBtn");
-  if (!hint || !genBtn) return;   // empty state가 없는 상태 (에피소드 있음)
+  const settingsBtn = document.getElementById("settingsBtn");
+
+  const inEmptyState = !!(hint && genBtn);
+
+  // 오른쪽 상단 세계관 설정 버튼: empty state일 때 숨김 (empty state 내부 버튼으로 대체)
+  if (settingsBtn) settingsBtn.style.display = inEmptyState ? "none" : "";
+
+  if (!inEmptyState) return;  // empty state가 없는 상태 (에피소드 있음)
+
   const ready = isWorldSetupReady();
   genBtn.disabled = !ready;
   genBtn.style.opacity = ready ? "" : ".45";

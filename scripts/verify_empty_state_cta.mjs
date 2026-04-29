@@ -56,6 +56,10 @@ check("updateEpisodeUI에서 _noEpisodes 조건 처리", appJs.includes("_noEpis
 check("_noEpisodes = displayedEpisode === null && currentEpisode === 1", appJs.includes("displayedEpisode === null && currentEpisode === 1"));
 check("_noEpisodes 시 btn 숨김", appJs.includes('_noEpisodes ? "none" : ""') || appJs.includes("display = _noEpisodes"));
 
+console.log("\n── 상단 settingsBtn 숨김 검증 ──");
+check("empty state 시 settingsBtn 숨김", appJs.includes('settingsBtn.style.display = inEmptyState ? "none" : ""'));
+check("empty state 해제 시 settingsBtn 복원", appJs.includes('"none" : ""'));
+
 console.log("\n── generation notice 검증 ──");
 check("window._fsActiveGen 등록 (generate)", generateJs.includes("window._fsActiveGen = {"));
 check("selectBook: active generation 감지", authJs.includes("_fsActiveGen"));
