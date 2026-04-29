@@ -112,6 +112,27 @@ check("CSS .book-list-wrap 기본 display:block",
   layoutCss.includes("display:block"));
 check("CSS .book-list-wrap.collapsed max-height:0 !important",
   layoutCss.includes("max-height:0 !important"));
+check("CSS .book-list-wrap overflow:visible 제거됨",
+  !layoutCss.match(/\.book-list-wrap\s*\{[^}]*overflow\s*:\s*visible/));
+check("CSS .book-list-wrap.collapsed overflow:hidden 유지",
+  layoutCss.includes("overflow:hidden !important"));
+
+// ── 초기 접힘 동작 ────────────────────────────────────────
+check("_collapseBookListForced 함수 존재",    authJs.includes("function _collapseBookListForced"));
+check("initBooks: _collapseBookListForced 호출",
+  authJs.match(/initBooks[\s\S]{0,400}_collapseBookListForced\(\)/));
+check("_collapseBookListForced: _bookListManuallyOpen=false 설정",
+  authJs.match(/function _collapseBookListForced[\s\S]{0,200}_bookListManuallyOpen\s*=\s*false/));
+check("_collapseBookListForced: collapsed class 추가",
+  authJs.match(/function _collapseBookListForced[\s\S]{0,200}classList\.add\("collapsed"\)/));
+check("_collapseBookListForced: 서재 펼치기 라벨 설정", (() => {
+  const idx = authJs.indexOf("function _collapseBookListForced");
+  return idx >= 0 && authJs.indexOf("서재 펼치기", idx) < idx + 400;
+})());
+check("toggleBookList: _bookListManuallyOpen 갱신", (() => {
+  const idx = authJs.indexOf("async function toggleBookList");
+  return idx >= 0 && authJs.indexOf("_bookListManuallyOpen", idx) < idx + 1200;
+})());
 
 console.log(`\n${"─".repeat(55)}`);
 console.log(`Result: ${passed} passed, ${failed} failed`);

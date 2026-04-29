@@ -435,7 +435,6 @@ body{
   display:block;
   overflow-y:auto;
   max-height:min(600px, 55vh);
-  overflow:visible;
   scrollbar-width:thin;
   scrollbar-color:var(--border2) transparent;
 }

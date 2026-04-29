@@ -18,6 +18,7 @@ import { logInfo, logWarn } from "../lib/logger.js";
 import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
 import { commitDynamicState, getLatestDynamicStates } from "../services/character_state.js";
+import { normalizeStateUpdate, normalizeEmotionalState, normalizeLocation, normalizePhysicalState, normalizeRecentGoal } from "../services/language_guard.js";
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
@@ -407,16 +408,20 @@ export async function runPlannerPipeline(
             beatLocationMap.get(upd.character_name) ??
             beatLocationMap.get(resolvedName) ??
             prev?.location ?? undefined;
+          // language guard: planner가 영어로 반환한 상태 필드를 한국어로 정규화
+          const rawEmotional = upd.emotional_state ?? prev?.emotional_state ?? undefined;
+          const rawPhysical  = upd.physical_state  ?? prev?.physical_state  ?? undefined;
+          const rawGoal      = upd.recent_goal     ?? prev?.recent_goal     ?? undefined;
           await commitDynamicState({
             book_id:        bookId,
             character_name: resolvedName,
             episode_number: ctx.episode_number,
-            location:       resolvedLocation,
-            physical_state: upd.physical_state ?? prev?.physical_state ?? undefined,
-            emotional_state: upd.emotional_state,
+            location:       normalizeLocation(resolvedLocation ?? undefined) ?? resolvedLocation ?? undefined,
+            physical_state: normalizePhysicalState(rawPhysical) ?? rawPhysical,
+            emotional_state: normalizeEmotionalState(rawEmotional) ?? rawEmotional,
             items:          resolvedItems as import("../types/canonical.js").ItemEntry[],
             visibility_state: upd.visibility_state ?? prev?.visibility_state ?? "present",
-            recent_goal:    upd.recent_goal      ?? prev?.recent_goal ?? undefined,
+            recent_goal:    normalizeRecentGoal(rawGoal) ?? rawGoal,
             relationship_updates:   prev?.relationship_updates   ?? {},
             foreshadow_connections: prev?.foreshadow_connections ?? [],
             behavior_hints: prev?.behavior_hints ?? undefined,
@@ -441,16 +446,17 @@ export async function runPlannerPipeline(
       if (!resolvedPrevName) continue; // orphan → carry-forward 스킵
       if (updatedNames.has(resolvedPrevName)) continue;
       try {
+        // carry-forward: 영어 오염 방지 — 이전 상태도 정규화 후 전파
         await commitDynamicState({
           book_id:        bookId,
           character_name: resolvedPrevName,
           episode_number: ctx.episode_number,
-          location:       prev.location,
-          physical_state: prev.physical_state,
-          emotional_state: prev.emotional_state,
+          location:       normalizeLocation(prev.location) ?? prev.location,
+          physical_state: normalizePhysicalState(prev.physical_state) ?? prev.physical_state,
+          emotional_state: normalizeEmotionalState(prev.emotional_state) ?? prev.emotional_state,
           items:          prev.items ?? [],
           visibility_state: "absent",
-          recent_goal:    prev.recent_goal,
+          recent_goal:    normalizeRecentGoal(prev.recent_goal) ?? prev.recent_goal,
           relationship_updates:   prev.relationship_updates ?? {},
           foreshadow_connections: prev.foreshadow_connections ?? [],
           behavior_hints: prev.behavior_hints,
@@ -470,12 +476,12 @@ export async function runPlannerPipeline(
           book_id:        bookId,
           character_name: canonical.name,
           episode_number: ctx.episode_number,
-          location:       undefined,
-          physical_state: undefined,
-          emotional_state: undefined,
+          location:       "미등장",
+          physical_state: "정상",
+          emotional_state: "알 수 없음",
           items:          (canonical.initial_items ?? []) as import("../types/canonical.js").ItemEntry[],
           visibility_state: "absent",
-          recent_goal:    undefined,
+          recent_goal:    "이전 목표 유지",
           relationship_updates:   {},
           foreshadow_connections: [],
           behavior_hints: undefined,
@@ -483,11 +489,15 @@ export async function runPlannerPipeline(
         });
       } catch { /* skip */ }
     }
+    const canonicalExpected = ctx.characters.length;
     logInfo("pipeline", "캐릭터 상태 커밋 완료", {
       episode: ctx.episode_number,
       committed: stateUpdates.map(u => u.character_name),
       state_source: stateUpdates.length > 0 ? "planner" : "carried_forward",
       norm_stats: normStats,
+      state_rows_expected: canonicalExpected,
+      state_rows_committed: stateUpdates.length,
+      state_rows_missing: Math.max(0, canonicalExpected - stateUpdates.length),
     });
   }
 

@@ -497,6 +497,8 @@ async function initBooks() {
 
   renderBookList(books, books[0].id);
   showBookListToggle();   // selectBook 성공 여부와 무관하게 즉시 표시
+  // 초기 로드 시 서재는 기본 접힘 상태 (사용자가 펼치기 전까지)
+  _collapseBookListForced();
   await selectBook(books[0]);
 }
 
@@ -795,6 +797,18 @@ function _collapseBookList(activeTitle) {
   if (_bookListManuallyOpen) return;
   wrap.classList.add("collapsed");
   toggle.classList.add("collapsed");
+}
+
+// 초기 로드 전용 — _bookListManuallyOpen 무시하고 무조건 접음
+function _collapseBookListForced() {
+  const wrap   = document.getElementById("bookListWrap");
+  const toggle = document.getElementById("bookListToggle");
+  if (!wrap || !toggle) return;
+  _bookListManuallyOpen = false;
+  wrap.classList.add("collapsed");
+  toggle.classList.add("collapsed");
+  const labelEl = toggle.querySelector(".book-list-toggle-label");
+  if (labelEl) labelEl.textContent = "서재 펼치기";
 }
 
 async function ensureBookListLoaded() {
