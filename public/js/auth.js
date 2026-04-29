@@ -461,7 +461,7 @@ async function initBooks() {
   }
 
   renderBookList(books, books[0].id);
-  showBookListToggle(books.length > 0);   // selectBook 성공 여부와 무관하게 즉시 표시
+  showBookListToggle();   // selectBook 성공 여부와 무관하게 즉시 표시
   await selectBook(books[0]);
 }
 
@@ -488,7 +488,7 @@ async function createNewBook(title) {
   const { books } = await listRes.json();
   _allBooks = books;
   renderBookList(books, book.id);
-  showBookListToggle(books.length > 0);
+  showBookListToggle();
   await selectBook(book);
 }
 
@@ -651,18 +651,18 @@ async function deleteBook(b) {
   showToast(`"${b.title}" 삭제됨`, "warn", 2500);
 }
 
-// ── 책 목록 토글 가시성 ────────────────────────────────────
-// force=true 이면 무조건 표시. 아니면 _allBooks 또는 DOM 기준.
-function showBookListToggle(force) {
+// ── 책 목록 토글 — 항상 표시 (조건부 없음) ───────────────
+function showBookListToggle() {
   const toggle = document.getElementById("bookListToggle");
   const wrap   = document.getElementById("bookListWrap");
-  if (!toggle) return;
-  const hasBooks = force === true
-    || (Array.isArray(window._allBooks) && window._allBooks.length > 0)
-    || (document.getElementById("bookList")?.querySelectorAll(".book-item").length > 0);
-  toggle.style.display = hasBooks ? "flex" : "none";
-  toggle.hidden = false;
-  if (wrap) wrap.hidden = false;
+  if (toggle) {
+    toggle.style.removeProperty("display");
+    toggle.hidden = false;
+    toggle.classList.remove("hidden");
+  }
+  if (wrap) {
+    wrap.hidden = false;
+  }
 }
 // 하위 호환 alias
 function updateBookListToggleVisibility() { showBookListToggle(); }
@@ -695,11 +695,21 @@ function clearStoryProgressUI() {
 function renderBookList(books, activeId) {
   const list = document.getElementById("bookList");
   if (!list) return;
+
+  showBookListToggle();   // 항상 먼저 토글 표시
+
   list.innerHTML = "";
-  // 시스템/테스트 책 필터링: [DPO_, [EXP_ 등 자동 생성 접두어 패턴
-  const _SYS_BOOK_RE = /^\[(DPO|EXP|BENCH|TEST|SOAK)[\[_ ]/i;
-  const userBooks = books.filter(b => !_SYS_BOOK_RE.test(b.title ?? ""));
-  userBooks.forEach((b, idx) => {
+  const allBooks = Array.isArray(books) ? books : [];
+
+  if (!allBooks.length) {
+    const empty = document.createElement("div");
+    empty.className = "book-list-empty";
+    empty.textContent = "아직 책이 없습니다. 새 책을 만들어 시작하세요.";
+    list.appendChild(empty);
+    return;
+  }
+
+  allBooks.forEach((b, idx) => {
     const item = document.createElement("div");
     item.className = "book-item" + (b.id === activeId ? " active" : "");
     item.dataset.id = b.id;
@@ -788,7 +798,7 @@ function renderBookList(books, activeId) {
     };
     list.appendChild(item);
   });
-  showBookListToggle(userBooks.length > 0);
+  showBookListToggle();
 }
 
 // ── 에피소드 목록 사이드바 ─────────────────────────────────

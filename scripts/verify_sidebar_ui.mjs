@@ -18,63 +18,67 @@ function check(label, cond) {
 
 const authJs    = read("public/js/auth.js");
 const indexHtml = read("public/index.html");
+const layoutCss = read("public/css/layout.css");
 
 // ── DOM 구조 ────────────────────────────────────────────────
-check("bookListToggle DOM 존재",          indexHtml.includes('id="bookListToggle"'));
-check("bookListToggle 기본 display:none", !!indexHtml.match(/id="bookListToggle"[^>]*style="display:none;"/));
-check("bookListWrap DOM 존재",            indexHtml.includes('id="bookListWrap"'));
-check("bookList DOM 존재",               indexHtml.includes('id="bookList"'));
-check("arcSection DOM 존재",             indexHtml.includes('id="arcSection"'));
+check("bookListToggle DOM 존재",           indexHtml.includes('id="bookListToggle"'));
+check("bookListToggle inline display:none 없음",
+  !indexHtml.match(/id="bookListToggle"[^>]*style="[^"]*display\s*:\s*none/));
+check("bookListWrap DOM 존재",             indexHtml.includes('id="bookListWrap"'));
+check("bookList DOM 존재",                indexHtml.includes('id="bookList"'));
+check("arcSection DOM 존재",              indexHtml.includes('id="arcSection"'));
 
-// ── auth.js 버전 bump ──────────────────────────────────────
+// ── CSS 기본 표시 ──────────────────────────────────────────
+check("CSS .book-list-toggle 기본 display:flex",
+  layoutCss.match(/\.book-list-toggle\s*\{[^}]*display\s*:\s*flex/));
+
+// ── auth.js 버전 v=8 이상 ─────────────────────────────────
 const authVerMatch = indexHtml.match(/auth\.js\?v=(\d+)/);
 const authVer = authVerMatch ? parseInt(authVerMatch[1]) : 0;
-check("auth.js 버전 v=7 이상",           authVer >= 7);
+check("auth.js 버전 v=8 이상",             authVer >= 8);
 
-// ── 핵심 함수 존재 ─────────────────────────────────────────
-check("showBookListToggle 함수 존재",     authJs.includes("function showBookListToggle"));
-check("clearStoryProgressUI 함수 존재",  authJs.includes("function clearStoryProgressUI"));
-check("updateBookListToggleVisibility alias 존재",
-  authJs.includes("function updateBookListToggleVisibility"));
+// ── showBookListToggle 조건 없음 ───────────────────────────
+check("showBookListToggle 함수 존재",      authJs.includes("function showBookListToggle"));
+check("showBookListToggle: _allBooks 조건 없음",
+  !authJs.match(/function showBookListToggle[\s\S]{0,300}_allBooks/));
+check("showBookListToggle: .book-item 개수 조건 없음",
+  !authJs.match(/function showBookListToggle[\s\S]{0,300}book-item/));
+check("showBookListToggle: style.removeProperty 사용",
+  authJs.match(/function showBookListToggle[\s\S]{0,300}removeProperty/));
+check("showBookListToggle: toggle.hidden=false",
+  authJs.match(/function showBookListToggle[\s\S]{0,300}hidden\s*=\s*false/));
 
-// ── showBookListToggle 구현 강건성 ─────────────────────────
-check("showBookListToggle: _allBooks 기준 포함",  authJs.includes("window._allBooks"));
-check("showBookListToggle: toggle.hidden=false",  authJs.includes("toggle.hidden = false"));
-check("showBookListToggle: force 파라미터 지원",  authJs.includes("force === true") || authJs.includes("force=true"));
-check("showBookListToggle: flex/none 설정",
-  authJs.includes('"flex"') && authJs.includes('"none"'));
+// ── renderBookList fail-safe ───────────────────────────────
+check("renderBookList: showBookListToggle 호출",
+  authJs.match(/function renderBookList[\s\S]{0,200}showBookListToggle/));
+check("renderBookList: 빈 books 처리 (book-list-empty)",
+  authJs.includes("book-list-empty"));
+check("renderBookList: _SYS_BOOK_RE 필터 없음 (검증용 제거)",
+  !authJs.includes("_SYS_BOOK_RE"));
 
-// ── renderBookList 끝에 showBookListToggle 호출 ────────────
-check("renderBookList에서 showBookListToggle 호출",
-  authJs.match(/function renderBookList[\s\S]{0,5000}showBookListToggle/));
-
-// ── initBooks에서 renderBookList 직후 showBookListToggle 호출 ─
-check("initBooks: renderBookList 후 showBookListToggle 명시 호출",
-  authJs.match(/renderBookList\(books.*\);\s*\n\s*showBookListToggle/));
-
-// ── createNewBook에서도 showBookListToggle 호출 ────────────
+// ── initBooks / createNewBook 경로 ────────────────────────
+check("initBooks: renderBookList 후 showBookListToggle 호출",
+  authJs.match(/renderBookList\([^)]+\);\s*\n\s*showBookListToggle\(\)/));
 check("createNewBook: renderBookList 후 showBookListToggle 호출",
   authJs.match(/async function createNewBook[\s\S]{0,900}showBookListToggle/));
 
-// ── clearStoryProgressUI 분리 보장 ─────────────────────────
-check("clearStoryProgressUI가 bookListToggle 건드리지 않음",
+// ── clearStoryProgressUI 분리 ─────────────────────────────
+check("clearStoryProgressUI 함수 존재",    authJs.includes("function clearStoryProgressUI"));
+check("clearStoryProgressUI: bookListToggle 건드리지 않음",
   !authJs.match(/function clearStoryProgressUI[\s\S]{0,600}bookListToggle/));
-check("clearStoryProgressUI가 bookList 건드리지 않음",
-  !authJs.match(/function clearStoryProgressUI[\s\S]{0,600}(?<!Wrap|Toggle)\bbookList\b/));
-check("clearStoryProgressUI가 arcSection 숨김",
-  !!authJs.match(/function clearStoryProgressUI[\s\S]{0,700}arcSection[\s\S]{0,50}none/));
-check("clearStoryProgressUI가 episodeList 초기화",
+check("clearStoryProgressUI: bookList 건드리지 않음",
+  !authJs.match(/function clearStoryProgressUI[\s\S]{0,600}\bbookList\b(?!Wrap|Toggle)/));
+check("clearStoryProgressUI: arcSection 숨김",
+  !!authJs.match(/function clearStoryProgressUI[\s\S]{0,700}arcSection[\s\S]{0,60}none/));
+check("clearStoryProgressUI: episodeList 초기화",
   !!authJs.match(/function clearStoryProgressUI[\s\S]{0,800}episodeList/));
 
-// ── selectBook이 book list UI를 건드리지 않음 ──────────────
-check("selectBook이 clearStoryProgressUI 사용",
+// ── selectBook 독립성 ─────────────────────────────────────
+check("selectBook: clearStoryProgressUI 사용",
   authJs.includes("clearStoryProgressUI()"));
-check("selectBook이 bookListToggle.style.display 직접 세팅 안 함",
+check("selectBook: bookListToggle.style.display 직접 세팅 안 함",
   !authJs.match(/async function selectBook[\s\S]{0,3500}bookListToggle\.style\.display/));
-
-// ── _collapseBookList 유지 ──────────────────────────────────
-check("_collapseBookList 함수 유지",
-  authJs.includes("function _collapseBookList"));
+check("_collapseBookList 함수 유지",       authJs.includes("function _collapseBookList"));
 check("selectBook 끝에 _collapseBookList 호출",
   !!authJs.match(/_collapseBookList\(book\.title\)/));
 
