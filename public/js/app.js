@@ -42,6 +42,14 @@ function updateEpisodeUI() {
 
   prevBtn.disabled = displayedEpisode === null || !_prevEpNum?.(displayedEpisode);
 
+  console.debug("[updateEpisodeUI]", {
+    displayedEpisode,
+    currentEpisode,
+    btnText: btn?.textContent,
+    epInfo: epInfo?.textContent,
+    episodeCacheKeys: Object.keys(episodeCache || {}),
+  });
+
   updateEpisodeListUI?.();
   updateOutputHeader?.();
 }

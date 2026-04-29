@@ -63,11 +63,11 @@ check("_clearStorySurface: bookListWrap 건드리지 않음",
 
 // ── renderLatestEpisode: content fallback ─────────────────
 check("_renderLatestEpisode: renderProgressive 호출",
-  authJs.match(/function _renderLatestEpisode[\s\S]{0,1000}renderProgressive/));
-check("_renderLatestEpisode: empty output fallback",
-  authJs.match(/function _renderLatestEpisode[\s\S]{0,1200}output\.textContent\s*=\s*content/));
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,2000}renderProgressive/));
+check("_renderLatestEpisode: empty output fallback (outEl.textContent)",
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,2000}outEl\.textContent\s*=\s*content/));
 check("_renderLatestEpisode: episodes 없으면 output 비움",
-  authJs.match(/function _renderLatestEpisode[\s\S]{0,300}output\.innerHTML\s*=\s*""/));
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,600}innerHTML\s*=\s*""/));
 
 // ── _loadEpisodes: 실패 시 [] 반환 ──────────────────────────
 check("_loadEpisodes: 실패 시 [] 반환",
@@ -77,20 +77,34 @@ check("_loadEpisodes: 에러 로그",
 
 // ── context/char/sidebar 실패 격리 ─────────────────────────
 check("_restoreContextSafely: try-catch 보호",
-  authJs.match(/function _restoreContextSafely[\s\S]{0,300}catch/));
+  authJs.match(/function _restoreContextSafely[\s\S]{0,600}catch/));
 check("_updateSidebarsSafely: try-catch 보호",
   authJs.match(/function _updateSidebarsSafely[\s\S]{0,300}catch/));
+
+// ── trace / assert ────────────────────────────────────────
+check("_traceOutput 함수 존재",            authJs.includes("function _traceOutput"));
+check("_assertEpisodeRendered 함수 존재",  authJs.includes("function _assertEpisodeRendered"));
+check("_renderLatestEpisode: _assertEpisodeRendered 호출",
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,1400}_assertEpisodeRendered/));
+check("_renderLatestEpisode: updateEpisodeUI 호출",
+  authJs.match(/function _renderLatestEpisode[\s\S]{0,1400}updateEpisodeUI/));
+check("selectBook: updateEpisodeUI 최종 무조건 호출",
+  authJs.match(/async function selectBook[\s\S]{0,1200}updateEpisodeUI/));
+check("_clearStorySurface: bookList 건드리지 않음 (outEl 로컬 참조)",
+  authJs.match(/function _clearStorySurface[\s\S]{0,400}getElementById.*"output"/));
 
 // ── __fsDiag 전역 노출 ────────────────────────────────────
 check("window.__fsDiag 존재",              authJs.includes("window.__fsDiag"));
 check("__fsDiag: episodeCacheKeys 포함",   authJs.includes("episodeCacheKeys"));
 check("__fsDiag: outputTextLen 포함",      authJs.includes("outputTextLen"));
 check("__fsDiag: latestEpisode 포함",      authJs.includes("latestEpisode"));
+check("__fsDiag: generateButtonText 포함", authJs.includes("generateButtonText"));
+check("__fsDiag: episodeListText 포함",    authJs.includes("episodeListText"));
 
-// ── auth.js 버전 v=11 이상 ─────────────────────────────────
+// ── auth.js 버전 v=12 이상 ─────────────────────────────────
 const verMatch = indexHtml.match(/auth\.js\?v=(\d+)/);
 const ver = verMatch ? parseInt(verMatch[1]) : 0;
-check("auth.js 버전 v=11 이상",            ver >= 11);
+check("auth.js 버전 v=12 이상",            ver >= 12);
 
 console.log(`\n${"─".repeat(55)}`);
 console.log(`Result: ${passed} passed, ${failed} failed`);

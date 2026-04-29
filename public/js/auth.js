@@ -494,6 +494,34 @@ async function createNewBook(title) {
 
 // ── selectBook 단계 함수들 ─────────────────────────────────
 
+// output DOM 상태를 출력하는 진단 트레이스
+function _traceOutput(label) {
+  const out = document.getElementById("output");
+  console.debug(`[output-trace] ${label}`, {
+    outputTextLen: out?.textContent?.length,
+    outputHTMLLen: out?.innerHTML?.length,
+    bookId,
+    activeBookTitle,
+    currentEpisode,
+    displayedEpisode,
+    episodeCacheKeys: Object.keys(episodeCache || {}),
+  });
+}
+
+// content가 있는데 output이 비어 있으면 hard fallback
+function _assertEpisodeRendered(label, safeEps) {
+  const out = document.getElementById("output");
+  const latest = Array.isArray(safeEps) ? safeEps.at(-1) : null;
+  const content = latest?.content || episodeCache?.[latest?.episode_number] || "";
+  if (content && out && !out.textContent.trim()) {
+    console.warn(`[selectBook] ${label}: output empty despite content — hard fallback`, {
+      episode: latest.episode_number,
+      contentLen: content.length,
+    });
+    out.textContent = content;
+  }
+}
+
 function _setActiveBook(book) {
   bookId            = book.id;
   activeBookTitle   = book.title ?? "";
@@ -504,12 +532,15 @@ function _setActiveBook(book) {
 
 function _clearStorySurface() {
   // episodeCache, output, debug panels, episode list, arc — bookList 영역 절대 건드리지 않음
+  _traceOutput("_clearStorySurface start");
   Object.keys(episodeCache).forEach(k => delete episodeCache[k]);
   displayedEpisode = null;
-  output.innerHTML = "";
+  const outEl = document.getElementById("output");
+  if (outEl) outEl.innerHTML = "";
   if (typeof _clearDebugPanels   === "function") _clearDebugPanels();
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
   clearStoryProgressUI();
+  _traceOutput("_clearStorySurface end");
 }
 
 async function _loadEpisodes(bid) {
@@ -527,6 +558,8 @@ async function _loadEpisodes(bid) {
 
 function _renderLatestEpisode(episodes) {
   const safeEps = Array.isArray(episodes) ? episodes : [];
+  _traceOutput("_renderLatestEpisode start");
+
   for (const ep of safeEps) {
     if (ep?.episode_number != null) episodeCache[ep.episode_number] = ep.content || "";
   }
@@ -534,9 +567,11 @@ function _renderLatestEpisode(episodes) {
   if (!safeEps.length) {
     displayedEpisode = null;
     currentEpisode   = 1;
-    output.innerHTML = "";
+    const outEl = document.getElementById("output");
+    if (outEl) outEl.innerHTML = "";
     if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
     updateEpisodeListUI();
+    updateEpisodeUI?.();
     console.debug("[selectBook] no episodes — blank state");
     return;
   }
@@ -550,28 +585,42 @@ function _renderLatestEpisode(episodes) {
   const content = latest.content || episodeCache[displayedEpisode] || "";
   console.debug("[selectBook] latest episode", { displayedEpisode, contentLen: content.length });
 
+  const outEl = document.getElementById("output");
+  _traceOutput("before renderProgressive");
+
   if (content) {
-    renderProgressive(content, true);
-    // renderProgressive가 빈 결과를 낼 경우 텍스트 fallback
-    if (!output.textContent.trim()) {
-      console.warn("[selectBook] renderProgressive produced empty output; fallback to textContent");
-      output.textContent = content;
+    try {
+      renderProgressive(content, true);
+    } catch (e) {
+      console.error("[selectBook] renderProgressive threw", e);
+      if (outEl) outEl.textContent = content;
     }
+    _traceOutput("after renderProgressive");
+    _assertEpisodeRendered("after renderProgressive", safeEps);
   } else {
-    output.innerHTML = `<p class="empty-state">본문을 불러오지 못했습니다.</p>`;
+    if (outEl) outEl.innerHTML = `<p class="empty-state">본문을 불러오지 못했습니다.</p>`;
   }
 
-  console.debug("[selectBook] renderProgressive done", { outputLen: output.textContent.length });
+  console.debug("[selectBook] renderProgressive done", { outputLen: outEl?.textContent?.length });
   updateEpisodeListUI();
+  updateEpisodeUI?.();
+  _traceOutput("after episode UI update");
+  _assertEpisodeRendered("after episode UI update", safeEps);
 }
 
 async function _restoreContextSafely(bid) {
+  _traceOutput("_restoreContextSafely start");
   clearWorldSettingsUI();
+  _traceOutput("after clearWorldSettingsUI");
   try {
     const res = await fetch(`/api/context/${bid}`);
-    if (res.ok) { restoreContextUI(await res.json()); }
+    if (res.ok) {
+      restoreContextUI(await res.json());
+      _traceOutput("after restoreContextUI");
+    }
     console.debug("[selectBook] context restored");
   } catch (e) { console.error("[selectBook] context restore failed", e); }
+  _traceOutput("_restoreContextSafely end");
 }
 
 async function _restoreCharsSafely(bid) {
@@ -618,9 +667,13 @@ async function _restoreCharsSafely(bid) {
 async function _updateSidebarsSafely(bid) {
   try {
     updateArcUI(currentEpisode - 1 || 0);
+  } catch (e) { console.error("[selectBook] updateArcUI failed", e); }
+  try {
     await Promise.all([loadProfile(), loadForeshadowStats(), loadSessionStats()]);
     await loadOverrides?.();
-    updateEpisodeUI();
+  } catch (e) { console.error("[selectBook] profile/stats load failed", e); }
+  _traceOutput("_updateSidebarsSafely before updateEpisodeUI");
+  try {
     updateOutputHeader();
     console.debug("[selectBook] sidebar updated");
   } catch (e) { console.error("[selectBook] sidebar update failed", e); }
@@ -640,12 +693,17 @@ async function selectBook(book) {
 
   // 본문 렌더 완료 후 context/chars/sidebar 순차 실행 (실패 격리)
   await _restoreContextSafely(book.id);
-  _restoreCharsSafely(book.id);           // fire-and-forget (내부적으로 async)
+  _restoreCharsSafely(book.id);           // fire-and-forget
   await _updateSidebarsSafely(book.id);
 
+  // updateEpisodeUI는 try-catch 밖에서 무조건 실행 — 버튼/에피소드 목록 최종 동기화
+  try { updateEpisodeUI?.(); } catch (_) {}
+  try { updateEpisodeListUI(); } catch (_) {}
+
   const epCount = Object.keys(episodeCache).length;
+  _traceOutput("selectBook done");
   if (epCount > 0) showToast(`${book.title} — ${epCount}화 불러왔습니다.`, "info", 2000);
-  console.debug("[selectBook] done", { epCount, outputLen: output.textContent.length });
+  console.debug("[selectBook] done", { epCount, outputLen: document.getElementById("output")?.textContent?.length });
 }
 
 // ── 책 목록 접기/펼치기 ────────────────────────────────────
@@ -1335,8 +1393,12 @@ window.__fsDiag = async function () {
     latestEpisode: eps?.episodes?.at?.(-1)
       ? { n: eps.episodes.at(-1).episode_number, title: eps.episodes.at(-1).title, contentLen: eps.episodes.at(-1).content?.length }
       : null,
-    bookItemCount: document.querySelectorAll("#bookList .book-item").length,
-    bookListText:  document.getElementById("bookList")?.textContent?.trim(),
-    authScript:    Array.from(document.scripts).map(s => s.src).filter(s => s.includes("auth.js")),
+    bookItemCount:       document.querySelectorAll("#bookList .book-item").length,
+    bookListText:        document.getElementById("bookList")?.textContent?.trim(),
+    generateButtonText:  document.getElementById("sendBtn")?.textContent || null,
+    generateButtonId:    document.getElementById("sendBtn")?.id || null,
+    epInfoText:          document.getElementById("epInfo")?.textContent || null,
+    episodeListText:     document.getElementById("episodeList")?.textContent?.trim() || null,
+    authScript:          Array.from(document.scripts).map(s => s.src).filter(s => s.includes("auth.js")),
   };
 };
