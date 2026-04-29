@@ -585,13 +585,10 @@ function generate() {
     updateEpisodeUI();
     syncBookEpisode?.();
     if (episodeNum >= 2) applySettingsLock?.(true);
-    // 소지품 설명이 없는 항목이 있으면 3초 후 패널 재갱신 (item_desc background job 완료 대기)
-    const _hasEmptyItemDesc = _pendingCharStates && _pendingCharStates.some(cs =>
-      (cs.items || []).some(it => !it.description)
-    );
-    if (_hasEmptyItemDesc) {
-      setTimeout(() => { if (!_generating) _loadAndApplyCharStates(episodeNum); }, 3500);
-    }
+    // vocab 로드 후 패널 재렌더 — _pendingCharStates 직접 렌더 시 _itemVocab이
+    // 아직 비어 있어 배지가 누락될 수 있음. 1초 후 재갱신으로 보정.
+    // 소지품 설명 background job 완료 대기도 겸함 (기존 3.5초 → 1초로 단축).
+    setTimeout(() => { if (!_generating) _loadAndApplyCharStates(episodeNum); }, 1000);
     btn.disabled = false;
   }
   let _generateFinished = false;
