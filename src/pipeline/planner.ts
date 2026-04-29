@@ -552,6 +552,30 @@ function buildPlannerUserPrompt(
     );
   }
 
+  // ── 비활성 인물 로테이션 (ep >= 3) ──────────────────────────────
+  // recent_goal이 비어있거나 character_arcs에 key_events가 없는 인물 → 이번 화 우선 배정
+  if (ctx.episode_number >= 3 && ctx.characters.length > 0) {
+    const dynStates = ctx.character_dynamic_states ?? [];
+    const arcs      = ctx.character_arcs ?? {};
+    const inactive: string[] = [];
+    for (const ch of ctx.characters) {
+      const dynState = dynStates.find(d => d.character_name === ch.name);
+      const arc      = arcs[ch.name];
+      const hasGoal  = !!dynState?.recent_goal?.trim();
+      const hasEvents = (arc?.key_events?.length ?? 0) > 0;
+      if (!hasGoal && !hasEvents) inactive.push(ch.name);
+    }
+    if (inactive.length > 0) {
+      sections.push(
+        `[비활성 인물 로테이션 — 반드시 준수]\n` +
+        `다음 인물은 최근 화에서 목표·행동·사건 기록이 없다: ${inactive.join(", ")}\n` +
+        `이번 화 scene_beats 중 최소 1개에서 위 인물이 다음 중 하나를 수행하게 배정한다:\n` +
+        `단서 제공 / 갈등 유발 / 반대 의견 표명 / 구체적 행동 수행 / 인물 관계 변화 유발\n` +
+        `단순 "등장만 했다"로 처리하지 않는다. 서사에 영향을 주는 역할이어야 한다.`
+      );
+    }
+  }
+
   // ── 반복 방지 섹션 ──────────────────────────────────────────────
   const avoidLines: string[] = [];
 

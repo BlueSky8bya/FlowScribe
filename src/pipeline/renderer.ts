@@ -102,7 +102,10 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
 
   // 직전 화 연속성 (ep >= 2)
   const prevTailSection = (ctx.episode_number >= 2 && ctx.prev_episode_tail)
-    ? `\n[직전 화 말미 — 이 장면 직후부터 이번 화가 이어진다]\n${ctx.prev_episode_tail.slice(-500)}\n`
+    ? `\n[직전 화 말미 — 이 장면 직후부터 이번 화가 이어진다]\n${ctx.prev_episode_tail.slice(-500)}\n` +
+      `[장면 전환 원칙]\n` +
+      `- 이번 화 첫 장면이 직전 화와 다른 장소·상황에서 시작한다면, 1~2문장의 전환 문장을 넣어 독자가 변화를 자연스럽게 따라올 수 있게 한다.\n` +
+      `- 전환 설명이 지나치게 길어지면 안 된다 (2문장 이하). 장면이 갑자기 바뀌는 것도, 이유 없이 길게 설명하는 것도 모두 금지.\n`
     : "";
 
   // 연속성 계약 (ep >= 2)
@@ -130,11 +133,12 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
           lines.push(
             `[반복 금지]\n` + dc.must_not_repeat.slice(0, 6).map(s => `- ${s}`).join("\n")
           );
-          // 감정 루프 억제 추가 지시
+          // 감정 루프 억제 강화
           lines.push(
-            `[감정 묘사 반복 금지] 인물이 두려워했다/혼란스러웠다/불안했다는 감정 서술로 화를 마무리하지 말 것. ` +
-            `감정은 그것이 유발한 구체적 선택·행동·관계 변화로 표현할 것. ` +
-            `"그는 두려움에 떨었다"로 끝내지 말고 "그 두려움에 이끌려 ○○을 선택했다"처럼 서술할 것.`
+            `[감정 진전 필수] 인물이 두려워했다/혼란스러웠다/불안했다는 감정 서술만으로 화를 마무리하지 말 것.\n` +
+            `- 감정 상태가 직전 화와 같은 인물은: 그 감정이 이번 화에서 새로운 선택·행동·충돌·발견으로 이어지는 것을 반드시 보여줄 것.\n` +
+            `- "같은 감정 반복 = 반드시 행동 결과가 달라야 한다"는 원칙을 지킬 것.\n` +
+            `- "그는 두려움에 떨었다"로 끝내지 말고 "그 두려움에 이끌려 ○○을 선택했다/숨겼다/맞섰다"처럼 서술할 것.`
           );
         }
         if (dc.must_progress.length) {

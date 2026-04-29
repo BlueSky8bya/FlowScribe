@@ -4,10 +4,10 @@ import type { StoryContext } from "../services/story.js";
 import { pool } from "../lib/db.js";
 import { redis } from "../lib/redis.js";
 import { getProfile, getProfileByUser } from "../services/profile.js";
-import { getOpenForeshadows } from "../services/foreshadow.js";
-import { getArcSummaries, getLatestCharacterArcs } from "../services/arc_memory.js";
+import { getOpenForeshadows, extractAndStoreForeshadow, checkAndResolveForeshadows } from "../services/foreshadow.js";
+import { getArcSummaries, getLatestCharacterArcs, generateAndSaveArcSummary, ARC_SIZE } from "../services/arc_memory.js";
 import { getLatestDynamicStates, commitDynamicState } from "../services/character_state.js";
-import { buildEffectiveContext } from "../services/effective_context.js";
+import { buildEffectiveContext, saveEpisodeSnapshot } from "../services/effective_context.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { enterGeneration, exitGeneration } from "../lib/generation_guard.js";
@@ -93,7 +93,22 @@ generateRouter.get("/", async (req: Request, res: Response) => {
     enterGeneration();
     try {
       logInfo("api:generate", "플래너 경로 시작", { book_id: bookId, episode });
+
+      // ── 재생성 memory isolation (generate_v2.ts 동기화) ─────────
+      // 동일 회차의 이전 dynamic_states / foreshadows를 정리해 오염 방지
+      await pool.query(
+        `DELETE FROM character_dynamic_states WHERE book_id=$1 AND episode_number=$2`,
+        [bookId!, episode]
+      ).catch(() => {});
+      await pool.query(
+        `DELETE FROM foreshadows WHERE book_id=$1 AND planted_episode=$2`,
+        [bookId!, episode]
+      ).catch(() => {});
+
       const ctx = await buildEffectiveContext({ bookId: bookId!, episodeNumber: episode });
+
+      // 컨텍스트 스냅샷 저장 (fire-and-forget)
+      saveEpisodeSnapshot({ ...ctx, book_id: bookId! } as any).catch(() => {});
 
       // 재생성 감지 — 같은 회차의 모든 이전 시도 beat 목록을 누적 주입
       try {
@@ -179,6 +194,43 @@ generateRouter.get("/", async (req: Request, res: Response) => {
             [episode + 1, bookId!]
           );
           logInfo("api:generate", "에피소드 자동 저장 완료", { book_id: bookId, episode });
+
+          // ── foreshadow + arc_summary post-processing (비동기, generate_v2.ts 동기화) ──
+          const _savedEpisode = episode;
+          const _savedBookId  = bookId!;
+          const _savedText    = clean;
+          setImmediate(async () => {
+            try {
+              await extractAndStoreForeshadow(_savedBookId, _savedEpisode, _savedText);
+              await checkAndResolveForeshadows(_savedBookId, _savedEpisode, _savedText);
+            } catch (e) {
+              logError("api:generate", e, { context: "foreshadow post-processing", episode: _savedEpisode });
+            }
+            try {
+              const snapRow = await pool.query(
+                `SELECT effective_context->'gen_config'->>'totalEpisodes' AS total_episodes
+                 FROM episode_snapshots WHERE book_id=$1 AND episode_number=$2 LIMIT 1`,
+                [_savedBookId, _savedEpisode]
+              );
+              const totalEpisodes = parseInt(snapRow.rows[0]?.total_episodes ?? "0", 10) || 0;
+              const isArcComplete = _savedEpisode % ARC_SIZE === 0;
+              const isShortFinal  = totalEpisodes > 0 && totalEpisodes < ARC_SIZE && _savedEpisode >= totalEpisodes;
+              if (isArcComplete || isShortFinal) {
+                const canonRes = await pool.query(
+                  "SELECT name FROM canonical_characters WHERE book_id=$1 ORDER BY name",
+                  [_savedBookId]
+                );
+                const characterNames = canonRes.rows.map((r: { name: string }) => r.name);
+                if (isArcComplete) {
+                  await generateAndSaveArcSummary(_savedBookId, _savedEpisode / ARC_SIZE, characterNames);
+                } else {
+                  await generateAndSaveArcSummary(_savedBookId, 1, characterNames, _savedEpisode);
+                }
+              }
+            } catch (e) {
+              logError("api:generate", e, { context: "arc summary post-processing", episode: _savedEpisode });
+            }
+          });
         } catch (saveErr) {
           logWarn("api:generate", "에피소드 자동 저장 실패 (skip)", { error: String(saveErr) });
         }

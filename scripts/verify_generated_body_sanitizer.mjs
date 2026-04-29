@@ -87,6 +87,34 @@ try {
   check("CLIFF 보존", r6.text.includes("CLIFF"));
   check("END 보존", r6.text.includes("END"));
 
+  // ── Korean-embedded latin tokenizer artifact (Phase 4.6 신규) ──
+  // 한글 형태소 사이에 직접 삽입된 라틴 BPE 조각
+  const r7 = sanitizeGeneratedBody("한 분위기에 휩싸였다. 짓눌aminan였다. 그 이후");
+  check("짓눌aminan였다: aminan 제거", !r7.text.includes("aminan"));
+  check("짓눌aminan였다: 한국어 문맥 보존", r7.text.includes("짓눌") && r7.text.includes("였다"));
+  check("짓눌aminan였다: removed_foreign_fragments>=1", r7.removed_foreign_fragments >= 1);
+
+  const r8 = sanitizeGeneratedBody("그녀abeledtr를 숨기는 걸까?");
+  check("그녀abeledtr를: abeledtr 제거", !r8.text.includes("abeledtr"));
+  check("그녀abeledtr를: 한국어 보존", r8.text.includes("그녀") && r8.text.includes("를"));
+
+  // KOREAN_EMBEDDED_LATIN_RE가 소스에 존재하는지 확인
+  check("KOREAN_EMBEDDED_LATIN_RE 패턴 존재", src.includes("KOREAN_EMBEDDED_LATIN_RE"));
+
+  // S20, USB, AI 허용 목록 보존
+  const r9 = sanitizeGeneratedBody("이준서는 S20을 꺼내 USB에 연결했다.");
+  check("S20 보존 (허용 목록)", r9.text.includes("S20"));
+  check("USB 보존 (허용 목록)", r9.text.includes("USB"));
+
+  // ID 카드 (공백 포함 영문) 보존
+  const r10 = sanitizeGeneratedBody("ID 카드를 찾지 못했다.");
+  check("ID 보존", r10.text.includes("ID"));
+
+  // mixed: 외국어 조각 + 정상 문장
+  const r11 = sanitizeGeneratedBody("그는 potongannya 잡아당겼다. AI를 사용해 분석했다.");
+  check("mixed: potongannya 제거", !r11.text.includes("potongannya"));
+  check("mixed: AI 보존", r11.text.includes("AI"));
+
 } catch(e) {
   fail("런타임 테스트 실패", e.message);
 }
