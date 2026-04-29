@@ -521,14 +521,13 @@ function _syncCharCounterBtns() {
 }
 
 function deleteCharCard(btn) {
-  // 뷰어모드(locked) 또는 2화 이상 생성 상태에서는 삭제 불가
+  // 편집 잠금 상태(2화 이상 생성)에서는 삭제 불가
+  const isLocked = document.getElementById("sectionFieldIV")?.classList.contains("section-locked");
+  if (isLocked) return;
+
   const container = document.getElementById("charCards");
   const cards = container.querySelectorAll(".char-card");
   if (cards.length <= 1) { showToast("최소 1명의 인물이 필요합니다.", "warn", 2000); return; }
-
-  const isViewerMode = document.getElementById("worldBibleModal")?.classList.contains("viewer-mode") ||
-    document.querySelector(".bible-page-left")?.classList.contains("viewer-locked");
-  if (isViewerMode) return;
 
   const card = btn.closest(".char-card");
   const name = card.querySelector(".char-name")?.value?.trim() || "이 인물";
@@ -541,14 +540,12 @@ function deleteCharCard(btn) {
 }
 
 function syncCharDeleteBtns() {
-  // 뷰어모드이거나 2화 이상 존재 시 삭제 버튼 숨김
+  // 편집 잠금 상태(2화 이상 생성)이면 삭제 버튼 숨김
   const container = document.getElementById("charCards");
   if (!container) return;
-  const isViewerMode = document.getElementById("worldBibleModal")?.classList.contains("viewer-mode") ||
-    document.querySelector(".bible-page-left")?.classList.contains("viewer-locked");
-  const hidden = isViewerMode;
+  const isLocked = document.getElementById("sectionFieldIV")?.classList.contains("section-locked");
   container.querySelectorAll(".char-delete-btn").forEach(btn => {
-    btn.style.display = hidden ? "none" : "";
+    btn.style.display = isLocked ? "none" : "";
   });
 }
 

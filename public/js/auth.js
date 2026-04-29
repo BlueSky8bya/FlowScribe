@@ -332,6 +332,9 @@ function applySettingsLock(lock) {
 
   // 설정 버튼 레이블 동기화
   _updateSettingsBtnLabel?.(lock);
+
+  // 인물 삭제 버튼 가시성 동기화
+  if (typeof syncCharDeleteBtns === "function") syncCharDeleteBtns();
 }
 
 // ── 커스텀 다이얼로그 ──────────────────────────────────────
