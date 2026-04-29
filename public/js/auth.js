@@ -492,107 +492,160 @@ async function createNewBook(title) {
   await selectBook(book);
 }
 
-async function selectBook(book) {
-  bookId = book.id;
-  activeBookTitle = book.title ?? "";
-  currentEpisode = book.current_episode ?? 1;
+// ── selectBook 단계 함수들 ─────────────────────────────────
+
+function _setActiveBook(book) {
+  bookId            = book.id;
+  activeBookTitle   = book.title ?? "";
+  currentEpisode    = book.current_episode ?? 1;
   _openActIndices.clear();
   _arcSeeded = false;
+}
 
+function _clearStorySurface() {
+  // episodeCache, output, debug panels, episode list, arc — bookList 영역 절대 건드리지 않음
   Object.keys(episodeCache).forEach(k => delete episodeCache[k]);
   displayedEpisode = null;
   output.innerHTML = "";
-
-  // 이전 책 잔상 즉시 제거 (async 로드 전 동기 초기화)
-  if (typeof _clearDebugPanels === "function") _clearDebugPanels();
+  if (typeof _clearDebugPanels   === "function") _clearDebugPanels();
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
-
-  // 이야기 진행 UI 즉시 초기화 (book list는 건드리지 않음)
   clearStoryProgressUI();
+}
 
-  let _needCharFallback = false;  // 함수 스코프 선언 (블록 내 선언 시 ReferenceError 방지)
-
-  // 에피소드 복원
+async function _loadEpisodes(bid) {
   try {
-    const res = await fetch(`/api/episodes/${bookId}/all`);
-    if (res.ok) {
-      const { episodes } = await res.json();
-      for (const ep of episodes) episodeCache[ep.episode_number] = ep.content;
-      if (episodes.length) {
-        displayedEpisode = episodes[episodes.length - 1].episode_number;
-        if (typeof _ppReset === "function") _ppReset();
-        renderProgressive(episodeCache[displayedEpisode], true);
-        currentEpisode = displayedEpisode + 1;
-        // 캐릭터 상태 + audit 데이터 복원 (fire-and-forget)
-        const _ep = displayedEpisode;
-        Promise.all([
-          fetch(`/api/generate/char-states?book_id=${bookId}&episode=${_ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
-          fetch(`/api/generate/audit-status?book_id=${bookId}&episode=${_ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
-        ]).then(([d, auditData]) => {
-          if (d?.char_states?.length) {
-            updateSceneCharPanel(d.char_states);
-            wrapCharNamesInOutput(d.char_states);
-            if (typeof updateDebugCharStates === "function") updateDebugCharStates(d.char_states);
-          } else {
-            _needCharFallback = true;
-          }
-          if (auditData?.status === 'done') {
-            window._lastAuditStatus = auditData;
-            if (!window._lastEpisodeMeta) window._lastEpisodeMeta = {};
-            if (typeof updateDebugMeta === "function") updateDebugMeta(window._lastEpisodeMeta, auditData);
-          }
-        }).catch(() => { _needCharFallback = true; })
-        .finally(() => {
-          // 후처리 통계는 audit 여부·fetch 성패와 무관하게 항상 표시
-          if (typeof _renderPostprocStats === "function") _renderPostprocStats();
-        });
-      } else {
-        currentEpisode = 1;
-        if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
-      }
-    }
-  } catch (e) { console.error(e); }
+    const res = await fetch(`/api/episodes/${bid}/all`);
+    if (!res.ok) { console.error(`[selectBook] episodes API ${res.status}`); return []; }
+    const { episodes } = await res.json();
+    console.debug("[selectBook] episodes fetched", { count: episodes.length });
+    return Array.isArray(episodes) ? episodes : [];
+  } catch (e) {
+    console.error("[selectBook] failed at episodes load", e);
+    return [];
+  }
+}
 
-  // 컨텍스트 복원 (항상 UI 초기화 먼저)
+function _renderLatestEpisode(episodes) {
+  const safeEps = Array.isArray(episodes) ? episodes : [];
+  for (const ep of safeEps) {
+    if (ep?.episode_number != null) episodeCache[ep.episode_number] = ep.content || "";
+  }
+
+  if (!safeEps.length) {
+    displayedEpisode = null;
+    currentEpisode   = 1;
+    output.innerHTML = "";
+    if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
+    updateEpisodeListUI();
+    console.debug("[selectBook] no episodes — blank state");
+    return;
+  }
+
+  const latest = safeEps[safeEps.length - 1];
+  displayedEpisode = latest.episode_number;
+  currentEpisode   = displayedEpisode + 1;
+
+  if (typeof _ppReset === "function") _ppReset();
+
+  const content = latest.content || episodeCache[displayedEpisode] || "";
+  console.debug("[selectBook] latest episode", { displayedEpisode, contentLen: content.length });
+
+  if (content) {
+    renderProgressive(content, true);
+    // renderProgressive가 빈 결과를 낼 경우 텍스트 fallback
+    if (!output.textContent.trim()) {
+      console.warn("[selectBook] renderProgressive produced empty output; fallback to textContent");
+      output.textContent = content;
+    }
+  } else {
+    output.innerHTML = `<p class="empty-state">본문을 불러오지 못했습니다.</p>`;
+  }
+
+  console.debug("[selectBook] renderProgressive done", { outputLen: output.textContent.length });
+  updateEpisodeListUI();
+}
+
+async function _restoreContextSafely(bid) {
   clearWorldSettingsUI();
   try {
-    const ctxRes = await fetch(`/api/context/${bookId}`);
-    if (ctxRes.ok) {
-      const ctx = await ctxRes.json();
-      restoreContextUI(ctx);
-    }
-  } catch (e) { console.error(e); }
+    const res = await fetch(`/api/context/${bid}`);
+    if (res.ok) { restoreContextUI(await res.json()); }
+    console.debug("[selectBook] context restored");
+  } catch (e) { console.error("[selectBook] context restore failed", e); }
+}
 
-  // 캐릭터 성별 맵 초기화 (낭독 색상용)
-  // 값: "남성"|"여성" = 확정, null = 미스터리(추론 금지), undefined = 설정 없음(추론 허용)
+async function _restoreCharsSafely(bid) {
   window.charGenderMap   = {};
   window.charInferredMap = {};
+  let needFallback = false;
   try {
-    const charRes = await fetch(`/api/characters/${bookId}`);
-    if (charRes.ok) {
-      const { characters } = await charRes.json();
+    const res = await fetch(`/api/characters/${bid}`);
+    if (res.ok) {
+      const { characters } = await res.json();
       for (const c of (characters ?? [])) {
         if (!c.name) continue;
         const g = c.gender;
-        if (g === "남성" || g === "여성") window.charGenderMap[c.name] = g;
-        else window.charGenderMap[c.name] = null; // 해당없음/기타 → 미스터리로 처리
+        window.charGenderMap[c.name] = (g === "남성" || g === "여성") ? g : null;
       }
     }
   } catch (_) {}
 
-  // char-states fallback: charGenderMap이 채워진 후 실행
-  if (_needCharFallback) _applyCharGenderFallback();
+  if (displayedEpisode) {
+    const ep = displayedEpisode;
+    Promise.all([
+      fetch(`/api/generate/char-states?book_id=${bid}&episode=${ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/generate/audit-status?book_id=${bid}&episode=${ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
+    ]).then(([d, auditData]) => {
+      if (d?.char_states?.length) {
+        updateSceneCharPanel(d.char_states);
+        wrapCharNamesInOutput(d.char_states);
+        if (typeof updateDebugCharStates === "function") updateDebugCharStates(d.char_states);
+      } else { needFallback = true; }
+      if (auditData?.status === "done") {
+        window._lastAuditStatus = auditData;
+        if (!window._lastEpisodeMeta) window._lastEpisodeMeta = {};
+        if (typeof updateDebugMeta === "function") updateDebugMeta(window._lastEpisodeMeta, auditData);
+      }
+    }).catch(() => { needFallback = true; })
+    .finally(() => {
+      if (needFallback) _applyCharGenderFallback();
+      if (typeof _renderPostprocStats === "function") _renderPostprocStats();
+      console.debug("[selectBook] char states restored");
+    });
+  }
+}
 
-  // 사이드바 업데이트
-  updateEpisodeListUI();
-  updateArcUI(currentEpisode - 1 || 0);
-  await Promise.all([loadProfile(), loadForeshadowStats(), loadSessionStats()]);
-  await loadOverrides?.();
-  updateEpisodeUI();
-  updateOutputHeader();
+async function _updateSidebarsSafely(bid) {
+  try {
+    updateArcUI(currentEpisode - 1 || 0);
+    await Promise.all([loadProfile(), loadForeshadowStats(), loadSessionStats()]);
+    await loadOverrides?.();
+    updateEpisodeUI();
+    updateOutputHeader();
+    console.debug("[selectBook] sidebar updated");
+  } catch (e) { console.error("[selectBook] sidebar update failed", e); }
+}
+
+// ── 메인 오케스트레이터 ─────────────────────────────────────
+
+async function selectBook(book) {
+  console.debug("[selectBook] start", { id: book?.id, title: book?.title });
+
+  _setActiveBook(book);
+  _clearStorySurface();
+  console.debug("[selectBook] clear story UI done");
+
+  const episodes = await _loadEpisodes(book.id);
+  _renderLatestEpisode(episodes);
+
+  // 본문 렌더 완료 후 context/chars/sidebar 순차 실행 (실패 격리)
+  await _restoreContextSafely(book.id);
+  _restoreCharsSafely(book.id);           // fire-and-forget (내부적으로 async)
+  await _updateSidebarsSafely(book.id);
 
   const epCount = Object.keys(episodeCache).length;
   if (epCount > 0) showToast(`${book.title} — ${epCount}화 불러왔습니다.`, "info", 2000);
+  console.debug("[selectBook] done", { epCount, outputLen: output.textContent.length });
 }
 
 // ── 책 목록 접기/펼치기 ────────────────────────────────────
@@ -1259,3 +1312,31 @@ window.toggleBookList        = toggleBookList;
 window.renderBookList        = renderBookList;
 window.ensureBookListLoaded  = ensureBookListLoaded;
 window.showBookListToggle    = showBookListToggle;
+
+// ── 진단 유틸 (DevTools: await __fsDiag()) ─────────────────
+window.__fsDiag = async function () {
+  const currentId = typeof bookId !== "undefined" ? bookId : window.bookId;
+  let eps = null;
+  try {
+    eps = currentId
+      ? await fetch(`/api/episodes/${currentId}/all`, { cache: "no-store" }).then(r => r.json())
+      : null;
+  } catch (e) { eps = { error: String(e) }; }
+
+  return {
+    bookId: currentId,
+    activeBookTitle,
+    currentEpisode,
+    displayedEpisode,
+    episodeCacheKeys: Object.keys(episodeCache || {}),
+    outputTextLen:  document.getElementById("output")?.textContent?.length,
+    outputHTMLLen:  document.getElementById("output")?.innerHTML?.length,
+    episodesApiCount: eps?.episodes?.length ?? null,
+    latestEpisode: eps?.episodes?.at?.(-1)
+      ? { n: eps.episodes.at(-1).episode_number, title: eps.episodes.at(-1).title, contentLen: eps.episodes.at(-1).content?.length }
+      : null,
+    bookItemCount: document.querySelectorAll("#bookList .book-item").length,
+    bookListText:  document.getElementById("bookList")?.textContent?.trim(),
+    authScript:    Array.from(document.scripts).map(s => s.src).filter(s => s.includes("auth.js")),
+  };
+};

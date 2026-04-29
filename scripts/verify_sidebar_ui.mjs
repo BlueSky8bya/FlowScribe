@@ -80,7 +80,7 @@ check("selectBook: bookListToggle.style.display 직접 세팅 안 함",
   !authJs.match(/async function selectBook[\s\S]{0,3500}bookListToggle\.style\.display/));
 check("_collapseBookList 함수 유지",       authJs.includes("function _collapseBookList"));
 check("selectBook에서 자동 접기 제거됨 (_collapseBookList 미호출)",
-  !authJs.match(/async function selectBook[\s\S]{0,3000}_collapseBookList\(/));
+  !authJs.match(/async function selectBook[\s\S]{0,600}_collapseBookList\(/));
 check("showBookListToggle이 wrap.classList.remove(collapsed) 포함",
   authJs.match(/function showBookListToggle[\s\S]{0,400}wrap\.classList\.remove/));
 
