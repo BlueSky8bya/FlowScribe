@@ -84,6 +84,35 @@ check("selectBook에서 자동 접기 제거됨 (_collapseBookList 미호출)",
 check("showBookListToggle이 wrap.classList.remove(collapsed) 포함",
   authJs.match(/function showBookListToggle[\s\S]{0,400}wrap\.classList\.remove/));
 
+// ── ensureBookListLoaded / async toggleBookList ───────────
+check("ensureBookListLoaded 함수 존재",      authJs.includes("async function ensureBookListLoaded"));
+check("toggleBookList: ensureBookListLoaded 호출",
+  authJs.match(/async function toggleBookList[\s\S]{0,600}ensureBookListLoaded/));
+check("toggleBookList: async 선언",         authJs.includes("async function toggleBookList"));
+
+// ── renderBookList fail-safe ───────────────────────────────
+check("renderBookList: book-item 없을 때 경고",
+  authJs.includes("book-item rendered"));
+check("renderBookList: 표시할 책이 없습니다 fallback",
+  authJs.includes("표시할 책이 없습니다"));
+
+// ── 전역 함수 노출 ────────────────────────────────────────
+check("window.toggleBookList 노출",         /window\.toggleBookList\s*=\s*toggleBookList/.test(authJs));
+check("window.renderBookList 노출",         /window\.renderBookList\s*=\s*renderBookList/.test(authJs));
+check("window.ensureBookListLoaded 노출",   /window\.ensureBookListLoaded\s*=\s*ensureBookListLoaded/.test(authJs));
+check("window.showBookListToggle 노출",     /window\.showBookListToggle\s*=\s*showBookListToggle/.test(authJs));
+
+// ── auth.js 버전 v=10 이상 ────────────────────────────────
+const authVerMatch2 = indexHtml.match(/auth\.js\?v=(\d+)/);
+const authVer2 = authVerMatch2 ? parseInt(authVerMatch2[1]) : 0;
+check("auth.js 버전 v=10 이상",             authVer2 >= 10);
+
+// ── CSS 열린/접힘 분리 ────────────────────────────────────
+check("CSS .book-list-wrap 기본 display:block",
+  layoutCss.includes("display:block"));
+check("CSS .book-list-wrap.collapsed max-height:0 !important",
+  layoutCss.includes("max-height:0 !important"));
+
 console.log(`\n${"─".repeat(55)}`);
 console.log(`Result: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

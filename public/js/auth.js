@@ -610,15 +610,50 @@ function _collapseBookList(activeTitle) {
   toggle.classList.add("collapsed");
 }
 
-function toggleBookList() {
+async function ensureBookListLoaded() {
+  const list = document.getElementById("bookList");
+  if (!list) return [];
+  try {
+    const res = await fetch("/api/books", { cache: "no-store" });
+    if (!res.ok) throw new Error(`books fetch failed: ${res.status}`);
+    const data = await res.json();
+    const books = Array.isArray(data.books) ? data.books : [];
+    _allBooks = books;
+    renderBookList(books, bookId);
+    return books;
+  } catch (err) {
+    console.error("[book-list] failed to load books", err);
+    list.innerHTML = `<div class="book-list-empty book-list-error">책 목록을 불러오지 못했습니다. 새로고침 후 다시 시도하세요.</div>`;
+    return [];
+  }
+}
+
+async function toggleBookList() {
   const wrap   = document.getElementById("bookListWrap");
   const toggle = document.getElementById("bookListToggle");
   if (!wrap || !toggle) return;
-  const isCollapsed = wrap.classList.toggle("collapsed");
-  toggle.classList.toggle("collapsed", isCollapsed);
+
+  showBookListToggle();
+
+  const willOpen = wrap.classList.contains("collapsed") || !document.querySelector("#bookList .book-item");
+
+  if (willOpen) {
+    await ensureBookListLoaded();
+    wrap.classList.remove("collapsed");
+    wrap.hidden = false;
+    wrap.style.removeProperty("display");
+    wrap.style.maxHeight = "none";
+    wrap.style.height = "auto";
+    wrap.style.overflow = "visible";
+    toggle.classList.remove("collapsed");
+  } else {
+    wrap.classList.add("collapsed");
+    toggle.classList.add("collapsed");
+  }
+
   const labelEl = toggle.querySelector(".book-list-toggle-label");
-  if (labelEl) labelEl.textContent = isCollapsed ? "서재 펼치기" : "서재 닫기";
-  _bookListManuallyOpen = !isCollapsed;
+  if (labelEl) labelEl.textContent = wrap.classList.contains("collapsed") ? "서재 펼치기" : "서재 접기";
+  _bookListManuallyOpen = !wrap.classList.contains("collapsed");
 }
 
 // ── 책 삭제 ───────────────────────────────────────────────
@@ -698,16 +733,13 @@ function renderBookList(books, activeId) {
   const list = document.getElementById("bookList");
   if (!list) return;
 
-  showBookListToggle();   // 항상 먼저 토글 표시
+  showBookListToggle();
 
   list.innerHTML = "";
   const allBooks = Array.isArray(books) ? books : [];
 
   if (!allBooks.length) {
-    const empty = document.createElement("div");
-    empty.className = "book-list-empty";
-    empty.textContent = "아직 책이 없습니다. 새 책을 만들어 시작하세요.";
-    list.appendChild(empty);
+    list.innerHTML = `<div class="book-list-empty">아직 책이 없습니다. 새 책을 만들어 시작하세요.</div>`;
     return;
   }
 
@@ -800,6 +832,10 @@ function renderBookList(books, activeId) {
     };
     list.appendChild(item);
   });
+  if (!list.querySelector(".book-item")) {
+    console.warn("[renderBookList] books > 0 but no .book-item rendered — check book objects");
+    list.innerHTML = `<div class="book-list-empty">표시할 책이 없습니다.</div>`;
+  }
   showBookListToggle();
 }
 
@@ -1217,3 +1253,9 @@ function _applyCharGenderFallback() {
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel(charStates);
   if (typeof seedCharStateMapFromGenderMap === "function") seedCharStateMapFromGenderMap(charStates);
 }
+
+// ── 전역 함수 노출 (inline onclick 지원) ──────────────────────
+window.toggleBookList        = toggleBookList;
+window.renderBookList        = renderBookList;
+window.ensureBookListLoaded  = ensureBookListLoaded;
+window.showBookListToggle    = showBookListToggle;
