@@ -298,6 +298,45 @@ function applySettingsLock(lock) {
     lockCharCardFields(card, lock);
   });
 
+  // 뷰어모드: 모든 인물카드를 확정 상태로 표시 (확정 버튼 잠금 + 성별 하이라이팅)
+  if (lock) {
+    document.querySelectorAll(".char-card").forEach(card => {
+      const lockBtn = card.querySelector(".char-lock-btn");
+      if (!lockBtn) return;
+      // 이미 locked이면 건드리지 않음 (toggleCharLock이 처리한 카드)
+      if (!card.classList.contains("locked")) {
+        const nameInp = card.querySelector(".char-name");
+        if (!nameInp?.value.trim()) return; // 이름 없는 카드는 확정 금지
+        card.classList.add("locked");
+        lockBtn.classList.add("locked");
+      }
+      lockBtn.textContent = "✔ 확정됨";
+      lockBtn.disabled = true;
+      lockBtn.style.pointerEvents = "none";
+      lockBtn.style.opacity = ".7";
+      // 성별 하이라이팅
+      const gender = card.dataset.gender || "";
+      const accent = card.querySelector(".char-card-accent");
+      if (accent) {
+        if (gender === "여성")       accent.style.background = "var(--female-accent, #d47090)";
+        else if (gender === "남성")  accent.style.background = "var(--male-accent, #5a8fd4)";
+        else                         accent.style.background = "";
+      }
+    });
+  } else {
+    // 편집모드 복원: 확정 버튼 다시 활성화
+    document.querySelectorAll(".char-card .char-lock-btn").forEach(btn => {
+      const card = btn.closest(".char-card");
+      const isLocked = card?.classList.contains("locked") ?? false;
+      btn.disabled = false;
+      btn.style.pointerEvents = "";
+      btn.style.opacity = "";
+      btn.textContent = isLocked ? "✔ 확정됨" : "확정";
+      const accent = card?.querySelector(".char-card-accent");
+      if (accent) accent.style.background = "";
+    });
+  }
+
   // 설정 버튼 레이블 동기화
   _updateSettingsBtnLabel?.(lock);
 }
@@ -542,6 +581,8 @@ function _clearStorySurface() {
   if (outEl) outEl.innerHTML = "";
   if (typeof _clearDebugPanels   === "function") _clearDebugPanels();
   if (typeof updateSceneCharPanel === "function") updateSceneCharPanel([]);
+  // char panel stale guard: 책 전환 시 진행 중인 char-states 요청을 무효화
+  if (typeof _charPanelRequestSeq !== "undefined") _charPanelRequestSeq++;
   clearStoryProgressUI();
   _traceOutput("_clearStorySurface end");
 }
@@ -644,10 +685,18 @@ async function _restoreCharsSafely(bid) {
 
   if (displayedEpisode) {
     const ep = displayedEpisode;
+    const reqBookId = bid;
+    // stale guard — _charPanelRequestSeq가 정의되어 있으면 현재 seq 캡처
+    const reqSeq = (typeof _charPanelRequestSeq !== "undefined") ? ++_charPanelRequestSeq : null;
     Promise.all([
-      fetch(`/api/generate/char-states?book_id=${bid}&episode=${ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
-      fetch(`/api/generate/audit-status?book_id=${bid}&episode=${ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/generate/char-states?book_id=${reqBookId}&episode=${ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
+      fetch(`/api/generate/audit-status?book_id=${reqBookId}&episode=${ep}`).then(r => r.ok ? r.json() : null).catch(() => null),
     ]).then(([d, auditData]) => {
+      // 응답 도착 시점에 book이 바뀌었으면 무시
+      if (reqSeq !== null && (typeof _charPanelRequestSeq === "undefined" || reqSeq !== _charPanelRequestSeq)) {
+        console.debug("[selectBook] char-states stale, ignored", reqBookId);
+        return;
+      }
       if (d?.char_states?.length) {
         updateSceneCharPanel(d.char_states);
         wrapCharNamesInOutput(d.char_states);

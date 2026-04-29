@@ -25,14 +25,26 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
   const charList  = ctx.characters.map(c => {
     const dyn = ctx.character_dynamic_states.find(d => d.character_name === c.name);
     const dynItems: any[] = dyn?.items ?? [];
-    const rawItems: any[] = dynItems.length > 0 ? dynItems : (c.initial_items ?? []);
+    const canonItems: any[] = c.initial_items ?? [];
+    const rawItems: any[] = dynItems.length > 0 ? dynItems : canonItems;
     // filter out skill/ability entries — they are not physical items
     const items = rawItems.filter((i: any) => {
       const name = typeof i === "string" ? i : (i.name ?? "");
       return !SKILL_PATTERNS.test(name);
     });
+    // canonical 이름 맵 (동적 이름과 canonical 이름이 다를 수 있는 경우 canonical 우선)
+    const canonNameMap: Record<string, string> = {};
+    for (const ci of canonItems) {
+      if (ci?.name) canonNameMap[ci.name.toLowerCase()] = ci.name;
+    }
     const itemStr = items.length > 0
-      ? items.map((i: any) => typeof i === "string" ? i : i.name).join(", ")
+      ? items.map((i: any) => {
+          const rawName = typeof i === "string" ? i : (i.name ?? "");
+          // canonical 이름이 있으면 그것을 사용 (이름 변형 방지)
+          const canonName = canonNameMap[rawName.toLowerCase()] ?? rawName;
+          const cond = typeof i === "string" ? null : (i.condition ?? null);
+          return cond ? `${canonName}(상태: ${cond})` : canonName;
+        }).join(", ")
       : "없음";
     return `${c.name}(${c.gender}, ${c.type}): ${c.personality} / 소지품: ${itemStr}`;
   }).join("\n");
@@ -161,9 +173,11 @@ ${carryoverText}
 [부상 제약 — 행동 묘사에서 자연스럽게 드러낸다]
 ${injuryText}
 
-[소지품 유지]
+[소지품 유지 — 이름 변경 금지]
   ※ 스킬·능력·마법·고유 특성은 소지품이 아니다. 소지품은 실제로 손에 들거나 가방에 있는 물리적 아이템만 해당한다.
-  ※ 위 [등장인물]에 명시된 소지품을 우선 반영하고, 그 외 장비는 즉흥으로 추가하지 않는다.
+  ※ 위 [등장인물]에 명시된 소지품 이름을 그대로 사용한다. 축약·개명·확장 금지.
+  ※ 예: "고성능 손전등"은 "손전등"으로 줄이지 않는다. 방전·파손 같은 상태 변화는 이름 뒤에 괄호로 표시한다.
+  ※ 그 외 장비는 즉흥으로 추가하지 않는다.
 ${itemText}${noItemText}
 
 [세계관 규칙 — 아래 방식으로 장면 내에서 실제로 작동해야 한다]

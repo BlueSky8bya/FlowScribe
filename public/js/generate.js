@@ -36,6 +36,8 @@ let _currentCharStates = [];
 let _hoverListenerMounted = false;
 // 이름 → 상태 맵 (O(1) 조회)
 let _charStateMap = {};
+// char panel 요청 시퀀스 (stale response 감지)
+let _charPanelRequestSeq = 0;
 
 // 낭독 포맷 재적용 후 char-name-ref 재래핑 (applyAloudFormat이 innerHTML 교체 후 호출)
 window._rewrapCharNamesIfNeeded = function() {
@@ -406,12 +408,24 @@ function renderProgressive(text, done) {
 
 async function _loadAndApplyCharStates(episodeNum) {
   if (!bookId) return;
-  await _loadItemVocab(bookId); // vocab 먼저 로드 완료 후 패널 렌더링 (race condition 방지)
+  const reqBookId = bookId;
+  const reqSeq = ++_charPanelRequestSeq;
+  await _loadItemVocab(reqBookId);
+  // vocab 로드 후 bookId가 바뀌었으면 stale
+  if (reqSeq !== _charPanelRequestSeq || reqBookId !== bookId) {
+    console.debug("[char-panel] stale after vocab load", reqSeq, reqBookId);
+    return;
+  }
   try {
     const [charData, auditData] = await Promise.all([
-      fetch(`/api/generate/char-states?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
-      fetch(`/api/generate/audit-status?book_id=${bookId}&episode=${episodeNum}`).then(r => r.json()),
+      fetch(`/api/generate/char-states?book_id=${reqBookId}&episode=${episodeNum}`).then(r => r.json()),
+      fetch(`/api/generate/audit-status?book_id=${reqBookId}&episode=${episodeNum}`).then(r => r.json()),
     ]);
+    // stale check: 응답 도착 시점에 book이 바뀌었으면 무시
+    if (reqSeq !== _charPanelRequestSeq || reqBookId !== bookId) {
+      console.debug("[char-panel] stale response ignored", reqSeq, reqBookId);
+      return;
+    }
     // 생성 중이면 패널을 건드리지 않음 — _clearDebugPanels 효과 보존
     if (_generating) return;
     if (charData.char_states) {
@@ -546,6 +560,13 @@ function generate() {
     updateEpisodeUI();
     syncBookEpisode?.();
     if (episodeNum >= 2) applySettingsLock?.(true);
+    // 소지품 설명이 없는 항목이 있으면 3초 후 패널 재갱신 (item_desc background job 완료 대기)
+    const _hasEmptyItemDesc = _pendingCharStates && _pendingCharStates.some(cs =>
+      (cs.items || []).some(it => !it.description)
+    );
+    if (_hasEmptyItemDesc) {
+      setTimeout(() => { if (!_generating) _loadAndApplyCharStates(episodeNum); }, 3500);
+    }
     btn.disabled = false;
   }
   let _generateFinished = false;
@@ -579,6 +600,11 @@ function generate() {
         // done JSON 수신 후 짧은 지연으로 스트림 종료 대기
         setTimeout(_finishGeneration, 300);
       } else if (json.token) {
+        // stale check — 책이 바뀌었으면 스트림 토큰을 화면에 반영하지 않음
+        if (bookId !== _genSession.bookIdAtStart) {
+          console.debug("[generate] token discarded (stale session)", _genSession.id);
+          return;
+        }
         rawText += json.token; _renderQueue = rawText; pacingAppend(json.token);
       }
     } catch (err) { console.error(err); }

@@ -26,6 +26,31 @@ function softGetUserId(req: Request): string | undefined {
 
 export const generateRouter = Router();
 
+// ── 감정/신체 상태 영어 → 한국어 정규화 ──────────────────────
+const _EMOTION_NORMALIZE: Record<string, string> = {
+  unreadable: "알 수 없음", enigmatic: "수수께끼 같음", anxious: "불안",
+  suspicious: "의심", confused: "혼란", angry: "분노", sad: "슬픔",
+  happy: "기쁨", fearful: "공포", excited: "흥분", calm: "평온",
+  nervous: "긴장", relieved: "안도", determined: "단호", desperate: "절박",
+  melancholy: "우울", grief: "비통", hope: "희망", distrust: "불신",
+  vigilant: "경계", exhausted: "탈진", wary: "경계", stoic: "담담",
+};
+const _NON_KOREAN_RE = /[一-鿿㐀-䶿Ѐ-ӿ؀-ۿ฀-๿]/;
+
+function _normalizeEmotionalState(state: string | null | undefined): string | null {
+  if (!state) return state ?? null;
+  // 영어 단어 → 한국어 변환
+  const lower = state.toLowerCase().trim();
+  if (_EMOTION_NORMALIZE[lower]) return _EMOTION_NORMALIZE[lower];
+  // 비한국어 문자 포함 시 경고 후 제거하여 반환 (빈 문자열이면 null)
+  if (_NON_KOREAN_RE.test(state)) {
+    logWarn("api:generate", "non-Korean emotional_state detected", { state });
+    const cleaned = state.replace(_NON_KOREAN_RE, "").trim();
+    return cleaned || null;
+  }
+  return state;
+}
+
 const defaultContext: StoryContext = {
   worldBible: {
     world_rules: [],
@@ -173,7 +198,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
           location:         s.location             ?? null,
           physical_state:   s.physical_state       ?? null,
           items:            dynItems.length > 0 ? dynItems : fallbackItems,
-          emotional_state:  s.emotional_state      ?? null,
+          emotional_state:  _normalizeEmotionalState(s.emotional_state),
           visibility_state: s.visibility_state     ?? "present",
           recent_goal:      s.recent_goal          ?? null,
           is_new_character: !canon,
@@ -450,7 +475,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       location:        s.location        ?? null,
       physical_state:  s.physical_state  ?? null,
       items:           s.items           ?? [],
-      emotional_state: s.emotional_state ?? null,
+      emotional_state: _normalizeEmotionalState(s.emotional_state),
       visibility_state: s.visibility_state ?? "present",
     }));
 
@@ -583,7 +608,7 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
         location:        s.location        ?? null,
         physical_state:  s.physical_state  ?? null,
         items:           mergedItems,
-        emotional_state: s.emotional_state ?? null,
+        emotional_state: _normalizeEmotionalState(s.emotional_state),
         visibility_state: s.visibility_state ?? "present",
         recent_goal:     s.recent_goal     ?? null,
       };

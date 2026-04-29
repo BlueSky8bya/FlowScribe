@@ -1169,6 +1169,7 @@ async function requestModel(userPrompt: string, numPredict: number) {
 }
 
 function buildRefinePrompt(name: string, type: string, gender: string, personality: string, settings: string[], moods: string[], worldRules: string[]): string {
+  const minLen = Math.max(120, personality.length + 20);
   return `인물 정보:
 - 이름: ${name || "미입력"}
 - 유형: ${type || "인간"}
@@ -1177,14 +1178,22 @@ function buildRefinePrompt(name: string, type: string, gender: string, personali
 - 분위기: ${moods.join(", ") || "없음"}
 - 세계 규칙: ${worldRules.slice(0, 3).join(" | ") || "없음"}
 
-현재 성격·특징:
+현재 성격·특징 (${personality.length}자):
 "${personality}"
 
-위 인물의 성격·특징 묘사를 더 구체화하라.
+위 인물의 성격·특징을 확장·구체화하라. 압축하거나 짧게 만들지 마라.
+반드시 포함해야 할 5가지 요소:
+1. 핵심 성격 (행동으로 드러나는 구체적 특징)
+2. 결핍 또는 두려움 (무엇을 피하려 하는가)
+3. 갈등 상황에서의 행동 경향
+4. 세계관/장르와 연결되는 특징
+5. 다른 인물과 충돌하거나 보완될 수 있는 지점
+
 규칙:
-- 기존 묘사의 핵심 인상을 유지하면서 관찰 가능한 행동·말투·버릇·취향을 추가
-- 추상적 심리("내성적", "차가운", "따뜻한") 표현은 구체적 행동으로 변환
-- 20~80자 한국어, 자연스러운 1~2문장
+- 기존 묘사의 핵심 의미를 반드시 보존
+- 결과는 반드시 ${minLen}자 이상의 한국어
+- 사용자가 직접 입력한 문장은 삭제하지 말 것
+- 추상적 표현은 관찰 가능한 행동·말투·반응으로 변환
 - 출력: {"val":"..."}`;
 }
 
@@ -1205,11 +1214,11 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
   const prompt = buildRefinePrompt(name, type, gender, personality, settingsArr, moodsArr, worldRules);
 
   try {
-    const raw = await requestModel(prompt, 200);
+    const raw = await requestModel(prompt, 600);
     const parsed = safeJsonParse(raw);
     const rawVal = parsed && typeof (parsed as any).val === "string"
       ? (parsed as any).val : personality;
-    const val = `${rawVal}`.replace(/["'`]/g, "").replace(/\s+/g, " ").trim().slice(0, 200);
+    const val = `${rawVal}`.replace(/["'`]/g, "").replace(/\s+/g, " ").trim().slice(0, 500);
     logInfo("api:suggest", "refine 완료", { name, type });
     res.json({ ok: true, val });
   } catch (err) {
@@ -1686,6 +1695,17 @@ function parseAndProtect(raw: string, req: WorldSuggestRequest): WorldSuggestRes
   };
 }
 
+// AI 응답 설명에서 지시문/메타 문구 제거 (예: "20자 이내", "설명:", "JSON" 등)
+function _sanitizeItemDescription(desc: string): string {
+  if (!desc) return desc;
+  return desc
+    .replace(/\d+\s*자\s*(이내|내외|이상|이하|정도)/g, "")
+    .replace(/^(설명|출력|결과|답변|내용)\s*[:：]\s*/i, "")
+    .replace(/\bJSON\b/gi, "")
+    .replace(/^["'`]|["'`]$/g, "")
+    .trim();
+}
+
 function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSuggestResponse {
   const cleaned = raw.replace(/^```[\w]*\n?/gm, "").replace(/```$/gm, "").trim();
   let parsed: any;
@@ -1766,14 +1786,14 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
     case "item_detail":
     case "item_refine": {
       let parsed: any = null;
-      try { parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}"); } catch {}
+      try { parsed = JSON.parse(cleaned.match(/\{[\s\S]*\}/)?.[0] ?? "{}"); } catch {}
       if (!parsed?.item?.name) return { ...base };
       const item = parsed.item;
       return {
         ...base,
         item: {
-          name:        String(item.name        || req.item_name || ""),
-          description: String(item.description || ""),
+          name:        String(req.item_name || item.name || ""),  // name은 항상 요청 원본 유지
+          description: _sanitizeItemDescription(String(item.description || "")),
           category:    String(item.category    || ""),
           badge_label: String(item.badge_label || item.category || ""),
         },

@@ -164,11 +164,22 @@ async function refinePersonality(btn) {
         world_rules: ruleEntries.map(e => e.val),
       }),
     });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error("[refine] API error", res.status, errBody);
+      throw new Error(`refine API ${res.status}`);
+    }
     const json = await res.json();
     if (json.val) {
-      ta.value = json.val;
-      ta.style.height = "auto";
-      ta.style.height = ta.scrollHeight + "px";
+      // 구체화 결과가 기존보다 20% 이상 짧으면 반영하지 않음 (압축이 아닌 확장이어야 함)
+      if (json.val.length < personality.length * 0.8) {
+        console.warn("[refine] result too short, discarded", { orig: personality.length, result: json.val.length });
+        showToast("구체화 결과가 기존보다 너무 짧아 반영하지 않았습니다.", "warn", 3000);
+      } else {
+        ta.value = json.val;
+        ta.style.height = "auto";
+        ta.style.height = ta.scrollHeight + "px";
+      }
     }
   } catch(e) {
     console.error("[refine]", e);
@@ -572,10 +583,17 @@ async function suggestItemDetail(editorPanel, card) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
-    if (!res.ok) throw new Error(`suggest API ${res.status}`);
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error("[suggestItemDetail] API error", res.status, errBody);
+      throw new Error(`suggest API ${res.status}`);
+    }
     const data = await res.json();
     const item = data.item;
-    if (!item) throw new Error("empty item");
+    if (!item || !item.description) {
+      console.error("[suggestItemDetail] empty item response", data);
+      throw new Error("empty item");
+    }
 
     // 사용자가 이미 입력한 값은 덮어쓰지 않음
     const descInput = editorPanel.querySelector(".item-ed-desc");
