@@ -30,8 +30,11 @@ const HASHTAG_RE = /#[a-z_][a-z0-9_]*/g;
 // - 단, 허용 목록에 있으면 유지
 const ALLOWED_LATIN = /^(CLIFF|END|AI|OK|S\d+|USB|PC|TV|IT|UV|VR|AR|SF|DNA|RNA|ID|IP|URL|PDF|MP3|MP4|CCTV|GPS|WiFi|Bluetooth|Android|iPhone|App|Web|API|JSON|HTML|CSS|server|client|backend|frontend)$/i;
 
-// 순수 외국어 조각: 한글 없이 라틴/키릴/아랍 등 4자 이상 연속된 단어 조각
+// 고립된 외국어 조각 (2가지 패턴):
+// A. 단어 경계로 고립된 라틴 조각 (4자 이상)
 const FOREIGN_FRAGMENT_RE = /(?<![a-zA-Z가-힣\d])[a-z]{4,}(?:\s+[a-z]{3,}){0,2}(?![a-zA-Z가-힣\d])/gi;
+// B. 한글에 직접 붙어있는 라틴 tokenizer artifact (예: 짓눌aminan였다, 그녀abeledtr를)
+const KOREAN_EMBEDDED_LATIN_RE = /(?<=[가-힣])[a-z]{3,}(?=[가-힣])|(?<=[가-힣])[a-z]{4,}|[a-z]{4,}(?=[가-힣])/g;
 
 // 키릴/아랍/태국어 등 비한글 비라틴 스크립트
 const NON_KO_SCRIPT_RE = /[Ѐ-ӿ؀-ۿ฀-๿ऀ-ॿ぀-ゟ゠-ヿ]/g;
@@ -62,7 +65,18 @@ export function sanitizeGeneratedBody(raw: string): SanitizeResult {
     return "";
   });
 
-  // 4. 고립된 외국어 단어 (한국어 문장 중간에 박힌 라틴어 조각)
+  // 4a. 한글에 직접 붙어있는 라틴 tokenizer artifact 먼저 제거
+  // (예: 짓눌aminan였다 → 짓눌였다, 그녀abeledtr를 → 그녀를)
+  text = text.replace(KOREAN_EMBEDDED_LATIN_RE, (m) => {
+    const trimmed = m.trim();
+    if (ALLOWED_LATIN.test(trimmed)) return m;
+    if (/^[A-Z]{1,4}$/.test(trimmed)) return m;
+    removed_foreign_fragments++;
+    warnings.push(`korean_embedded_latin: ${trimmed}`);
+    return "";
+  });
+
+  // 4b. 고립된 외국어 단어 (한국어 문장 중간에 박힌 라틴어 조각)
   // 단, 허용 목록 / 대문자로만 된 약어는 유지
   text = text.replace(FOREIGN_FRAGMENT_RE, (m) => {
     const trimmed = m.trim();
