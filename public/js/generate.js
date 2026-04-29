@@ -474,12 +474,13 @@ function regenerate() {
   generate();
 }
 
-async function saveEpisode(episodeNum, content) {
+async function saveEpisode(episodeNum, content, targetBookId) {
+  const bid = targetBookId || bookId;
   const clean = content.replace(/\[CLIFF[\]\n]?/g, "").replace(/\[END\]/gi, "").trim();
   await fetch("/api/episodes", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ book_id: bookId, episode_number: episodeNum, content: clean }),
+    body: JSON.stringify({ book_id: bid, episode_number: episodeNum, content: clean }),
   });
 }
 
@@ -503,15 +504,21 @@ function generate() {
   _startLoadingAnim();
   _sessionStart = Date.now();
   _generating = true;
-  _clearDebugPanels();      // 생성 시작 즉시 이전 화 데이터 초기화
-  _markAuditPending(null);  // 생성 시작 즉시 "분석 대기 중…" 표시
+  _clearDebugPanels();
+  _markAuditPending(null);
 
+  // generation session — capture bookId at start to prevent cross-book save
+  const _genSession = {
+    id: (typeof crypto !== "undefined" && crypto.randomUUID) ? crypto.randomUUID() : String(Date.now()),
+    bookIdAtStart: bookId,
+    episodeAtStart: currentEpisode,
+  };
   const episodeNum = currentEpisode;
   displayedEpisode = episodeNum;
   btn.disabled = true; prevBtn.disabled = true;
   updateEpisodeUI();
   let _pendingCharStates = null;
-  let _doneReceived = false;  // done 이벤트 수신 여부 — onerror 이중 처리 방지
+  let _doneReceived = false;
 
   function _finishGeneration() {
     if (_generateFinished) return;
@@ -519,12 +526,20 @@ function generate() {
     es.close();
     _generating = false;
     clearInterval(_loadingInterval);
+    // session stale check — if active book changed, skip render/save to current view
+    const sessionStale = bookId !== _genSession.bookIdAtStart;
+    if (sessionStale) {
+      console.warn("[generate] session stale — saving to original book only, skipping UI update", _genSession);
+      saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
+      btn.disabled = false;
+      return;
+    }
     renderProgressive(rawText, true);
-    _renderPostprocStats();  // renderProgressive가 끝난 뒤 _ppStats 갱신 반영
+    _renderPostprocStats();
     if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
     applyFocusLine?.();
     episodeCache[episodeNum] = rawText;
-    saveEpisode(episodeNum, rawText);
+    saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
     _sendLog(episodeNum, 1.0, null);
     displayedEpisode = episodeNum;
     currentEpisode++;
@@ -536,7 +551,7 @@ function generate() {
   let _generateFinished = false;
 
   const _regenParam = window._regenNonce ? `&regen_nonce=${encodeURIComponent(window._regenNonce)}` : "";
-  const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${bookId}&use_planner=true${_regenParam}`);
+  const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${_genSession.bookIdAtStart}&use_planner=true${_regenParam}`);
   es.onmessage = e => {
     if (e.data === "[DONE]") { _finishGeneration(); return; }
     try {
@@ -569,20 +584,25 @@ function generate() {
     } catch (err) { console.error(err); }
   };
   es.onerror = () => {
-    if (_generateFinished || _doneReceived) return;  // done 수신 후 SSE 종료로 onerror 오는 경우 무시
+    if (_generateFinished || _doneReceived) return;
     es.close();
     _generating = false;
+    const sessionStale = bookId !== _genSession.bookIdAtStart;
     if (rawText) {
       const approxCompletion = Math.min(rawText.length / 900, 1.0);
       _sendLog(episodeNum, approxCompletion, approxCompletion < 0.95 ? approxCompletion : null);
-      renderProgressive(rawText, true);
-      if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
-      applyFocusLine?.();
-      episodeCache[episodeNum] = rawText;
-      saveEpisode(episodeNum, rawText);
-      displayedEpisode = episodeNum;
-      currentEpisode++;
-      updateEpisodeUI();
+      saveEpisode(episodeNum, rawText, _genSession.bookIdAtStart);
+      if (!sessionStale) {
+        renderProgressive(rawText, true);
+        if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
+        applyFocusLine?.();
+        episodeCache[episodeNum] = rawText;
+        displayedEpisode = episodeNum;
+        currentEpisode++;
+        updateEpisodeUI();
+      } else {
+        console.warn("[generate] onerror: session stale — saved to original book, skipping UI update", _genSession);
+      }
     }
     btn.disabled = false; prevBtn.disabled = false;
   };

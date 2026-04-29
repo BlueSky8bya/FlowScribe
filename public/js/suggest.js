@@ -591,6 +591,68 @@ async function suggestItemDetail(editorPanel, card) {
   }
 }
 
+// ── 소지품 설명 구체화 (item_refine) ──────────────────────────
+async function suggestItemRefine(editorPanel, card) {
+  if (!editorPanel) return;
+  const nameVal = editorPanel.querySelector(".item-ed-name").value.trim();
+  const descVal = editorPanel.querySelector(".item-ed-desc").value.trim();
+  if (!nameVal) { showToast("소지품 이름을 먼저 입력해주세요.", "warn"); return; }
+  if (!descVal) { showToast("구체화할 기존 설명이 없습니다. 설명 추천을 먼저 사용해 주세요.", "warn"); return; }
+
+  const btn = editorPanel.querySelector(".item-ai-refine-btn");
+  const origHtml = btn?.innerHTML || "✨ 설명 구체화";
+  if (btn) { btn.disabled = true; btn.textContent = "⟳"; }
+
+  try {
+    const charName   = card.querySelector(".char-name")?.value?.trim() || "";
+    const charType   = card.dataset.type   || "";
+    const charGender = card.dataset.gender || "";
+    const personality = card.querySelector(".char-personality")?.value?.trim() || "";
+    const existingCat = editorPanel.querySelector(".item-ed-cat").value.trim();
+
+    const body = {
+      book_id: typeof bookId !== "undefined" ? bookId : null,
+      target: "item_refine",
+      item_name: nameVal,
+      char_name: charName,
+      char_type: charType,
+      char_gender: charGender,
+      personality,
+      existing_description: descVal,
+      existing_category: existingCat,
+      context: {
+        settings: typeof settingVals !== "undefined" ? [...settingVals] : [],
+        moods:    typeof moodVals    !== "undefined" ? [...moodVals]    : [],
+        rules:    typeof ruleEntries !== "undefined" ? ruleEntries.map(e => e.val) : [],
+      },
+    };
+    if (!body.book_id) { showToast("책을 먼저 선택해 주세요", "warning"); return; }
+
+    const res = await fetch("/api/suggest/world-setup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => "");
+      console.error("[suggestItemRefine] API error", res.status, errBody);
+      throw new Error(`suggest API ${res.status}`);
+    }
+    const data = await res.json();
+    const item = data.item;
+    if (!item?.description) throw new Error("empty item description");
+
+    editorPanel.querySelector(".item-ed-desc").value = item.description;
+    if (item.category && !existingCat) editorPanel.querySelector(".item-ed-cat").value = item.category;
+    showToast("설명이 구체화됐습니다", "info");
+  } catch (e) {
+    console.error("[suggestItemRefine]", e);
+    showToast("설명 구체화에 실패했습니다.", "err", 3000);
+  } finally {
+    if (btn) { btn.disabled = false; btn.innerHTML = origHtml; }
+  }
+}
+
 function applySuggestion(section, data) {
   if (!Array.isArray(data)) return;
   if (section === "setting") {

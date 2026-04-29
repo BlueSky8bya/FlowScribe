@@ -296,19 +296,34 @@ function appendCharCard(container, i, p) {
         <button class="item-ed-ok btn-xs btn-primary">확인</button>
         <button class="item-ed-cancel btn-xs">취소</button>
         <button class="item-ai-suggest-btn btn-xs" style="margin-left:auto">✨ 설명 추천</button>
+        <button class="item-ai-refine-btn btn-xs" style="margin-left:.3rem">✨ 설명 구체화</button>
       </div>
     `;
     itemsWrap.insertAdjacentElement("afterend", editorPanel);
 
     let _editingTag = null;
 
-    function _openEditor(tag) {
-      _editingTag = tag;
-      editorPanel.querySelector(".item-ed-name").value = tag.dataset.itemName || "";
-      editorPanel.querySelector(".item-ed-desc").value = tag.dataset.description || "";
-      editorPanel.querySelector(".item-ed-cat").value  = tag.dataset.category    || "";
+    function _openEditor(tag, readOnly = false) {
+      _editingTag = readOnly ? null : tag;
+      const nameField = editorPanel.querySelector(".item-ed-name");
+      const descField = editorPanel.querySelector(".item-ed-desc");
+      const catField  = editorPanel.querySelector(".item-ed-cat");
+      const okBtn      = editorPanel.querySelector(".item-ed-ok");
+      const sugBtn     = editorPanel.querySelector(".item-ai-suggest-btn");
+      const refineBtn  = editorPanel.querySelector(".item-ai-refine-btn");
+      nameField.value = tag.dataset.itemName || "";
+      descField.value = tag.dataset.description || "";
+      catField.value  = tag.dataset.category    || "";
+      [nameField, descField, catField].forEach(f => {
+        f.readOnly = readOnly;
+        f.style.opacity = readOnly ? ".7" : "";
+        f.style.pointerEvents = readOnly ? "none" : "";
+      });
+      if (okBtn)     { okBtn.style.display = readOnly ? "none" : ""; }
+      if (sugBtn)    { sugBtn.disabled = readOnly; sugBtn.style.opacity = readOnly ? ".25" : ""; sugBtn.style.pointerEvents = readOnly ? "none" : ""; }
+      if (refineBtn) { refineBtn.disabled = readOnly; refineBtn.style.opacity = readOnly ? ".25" : ""; refineBtn.style.pointerEvents = readOnly ? "none" : ""; }
       editorPanel.classList.add("open");
-      editorPanel.querySelector(".item-ed-name").focus();
+      if (!readOnly) nameField.focus();
     }
 
     function _applyEditor() {
@@ -336,6 +351,9 @@ function appendCharCard(container, i, p) {
     editorPanel.querySelector(".item-ai-suggest-btn").addEventListener("click", () => {
       if (typeof suggestItemDetail === "function") suggestItemDetail(editorPanel, card);
     });
+    editorPanel.querySelector(".item-ai-refine-btn").addEventListener("click", () => {
+      if (typeof suggestItemRefine === "function") suggestItemRefine(editorPanel, card);
+    });
     editorPanel.querySelector(".item-ed-name").addEventListener("keydown", e => {
       if (e.key === "Enter") { e.preventDefault(); _applyEditor(); }
       if (e.key === "Escape") _closeEditor();
@@ -355,13 +373,13 @@ function appendCharCard(container, i, p) {
       }
       const nameSpan = e.target.closest(".char-item-tag-name, .char-item-desc-dot");
       if (nameSpan) {
-        if (!viewerLocked) _openEditor(nameSpan.closest(".char-item-tag"));
+        _openEditor(nameSpan.closest(".char-item-tag"), viewerLocked);
         return;
       }
       // 태그 자체 클릭 (name span 아닌 여백) → 에디터
       const tag = e.target.closest(".char-item-tag");
       if (tag) {
-        if (!viewerLocked) _openEditor(tag);
+        _openEditor(tag, viewerLocked);
         return;
       }
       if (!viewerLocked) itemsInp.focus();

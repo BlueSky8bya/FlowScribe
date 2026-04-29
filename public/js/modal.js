@@ -147,22 +147,26 @@ const _SAVE_MSGS = [
 async function saveContext() {
   console.debug("[saveContext] ENTER");
 
-  // 버튼 로딩 상태 + 랜덤 메시지 cycling
+  // 버튼 로딩 상태 — 버튼 텍스트는 "저장 중..."으로 고정, 랜덤 메시지는 별도 span에 표시
   const saveBtn = document.querySelector('.btn-save, [onclick*="saveContext"]');
+  const statusMsgEl = document.getElementById("saveStatusMsg");
   const origText = saveBtn?.innerHTML || '저장 후 닫기';
   let _msgInterval = null;
   function _startMsgCycle() {
-    if (!saveBtn) return;
     const pick = () => _SAVE_MSGS[Math.floor(Math.random() * _SAVE_MSGS.length)];
-    saveBtn.textContent = pick();
-    _msgInterval = setInterval(() => { if (saveBtn) saveBtn.textContent = pick(); }, 2500);
+    if (statusMsgEl) { statusMsgEl.textContent = pick(); statusMsgEl.style.display = ""; }
+    _msgInterval = setInterval(() => {
+      if (statusMsgEl) statusMsgEl.textContent = pick();
+    }, 2500);
   }
   function _restoreBtn() {
     if (_msgInterval) { clearInterval(_msgInterval); _msgInterval = null; }
     if (saveBtn) { saveBtn.disabled = false; saveBtn.innerHTML = origText; }
+    if (statusMsgEl) { statusMsgEl.textContent = ""; statusMsgEl.style.display = "none"; }
   }
   if (saveBtn) {
     saveBtn.disabled = true;
+    saveBtn.textContent = "저장 중...";
     _startMsgCycle();
   }
 

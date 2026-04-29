@@ -1220,7 +1220,7 @@ suggestRouter.post("/refine", async (req: Request, res: Response) => {
 
 // ── /world-setup ─────────────────────────────────────────────
 
-type SuggestTarget = "world_setup" | "settings" | "moods" | "rules" | "characters_all" | "character_one" | "style" | "direction" | "item_detail";
+type SuggestTarget = "world_setup" | "settings" | "moods" | "rules" | "characters_all" | "character_one" | "style" | "direction" | "item_detail" | "item_refine";
 
 interface WorldSuggestRequest {
   book_id: string;
@@ -1459,8 +1459,12 @@ function getCharactersAllPrompt(req: WorldSuggestRequest): string {
 - 이름: 세계관과 장르에 맞는 이름 (기존 인물과 중복 금지)
 - 성별: "남성" | "여성" | "해당없음"
 - 유형: "주인공" | "조연" | "빌런" | "기타"
-- 성격/특성: 구체적이고 세계관에 맞는 성격 (30~60자)
-- 초기 소지품: 세계관에서 실제 쓸 수 있는 물건 1~3개 (name, description 20자 이내, category, badge_label)
+- 성격/특성: 120~250자. 반드시 아래 4요소를 포함할 것:
+  1) 핵심 성격 (한두 가지 두드러진 기질)
+  2) 내면의 결핍이나 두려움
+  3) 갈등 상황에서의 행동 경향
+  4) 다른 인물과 충돌하거나 보완될 수 있는 지점
+- 초기 소지품: 스킬·능력·마법·특성은 절대 소지품이 아님. 세계관에서 실제 쓸 수 있는 물리적 물건 1~3개 (name, description 20자 이내, category, badge_label)
 
 반드시 아래 JSON 형식으로만 응답:
 {"characters": [{"name": "이름", "gender": "남성", "type": "주인공", "personality": "성격 설명", "initial_items": [{"name": "소지품명", "description": "설명", "category": "도구", "badge_label": "도구"}]}]}`;
@@ -1482,8 +1486,12 @@ function getCharacterOnePrompt(req: WorldSuggestRequest): string {
 - 이름: 세계관과 장르에 맞는 이름 (다른 인물과 중복 금지)
 - 성별: "남성" | "여성" | "해당없음"
 - 유형: "주인공" | "조연" | "빌런" | "기타"
-- 성격/특성: 구체적이고 세계관에 맞는 성격 (30~60자)
-- 초기 소지품: 세계관에서 실제 쓸 수 있는 물건 1~3개 (name, description 20자 이내, category, badge_label)
+- 성격/특성: 120~250자. 반드시 아래 4요소를 포함할 것:
+  1) 핵심 성격 (한두 가지 두드러진 기질)
+  2) 내면의 결핍이나 두려움
+  3) 갈등 상황에서의 행동 경향
+  4) 다른 인물과 충돌하거나 보완될 수 있는 지점
+- 초기 소지품: 스킬·능력·마법·특성은 절대 소지품이 아님. 세계관에서 실제 쓸 수 있는 물리적 물건 1~3개 (name, description 20자 이내, category, badge_label)
 
 반드시 아래 JSON 형식으로만 응답:
 {"character": {"name": "이름", "gender": "남성", "type": "주인공", "personality": "성격 설명", "initial_items": [{"name": "소지품명", "description": "설명", "category": "도구", "badge_label": "도구"}]}}`;
@@ -1557,6 +1565,34 @@ ${existCat}
 {"item": {"name": "${req.item_name}", "description": "설명", "category": "도구", "badge_label": "도구"}}`;
 }
 
+function getItemRefinePrompt(req: WorldSuggestRequest): string {
+  const settings = req.current?.settings?.join(", ") || req.context?.settings?.join(", ") || "없음";
+  const moods    = req.current?.moods?.join(", ")    || req.context?.moods?.join(", ")    || "없음";
+  const rules    = (req.current?.rules ?? req.context?.rules ?? []).slice(0, 3).join(" / ") || "없음";
+  return `당신은 한국 소설 세계관 설정 AI입니다.
+기존 소지품 설명을 세계관에 맞게 더 구체적으로 다듬어 주세요.
+
+배경/세계관: ${settings}
+장르/분위기: ${moods}
+세계관 규칙: ${rules}
+인물 이름: ${req.char_name || "없음"}
+인물 유형: ${req.char_type || "없음"}
+인물 성별: ${req.char_gender || "없음"}
+인물 성격: ${req.personality?.slice(0, 150) || "없음"}
+소지품 이름: ${req.item_name}
+현재 설명: ${req.existing_description || "(없음)"}
+현재 카테고리: ${req.existing_category || "(없음)"}
+
+규칙:
+- 소지품 이름(name)은 절대 변경하지 마세요.
+- 기존 설명의 핵심 의미를 살리면서 더 구체적이고 생생하게 다듬어 주세요.
+- description: 25~50자 내외, 이 소지품이 서사에서 갖는 의미/용도/특징
+- 이미 좋은 category/badge_label이 있으면 그대로 유지해도 됩니다.
+
+반드시 아래 JSON 형식으로만 응답:
+{"item": {"name": "${req.item_name}", "description": "개선된 설명", "category": "도구", "badge_label": "도구"}}`;
+}
+
 function getSuggestPromptByTarget(req: WorldSuggestRequest, retrySuffix = ""): string {
   switch (req.target) {
     case "settings":       return getSettingsSuggestPrompt(req, retrySuffix);
@@ -1567,6 +1603,7 @@ function getSuggestPromptByTarget(req: WorldSuggestRequest, retrySuffix = ""): s
     case "style":          return getStylePrompt(req);
     case "direction":      return getDirectionPrompt(req);
     case "item_detail":    return getItemDetailPrompt(req);
+    case "item_refine":    return getItemRefinePrompt(req);
     default:               return getWorldSuggestPrompt(req);
   }
 }
@@ -1726,7 +1763,8 @@ function parseResponseByTarget(raw: string, req: WorldSuggestRequest): WorldSugg
         },
       };
     }
-    case "item_detail": {
+    case "item_detail":
+    case "item_refine": {
       let parsed: any = null;
       try { parsed = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? "{}"); } catch {}
       if (!parsed?.item?.name) return { ...base };

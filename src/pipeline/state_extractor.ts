@@ -137,6 +137,7 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     });
   }
 
+  const SKILL_RE = /스킬|능력|마법|특성|고유|패시브|액티브|버프|디버프|효과|기술|술식/;
   // must_keep_items: dynamic items 우선, 없으면 canonical initial_items 폴백
   const must_keep_items: ItemConstraint[] = [];
   for (const c of ctx.characters) {
@@ -146,6 +147,7 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
       : (c.initial_items?.length ?? 0) > 0 ? c.initial_items! : [];
     for (const entry of entries) {
       const itemName = typeof entry === "string" ? entry : entry.name;
+      if (SKILL_RE.test(itemName)) continue; // skip skill/ability entries
       must_keep_items.push({ character_name: c.name, item: itemName, must_persist: true });
     }
   }
@@ -167,8 +169,9 @@ export function extractStateConstraints(ctx: EffectiveContext): ExtractedStateCo
     const rawItems = (dyn?.items?.length ?? 0) > 0
       ? dyn!.items!
       : (c.initial_items?.length ?? 0) > 0 ? c.initial_items! : [];
-    const items = rawItems.length > 0
-      ? rawItems.map(i => typeof i === "string" ? i : (i.condition ? `${i.name}(${i.condition})` : i.name)).join(", ")
+    const items = rawItems.filter(i => !SKILL_RE.test(typeof i === "string" ? i : (i.name ?? ""))).length > 0
+      ? rawItems.filter(i => !SKILL_RE.test(typeof i === "string" ? i : (i.name ?? "")))
+               .map(i => typeof i === "string" ? i : (i.condition ? `${i.name}(${i.condition})` : i.name)).join(", ")
       : "없음";
     const goal    = dyn?.recent_goal ?? "";
     const emotion = dyn?.emotional_state;

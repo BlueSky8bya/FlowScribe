@@ -20,10 +20,17 @@ import type { ScenePlan } from "../types/planner.js";
 
 function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): string {
   const ep        = ctx.episode_number;
+  // Skill-like keywords — must NOT be treated as physical inventory items
+  const SKILL_PATTERNS = /스킬|능력|마법|특성|고유|패시브|액티브|버프|디버프|효과|기술|술식/;
   const charList  = ctx.characters.map(c => {
     const dyn = ctx.character_dynamic_states.find(d => d.character_name === c.name);
     const dynItems: any[] = dyn?.items ?? [];
-    const items: any[] = dynItems.length > 0 ? dynItems : (c.initial_items ?? []);
+    const rawItems: any[] = dynItems.length > 0 ? dynItems : (c.initial_items ?? []);
+    // filter out skill/ability entries — they are not physical items
+    const items = rawItems.filter((i: any) => {
+      const name = typeof i === "string" ? i : (i.name ?? "");
+      return !SKILL_PATTERNS.test(name);
+    });
     const itemStr = items.length > 0
       ? items.map((i: any) => typeof i === "string" ? i : i.name).join(", ")
       : "없음";
@@ -155,6 +162,8 @@ ${carryoverText}
 ${injuryText}
 
 [소지품 유지]
+  ※ 스킬·능력·마법·고유 특성은 소지품이 아니다. 소지품은 실제로 손에 들거나 가방에 있는 물리적 아이템만 해당한다.
+  ※ 위 [등장인물]에 명시된 소지품을 우선 반영하고, 그 외 장비는 즉흥으로 추가하지 않는다.
 ${itemText}${noItemText}
 
 [세계관 규칙 — 아래 방식으로 장면 내에서 실제로 작동해야 한다]

@@ -549,12 +549,31 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       }
       const canonicalItemMap: Record<string, any> = {};
       for (const ci of fallbackItems) { if (ci.name) canonicalItemMap[ci.name] = ci; }
+      // category-level generic fallback descriptions (auto-generated, low priority)
+      const GENERIC_DESC_PATTERNS = [
+        "위협에 대응하기 위한 전투 장비", "위험으로부터 사용자를 보호하는 장비",
+        "필요한 순간 사용하는 소모성 물품", "기록이나 분석에 활용되는 정보 장치",
+        "마력을 담거나 발현하는 도구", "전파나 신호를 통해 정보를 전달하는 장비",
+        "전자 신호나 데이터를 처리하는 장비", "신체를 보호하거나 신분을 나타내는 의류",
+        "체력과 지속력을 보충하는 식품", "가치 있는 물품이나 거래 수단",
+        "음악을 연주하거나 신호를 보내는 도구", "이동을 보조하는 수단",
+        "작업이나 탐색에 쓰이는 실용 도구", "인물이 상황에 따라 활용하는 소지품",
+      ];
+      const isGenericDesc = (d: string) => !d || GENERIC_DESC_PATTERNS.includes(d.trim());
       const mergedItems = dynItems.length > 0
         ? dynItems.map((it: any) => {
             const ci = canonicalItemMap[it.name];
             let merged = it;
             if (!merged.grade && ci?.grade) merged = { ...merged, grade: ci.grade };
-            if (!merged.description && ci?.description) merged = { ...merged, description: ci.description };
+            // canonical description (user-authored) wins over missing or generic auto descriptions
+            if (ci?.description && isGenericDesc(merged.description)) {
+              merged = { ...merged, description: ci.description };
+            } else if (!merged.description && ci?.description) {
+              merged = { ...merged, description: ci.description };
+            }
+            // canonical category/badge also fill gaps
+            if (!merged.category && ci?.category) merged = { ...merged, category: ci.category };
+            if (!merged.badge_label && ci?.badge_label) merged = { ...merged, badge_label: ci.badge_label };
             return merged;
           })
         : fallbackItems;

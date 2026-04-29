@@ -266,11 +266,14 @@ function applySettingsLock(lock) {
     badge.classList.toggle("visible", lock);
   });
 
+  // 섹션 I/II/III/VI/VIII — AI 추천 버튼 비활성화 (뷰어모드 통일)
+  ["settingsAiBtn", "moodsAiBtn", "rulesAiBtn", "styleAiBtn", "directionAiBtn"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.disabled = lock; el.style.opacity = lock ? ".25" : ""; el.style.pointerEvents = lock ? "none" : ""; }
+  });
   // 섹션 III — 세계관 규칙 tag 입력 비활성화
   const rulesInput = document.getElementById("rulesInput");
   if (rulesInput) { rulesInput.disabled = lock; rulesInput.style.display = lock ? "none" : ""; }
-  const rulesAiBtn = document.getElementById("rulesAiBtn");
-  if (rulesAiBtn) { rulesAiBtn.disabled = lock; rulesAiBtn.style.opacity = lock ? ".25" : ""; rulesAiBtn.style.pointerEvents = lock ? "none" : ""; }
 
   // 섹션 IV — 인물 수 조절 + AI 추천 버튼 비활성화
   ["charCountMinus","charCountPlus","allCharAiBtn"].forEach(id => {
