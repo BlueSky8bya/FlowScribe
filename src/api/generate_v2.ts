@@ -36,6 +36,8 @@ import { reviseUntilPass } from "../services/revision.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
 import { getLatestDynamicStates } from "../services/character_state.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
+import { extractAndStoreForeshadow, checkAndResolveForeshadows } from "../services/foreshadow.js";
+import { generateAndSaveArcSummary, ARC_SIZE } from "../services/arc_memory.js";
 import { pool } from "../lib/db.js";
 import { logInfo, logError } from "../lib/logger.js";
 import type { GenConfig, EpisodeTask, PrevEpisodeState } from "../types/canonical.js";
@@ -155,6 +157,40 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
             `UPDATE books SET current_episode = GREATEST(current_episode, $1), updated_at = NOW() WHERE id = $2`,
             [episode + 1, bookId]
           );
+          // arc + foreshadow 후처리 (비동기, 실패 무시)
+          setImmediate(async () => {
+            try {
+              await extractAndStoreForeshadow(bookId, episode, fullText);
+              await checkAndResolveForeshadows(bookId, episode, fullText);
+            } catch (e) {
+              logError("api:generate_v2", e, { context: "foreshadow post-processing", episode });
+            }
+            try {
+              const snapRow = await pool.query(
+                `SELECT effective_context->'gen_config'->>'totalEpisodes' AS total_episodes
+                 FROM episode_snapshots WHERE book_id=$1 AND episode_number=$2 LIMIT 1`,
+                [bookId, episode]
+              );
+              const totalEpisodes = parseInt(snapRow.rows[0]?.total_episodes ?? "0", 10) || 0;
+              const isArcComplete = episode % ARC_SIZE === 0;
+              const isShortFinal  = totalEpisodes > 0 && totalEpisodes < ARC_SIZE && episode >= totalEpisodes;
+              if (isArcComplete || isShortFinal) {
+                const canonRes = await pool.query(
+                  "SELECT name FROM canonical_characters WHERE book_id=$1 ORDER BY name",
+                  [bookId]
+                );
+                const characterNames = canonRes.rows.map((r: { name: string }) => r.name);
+                if (isArcComplete) {
+                  const arcNumber = episode / ARC_SIZE;
+                  await generateAndSaveArcSummary(bookId, arcNumber, characterNames);
+                } else {
+                  await generateAndSaveArcSummary(bookId, 1, characterNames, episode);
+                }
+              }
+            } catch (e) {
+              logError("api:generate_v2", e, { context: "arc summary post-processing", episode });
+            }
+          });
         } catch (saveErr) {
           logError("api:generate_v2", saveErr, { context: "episode content save", episode });
         }

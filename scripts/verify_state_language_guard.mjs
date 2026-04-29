@@ -57,6 +57,13 @@ check("absent-seed에 한국어 기본값 설정", (() => {
   const idx2 = pipelineSrc.indexOf("미등장");
   return idx2 > 0;
 })());
+check("recent_goal 영어 fallback → 이전 목표 유지 (direct)", (() => {
+  // normalizeRecentGoal(...) ?? "이전 목표 유지" 패턴 확인
+  return pipelineSrc.includes("normalizeRecentGoal(rawGoal) ?? \"이전 목표 유지\"");
+})());
+check("recent_goal 영어 fallback → 이전 목표 유지 (carry-forward)", (() => {
+  return pipelineSrc.includes("normalizeRecentGoal(prev.recent_goal) ?? \"이전 목표 유지\"");
+})());
 check("state_rows_expected trace 기록", pipelineSrc.includes("state_rows_expected"));
 check("state_rows_missing trace 기록",  pipelineSrc.includes("state_rows_missing"));
 

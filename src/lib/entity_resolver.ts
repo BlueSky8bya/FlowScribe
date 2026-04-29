@@ -158,11 +158,15 @@ export function resolveEntity(
     return { raw_name: rawName, canonical_name: canonical, resolution: "known_alias", confidence: 0.95, reason: `known_alias → ${canonical}` };
   }
 
-  // 3. Drift correction: canonical이 raw의 prefix이거나 raw가 canonical의 prefix
-  for (const cname of canonicalNames) {
-    if (trimmed.startsWith(cname) || cname.startsWith(trimmed)) {
-      logWarn("entity_resolver", "drift_corrected", { raw: trimmed, canonical: cname, ...logCtx });
-      return { raw_name: rawName, canonical_name: cname, resolution: "canonical", confidence: 0.9, reason: `drift_corrected → ${cname}` };
+  // 3. Drift correction: prefix/suffix 포함 관계로 canonical 수렴
+  //    2글자 이상이어야 단음절 false positive 방지
+  if (trimmed.length >= 2) {
+    for (const cname of canonicalNames) {
+      const tl = trimmed, cl = cname;
+      if (tl.startsWith(cl) || cl.startsWith(tl) || cl.includes(tl) || tl.includes(cl)) {
+        logWarn("entity_resolver", "drift_corrected", { raw: trimmed, canonical: cname, ...logCtx });
+        return { raw_name: rawName, canonical_name: cname, resolution: "canonical", confidence: 0.9, reason: `drift_corrected → ${cname}` };
+      }
     }
   }
 

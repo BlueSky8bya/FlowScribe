@@ -132,11 +132,13 @@ export function normalizeRecentGoal(v: string | null | undefined): string | null
   const trimmed = v.trim();
   if (!trimmed) return null;
   if (NON_KO_SCRIPT_RE.test(trimmed)) return null;
-  const hasKorean = /[가-힣]/.test(trimmed);
-  if (hasKorean) return trimmed;
-  // 순수 영어 recent_goal → null (이전 상태 유지 신호)
-  if (MOSTLY_ENGLISH_RE.test(trimmed)) return null;
-  return trimmed;
+  // 한국어 비율 30% 이상이어야 유효한 한국어 목표로 인정
+  // 혼합형("Determine the reality of 최나래's...") 도 null로 처리
+  const koChars = (trimmed.match(/[가-힣]/g) ?? []).length;
+  const ratio = koChars / trimmed.replace(/\s/g, "").length;
+  if (ratio >= 0.3) return trimmed;
+  // 한국어 비율 부족 → null (이전 상태 유지 신호)
+  return null;
 }
 
 /** character_state_updates 한 항목 전체 정규화 */
