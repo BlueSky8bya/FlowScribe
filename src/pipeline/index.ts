@@ -22,52 +22,55 @@ import type { EffectiveContext, ValidationResult, Verdict } from "../types/canon
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
 import { runCreativePlanner } from "./planner.js";
+import { resolveEntity, type EntityResolution } from "../lib/entity_resolver.js";
 
 /**
- * 인물 이름 정규화 — LLM이 출력한 character_name을 canonical 이름으로 매핑.
- *
- * 이벤트 분류 (범용, 모든 책/인물에 공통 적용):
- *   exact_match        — canonical 완전 일치
- *   drift_corrected    — prefix 근접 일치로 canonical 교체 (예: "빅토리아" → "빅토리")
- *   orphan_skipped     — 비한국어 문자 포함, 커밋 스킵
- *   new_character_allowed — 한국어 신규 인물, 허용
+ * CharNormEvent — entity_resolver ResolutionType을 파이프라인 통계용으로 매핑.
+ * "descriptive_mention"은 DB 커밋에서 제외된다.
  */
-type CharNormEvent = "exact_match" | "drift_corrected" | "orphan_skipped" | "new_character_allowed";
+type CharNormEvent =
+  | "exact_match"
+  | "drift_corrected"
+  | "orphan_skipped"
+  | "new_character_allowed"
+  | "descriptive_mention_skipped";
 
+/**
+ * resolveCanonicalCharName — entity_resolver.resolveEntity 래퍼
+ *
+ * resolution 결과:
+ *   "canonical"           → name 반환 (exact_match or drift_corrected)
+ *   "known_alias"         → canonical_name 반환
+ *   "new_character"       → name 반환 (new_character_allowed)
+ *   "descriptive_mention" → null 반환 (커밋 스킵) ← Phase 2 핵심 변경
+ *   "rejected"            → null 반환 (orphan_skipped)
+ */
 function resolveCanonicalCharName(
   raw: string,
   canonicalNames: string[],
+  logCtx?: { episode?: number; bookId?: string },
 ): { name: string | null; event: CharNormEvent } {
-  const trimmed = raw.trim();
-  if (!trimmed) return { name: null, event: "orphan_skipped" };
+  const resolution: EntityResolution = resolveEntity(raw, canonicalNames, { logCtx });
 
-  // 1. 완전 일치
-  if (canonicalNames.includes(trimmed)) return { name: trimmed, event: "exact_match" };
-
-  // 2. 근접 일치: canonical이 raw의 prefix이거나 raw가 canonical의 prefix
-  for (const cname of canonicalNames) {
-    if (trimmed.startsWith(cname) || cname.startsWith(trimmed)) {
-      logWarn("pipeline:charNorm", "drift_corrected — canonical로 정규화", { raw: trimmed, canonical: cname });
-      return { name: cname, event: "drift_corrected" };
-    }
+  switch (resolution.resolution) {
+    case "canonical":
+    case "known_alias":
+      return {
+        name: resolution.canonical_name,
+        event: resolution.reason.startsWith("drift_corrected") ? "drift_corrected" : "exact_match",
+      };
+    case "new_character":
+      return { name: resolution.canonical_name, event: "new_character_allowed" };
+    case "descriptive_mention":
+      // 묘사형 명칭 — DB에 저장하지 않음 (Phase 2 핵심)
+      logWarn("pipeline:entityResolution", "descriptive_mention_skipped — character_dynamic_states 저장 제외", {
+        raw, reason: resolution.reason, confidence: resolution.confidence, ...logCtx,
+      });
+      return { name: null, event: "descriptive_mention_skipped" };
+    case "rejected":
+    default:
+      return { name: null, event: "orphan_skipped" };
   }
-
-  // 3. 비한국어 문자 포함 → orphan 스킵
-  // Latin, CJK (중국/일본), 태국어(U+0E00-U+0E7F), 기타 비한글 비공백 유니코드
-  const hasNonKorean = /[A-Za-z]/.test(trimmed)
-    || /[一-鿿㐀-䶿]/.test(trimmed)         // CJK
-    || /[฀-๿]/.test(trimmed)       // Thai
-    || /[Ѐ-ӿ]/.test(trimmed)       // Cyrillic
-    || /[؀-ۿ]/.test(trimmed)       // Arabic
-    || /[぀-ゟ゠-ヿ]/.test(trimmed); // Hiragana/Katakana
-  if (hasNonKorean) {
-    logWarn("pipeline:charNorm", "orphan_skipped — 비한국어 이름", { raw: trimmed });
-    return { name: null, event: "orphan_skipped" };
-  }
-
-  // 4. 한국어 신규 인물 — 허용하되 경고
-  logWarn("pipeline:charNorm", "new_character_allowed — canonical 외 신규 인물", { raw: trimmed });
-  return { name: trimmed, event: "new_character_allowed" };
 }
 import { validatePlan, repairPlan } from "./plan_validator.js";
 import { renderFromPlan, renderFromPlanWithTrace } from "./renderer.js";
@@ -333,7 +336,7 @@ export async function runPlannerPipeline(
     // canonical 이름 목록 (정규화 기준)
     const canonicalNames = ctx.characters.map(c => c.name);
     // normalization 통계
-    const normStats = { exact_match: 0, drift_corrected: 0, orphan_skipped: 0, new_character_allowed: 0 };
+    const normStats = { exact_match: 0, drift_corrected: 0, orphan_skipped: 0, new_character_allowed: 0, descriptive_mention_skipped: 0 };
 
     // beat locations fallback: character_state_updates에 location 없을 때 beat에서 추출
     const beatLocationMap = new Map<string, string>();
@@ -357,10 +360,12 @@ export async function runPlannerPipeline(
     if (stateUpdates.length > 0) {
       for (const upd of stateUpdates) {
         try {
-          // 이름 정규화 — drift/orphan 차단
-          const { name: resolvedName, event: normEvent } = resolveCanonicalCharName(upd.character_name, canonicalNames);
+          // Entity Resolution — descriptive_mention/orphan은 커밋 스킵 (Phase 2)
+          const { name: resolvedName, event: normEvent } = resolveCanonicalCharName(
+            upd.character_name, canonicalNames, { episode: ctx.episode_number, bookId },
+          );
           normStats[normEvent]++;
-          if (!resolvedName) continue; // orphan → 커밋 스킵
+          if (!resolvedName) continue; // descriptive_mention / orphan → 커밋 스킵
 
           const prev = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
           const canonicalItems = canonicalItemMap.get(resolvedName) ?? [];

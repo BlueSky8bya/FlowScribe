@@ -575,8 +575,9 @@ function _clearStorySurface() {
   if (typeof _clearDebugPanels   === "function") _clearDebugPanels();
   // char panel stale guard: 책 전환 시 진행 중인 char-states 요청을 무효화
   if (typeof _charPanelRequestSeq !== "undefined") _charPanelRequestSeq++;
-  // 책 전환 직후 char panel에 로딩 상태 즉시 표시
-  _showCharPanelLoading();
+  // char panel은 에피소드 유무 확인 후 selectBook에서 조건부 처리
+  const panel = document.getElementById("sceneCharPanel");
+  if (panel) panel.hidden = true;
   clearStoryProgressUI();
   _traceOutput("_clearStorySurface end");
 }
@@ -585,6 +586,8 @@ function _showCharPanelLoading() {
   const panel = document.getElementById("sceneCharPanel");
   const list  = document.getElementById("sceneCharList");
   if (!panel || !list) return;
+  // 책이 선택되지 않은 초기 상태에서는 패널을 열지 않음
+  if (!bookId) { panel.hidden = true; return; }
   list.innerHTML = `<div class="scene-char-loading"><span class="scene-char-loading-text">인물 정보를 불러오는 중입니다</span><span class="scene-char-loading-dots"><span></span><span></span><span></span></span></div>`;
   panel.hidden = false;
 }
@@ -620,12 +623,18 @@ function _renderLatestEpisode(episodes) {
         : "";
       outEl.innerHTML = `<div class="empty-state-wrap" id="emptyStateCTA">${titleHtml}<p class="empty-state">아직 생성된 회차가 없습니다.</p><p class="empty-state-hint" id="emptyStateHint">먼저 세계관을 설정한 뒤 1화를 생성하세요.</p><div class="empty-state-btns"><button class="empty-state-cta-settings" onclick="openModal()">⚙ 세계관 설정</button><button class="empty-state-cta bc-primary" id="emptyStateGenBtn" onclick="generate()" disabled style="opacity:.45" title="세계관 설정을 먼저 완료해주세요.">✦ 1화 생성</button></div></div>`;
     }
+    // 에피소드 없음 → char panel 숨김 (로딩 표시 불필요)
+    const _cp = document.getElementById("sceneCharPanel");
+    if (_cp) _cp.hidden = true;
     if (typeof updateDebugCharStates === "function") updateDebugCharStates([]);
     updateEpisodeListUI();
     updateEpisodeUI?.();
     console.debug("[selectBook] no episodes — blank state");
     return;
   }
+
+  // 에피소드 있음 → char panel 로딩 시작
+  _showCharPanelLoading();
 
   const latest = safeEps[safeEps.length - 1];
   displayedEpisode = latest.episode_number;
