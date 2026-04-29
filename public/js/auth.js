@@ -591,9 +591,6 @@ async function selectBook(book) {
   updateEpisodeUI();
   updateOutputHeader();
 
-  // 책 선택 후 책 목록 자동 접기 (에피소드 목록이 위로 올라오도록)
-  _collapseBookList(book.title);
-
   const epCount = Object.keys(episodeCache).length;
   if (epCount > 0) showToast(`${book.title} — ${epCount}화 불러왔습니다.`, "info", 2000);
 }
@@ -658,11 +655,16 @@ function showBookListToggle() {
   if (toggle) {
     toggle.style.removeProperty("display");
     toggle.hidden = false;
-    toggle.classList.remove("hidden");
+    toggle.classList.remove("hidden", "collapsed");
   }
   if (wrap) {
     wrap.hidden = false;
+    wrap.style.removeProperty("display");
+    wrap.classList.remove("collapsed");
   }
+  // 라벨 동기화: 접혀있지 않으므로 "서재 접기"
+  const labelEl = toggle?.querySelector(".book-list-toggle-label");
+  if (labelEl) labelEl.textContent = "서재 접기";
 }
 // 하위 호환 alias
 function updateBookListToggleVisibility() { showBookListToggle(); }

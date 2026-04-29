@@ -35,7 +35,7 @@ check("CSS .book-list-toggle 기본 display:flex",
 // ── auth.js 버전 v=8 이상 ─────────────────────────────────
 const authVerMatch = indexHtml.match(/auth\.js\?v=(\d+)/);
 const authVer = authVerMatch ? parseInt(authVerMatch[1]) : 0;
-check("auth.js 버전 v=8 이상",             authVer >= 8);
+check("auth.js 버전 v=9 이상",             authVer >= 9);
 
 // ── showBookListToggle 조건 없음 ───────────────────────────
 check("showBookListToggle 함수 존재",      authJs.includes("function showBookListToggle"));
@@ -79,8 +79,10 @@ check("selectBook: clearStoryProgressUI 사용",
 check("selectBook: bookListToggle.style.display 직접 세팅 안 함",
   !authJs.match(/async function selectBook[\s\S]{0,3500}bookListToggle\.style\.display/));
 check("_collapseBookList 함수 유지",       authJs.includes("function _collapseBookList"));
-check("selectBook 끝에 _collapseBookList 호출",
-  !!authJs.match(/_collapseBookList\(book\.title\)/));
+check("selectBook에서 자동 접기 제거됨 (_collapseBookList 미호출)",
+  !authJs.match(/async function selectBook[\s\S]{0,3000}_collapseBookList\(/));
+check("showBookListToggle이 wrap.classList.remove(collapsed) 포함",
+  authJs.match(/function showBookListToggle[\s\S]{0,400}wrap\.classList\.remove/));
 
 console.log(`\n${"─".repeat(55)}`);
 console.log(`Result: ${passed} passed, ${failed} failed`);
