@@ -213,6 +213,48 @@ export interface EpisodeTask {
 }
 
 // ══════════════════════════════════════════════════════════════
+// E-0. Episode Delta Contract — 이번 화 진전 강제 계약
+// ══════════════════════════════════════════════════════════════
+
+export interface EpisodeDeltaContract {
+  episode_number: number;
+
+  /** 직전 화에서 확정된 사실 (반복 감지 기준) */
+  previous_episode_facts: string[];
+  /** 직전 화 마지막 상태 (이번 화 시작점) */
+  previous_episode_end_state: string[];
+
+  /** 이번 화에서 반드시 전진해야 할 항목 */
+  must_progress: string[];
+  /** 이번 화에서 반복 금지 항목 */
+  must_not_repeat: string[];
+  /** 이번 화에서 새로 변해야 하는 것 */
+  newly_required_changes: string[];
+
+  /** 인물별 상태 변화 요구사항 */
+  character_delta_requirements: Array<{
+    character_name: string;
+    previous_state: string;
+    required_change: string;
+    forbidden_regression: string[];
+  }>;
+
+  /** 플롯 스레드별 진전 요구사항 */
+  plot_delta_requirements: Array<{
+    thread: string;
+    previous_status: string;
+    required_progress: string;
+    forbidden_repeat: string[];
+  }>;
+
+  /** 반복 위험 패턴 (감지된 것) */
+  repetition_risk: Array<{
+    pattern: string;
+    reason: string;
+  }>;
+}
+
+// ══════════════════════════════════════════════════════════════
 // E-1. Continuity Contract — 다음 화 연속성 계약
 // ══════════════════════════════════════════════════════════════
 
@@ -254,6 +296,8 @@ export interface EffectiveContext {
   regen_prev_text?: string;
   /** ep >= 2 생성 시 자동 조립되는 연속성 계약 */
   continuity_contract?: ContinuityContract;
+  /** ep >= 2 생성 시 조립되는 진전 강제 계약 */
+  episode_delta_contract?: EpisodeDeltaContract;
   reader_profile: {
     focus: number; sentiment: number; urgency: number;
     complexity: number; dialogue: number; audio_sync: number;

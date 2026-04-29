@@ -23,6 +23,7 @@ import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
 import { runCreativePlanner } from "./planner.js";
 import { resolveEntity, type EntityResolution } from "../lib/entity_resolver.js";
+import { checkEpisodeDelta, type EpisodeDeltaCheckResult } from "../services/episode_delta_validator.js";
 
 /**
  * CharNormEvent — entity_resolver ResolutionType을 파이프라인 통계용으로 매핑.
@@ -171,6 +172,10 @@ export async function runPlannerPipeline(
       has_prev_tail:         !!ctx.prev_episode_tail,
       has_continuity_contract: !!ctx.continuity_contract,
       continuity_known_facts: ctx.continuity_contract?.known_facts?.length ?? 0,
+      has_episode_delta_contract: !!ctx.episode_delta_contract,
+      delta_must_progress_count: ctx.episode_delta_contract?.must_progress?.length ?? 0,
+      delta_must_not_repeat_count: ctx.episode_delta_contract?.must_not_repeat?.length ?? 0,
+      delta_repetition_risk_count: ctx.episode_delta_contract?.repetition_risk?.length ?? 0,
       foreshadow_count:      ctx.foreshadow_memory?.length ?? 0,
       // Arc-phase (planner 7-phase 기준 — training ArcPhase 4종과 별개)
       planner_arc_phase:     stateConstraints.narrative_contract.arc_phase,
@@ -321,6 +326,26 @@ export async function runPlannerPipeline(
     // tracer에 continuity_check 첨부
     if (tracer) {
       (tracer as any).continuity_check = { verdict, issues };
+    }
+  }
+
+  // ─── Step 5.25: Episode Delta Check ────────────────────────────
+  {
+    const dc = ctx.episode_delta_contract;
+    const deltaCheckResult: EpisodeDeltaCheckResult = checkEpisodeDelta(
+      generatedText,
+      ctx.prev_episode_tail,
+      dc,
+    );
+    logInfo("pipeline:delta", "에피소드 진전 검사", {
+      episode: ctx.episode_number,
+      verdict: deltaCheckResult.verdict,
+      repeated_patterns: deltaCheckResult.repeated_patterns.length,
+      missing_progress: deltaCheckResult.missing_progress.length,
+      opening_similarity: deltaCheckResult.opening_similarity_score.toFixed(3),
+    });
+    if (tracer) {
+      (tracer as any).episode_delta_check = deltaCheckResult;
     }
   }
 

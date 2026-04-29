@@ -116,6 +116,44 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
         : "") + "\n"
     : "";
 
+  // Episode Delta Contract (ep >= 2)
+  const dc = ctx.episode_delta_contract;
+  const deltaSection = dc && ctx.episode_number >= 2
+    ? (() => {
+        const lines: string[] = [
+          `이번 화(${dc.episode_number}화)는 직전 화의 반복이 아니라 후속 결과여야 한다.`,
+          `같은 사건을 재서술하지 말고 그 결과를 보여줄 것.`,
+          `이미 끝난 행동을 다시 현재 진행으로 쓰지 말 것.`,
+          `직전 화 요약을 본문에서 길게 반복하지 말 것.`,
+        ];
+        if (dc.must_not_repeat.length) {
+          lines.push(
+            `[반복 금지]\n` + dc.must_not_repeat.slice(0, 4).map(s => `- ${s}`).join("\n")
+          );
+        }
+        if (dc.must_progress.length) {
+          lines.push(
+            `[반드시 진전]\n` + dc.must_progress.slice(0, 3).map(s => `- ${s}`).join("\n")
+          );
+        }
+        if (dc.character_delta_requirements.length) {
+          lines.push(
+            `[인물 상태 변화 요구]\n` +
+            dc.character_delta_requirements.slice(0, 4).map(c =>
+              `- ${c.character_name}: 새 정보/새 선택/새 결과 중 하나가 반드시 있어야 함`
+            ).join("\n")
+          );
+        }
+        if (dc.repetition_risk.length) {
+          lines.push(
+            `[반복 위험 패턴 — 이번 화에서 핵심 장면으로 재사용 금지]\n` +
+            dc.repetition_risk.map(r => `- ${r.pattern}`).join("\n")
+          );
+        }
+        return `\n[Episode Delta Contract — 서술 준수]\n` + lines.join("\n") + "\n";
+      })()
+    : "";
+
   const isFinal = plan.ending_constraint !== "cliff";
 
   // 클리프 전용: 엔딩 훅
@@ -143,7 +181,7 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
 영어는 고유명사·브랜드명에 한해서만 허용되며, 일반 서술에 영어를 사용해서는 안 된다.
 
 당신은 한국 소설 생성 AI다.
-${protagonistDecl ? "\n" + protagonistDecl + "\n" : ""}${prevTailSection}${continuitySection}
+${protagonistDecl ? "\n" + protagonistDecl + "\n" : ""}${prevTailSection}${continuitySection}${deltaSection}
 [시점 — 최우선 규칙]
 ${plan.pov_contract}
 

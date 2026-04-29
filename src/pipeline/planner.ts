@@ -619,6 +619,58 @@ function buildPlannerUserPrompt(
     sections.push(`[이번 화에서 반드시 피해야 할 패턴]\n${avoidLines.join("\n")}`);
   }
 
+  // ── Episode Delta Contract (ep >= 2, 재생성 1화 제외) ──────────
+  const dc = ctx.episode_delta_contract;
+  if (dc && ctx.episode_number >= 2) {
+    const dcLines: string[] = [
+      `이번 화(${dc.episode_number}화)는 직전 화의 반복이 아니라 후속 결과여야 한다.`,
+    ];
+
+    if (dc.must_not_repeat.length) {
+      dcLines.push(
+        `[반복 절대 금지]\n${dc.must_not_repeat.slice(0, 5).map(s => `- ${s}`).join("\n")}`
+      );
+    }
+
+    if (dc.must_progress.length) {
+      dcLines.push(
+        `[반드시 전진해야 할 항목]\n${dc.must_progress.slice(0, 4).map(s => `- ${s}`).join("\n")}`
+      );
+    }
+
+    if (dc.newly_required_changes.length) {
+      dcLines.push(
+        `[이번 화에서 새로 변해야 하는 것]\n${dc.newly_required_changes.map(s => `- ${s}`).join("\n")}`
+      );
+    }
+
+    if (dc.character_delta_requirements.length) {
+      const charDelta = dc.character_delta_requirements
+        .slice(0, 4)
+        .map(c => `- ${c.character_name}: 이전 상태(${c.previous_state}) → ${c.required_change}`)
+        .join("\n");
+      dcLines.push(`[인물별 변화 요구사항]\n${charDelta}`);
+    }
+
+    if (dc.repetition_risk.length) {
+      dcLines.push(
+        `[반복 위험 패턴 — 이번 화에서 핵심 사건으로 사용 금지]\n` +
+        dc.repetition_risk.map(r => `- ${r.pattern}: ${r.reason.slice(0, 80)}`).join("\n")
+      );
+    }
+
+    if (dc.plot_delta_requirements.length) {
+      dcLines.push(
+        `[플롯 스레드 진전 요구]\n` +
+        dc.plot_delta_requirements.slice(0, 3).map(p =>
+          `- "${p.thread}": ${p.required_progress}`
+        ).join("\n")
+      );
+    }
+
+    sections.push(`[Episode Delta Contract — 절대 준수]\n${dcLines.join("\n")}`);
+  }
+
   // ── 출력 형식 최종 확인 (스키마 준수 강제) ──────────────────────
   // 긴 컨텍스트에서 LLM이 스키마를 이탈하지 않도록 user prompt 마지막에 명시
   sections.push(

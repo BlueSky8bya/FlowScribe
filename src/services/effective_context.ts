@@ -28,7 +28,7 @@ import {
 } from "./character_state.js";
 import type {
   EffectiveContext, GenConfig, WorldConfig, AuthorIntervention,
-  EpisodeTask, PrevEpisodeState, ContinuityContract,
+  EpisodeTask, PrevEpisodeState, ContinuityContract, EpisodeDeltaContract,
 } from "../types/canonical.js";
 
 const DEFAULT_GEN_CONFIG: GenConfig = {
@@ -247,6 +247,10 @@ export async function buildEffectiveContext(opts: {
     ? buildContinuityContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail, rollingSummary)
     : undefined;
 
+  const episodeDeltaContract: EpisodeDeltaContract | undefined = episodeNumber >= 2
+    ? buildEpisodeDeltaContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail, rollingSummary)
+    : undefined;
+
   const ctx: EffectiveContext = {
     episode_number: episodeNumber,
     gen_config: genConfig,
@@ -267,6 +271,7 @@ export async function buildEffectiveContext(opts: {
     rolling_summary: rollingSummary,
     prev_episode_tail: prevEpisodeTail,
     continuity_contract: continuityContract,
+    episode_delta_contract: episodeDeltaContract,
     reader_profile: readerProfile.status === "fulfilled" ? readerProfile.value : { focus: 55, sentiment: 55, urgency: 50, complexity: 55, dialogue: 55, audio_sync: 40 },
   };
 
@@ -463,4 +468,184 @@ function buildTaskUserPrompt(ctx: EffectiveContext): string | undefined {
   if (task.ending_hook_direction) parts.push(`엔딩 훅 방향: ${task.ending_hook_direction}`);
 
   return `${ctx.episode_number}화를 ${ctx.gen_config.pov} 시점으로 생성해줘.\n${parts.join("\n")}`;
+}
+
+/**
+ * buildEpisodeDeltaContract — ep >= 2 생성 시 "이번 화 진전 강제 계약" 조립.
+ * LLM에게 이미 발생한 사건을 반복하지 말고 반드시 전진하도록 명시한다.
+ * 규칙 기반 deterministic: LLM 호출 없음.
+ */
+function buildEpisodeDeltaContract(
+  episodeNumber: number,
+  dynStates: Array<{ character_name: string; location?: string | null; emotional_state?: string | null; recent_goal?: string | null; physical_state?: string | null }>,
+  characterArcs: Record<string, { state: string; key_events: string[] }>,
+  foreshadows: Array<{ content: string; keywords: string[] }>,
+  prevTail?: string,
+  rollingSummary?: string,
+): EpisodeDeltaContract {
+  const prevEp = episodeNumber - 1;
+
+  // ── previous_episode_facts: 직전 화 확정 사실 ─────────────────
+  const previous_episode_facts: string[] = [];
+  for (const [name, arc] of Object.entries(characterArcs)) {
+    for (const ev of arc.key_events.slice(-3)) {
+      if (ev.trim()) previous_episode_facts.push(`[${name}] ${ev}`);
+    }
+  }
+  if (previous_episode_facts.length < 2 && rollingSummary) {
+    const lines = rollingSummary.split("\n").filter(l => new RegExp(`^${prevEp}화:`).test(l.trim()));
+    for (const line of lines) {
+      const content = line.replace(/^\d+화:\s*/, "").trim();
+      if (content.length > 8) previous_episode_facts.push(content);
+    }
+  }
+
+  // ── previous_episode_end_state: 직전 화 끝 상태 ───────────────
+  const previous_episode_end_state: string[] = [];
+  if (prevTail) {
+    const sentences = prevTail.replace(/\s+/g, " ").split(/(?<=[.!?"])\s+/).filter(Boolean);
+    previous_episode_end_state.push(...sentences.slice(-2));
+  }
+  for (const s of dynStates.slice(0, 4)) {
+    const parts: string[] = [];
+    if (s.emotional_state) parts.push(`감정: ${s.emotional_state}`);
+    if (s.physical_state)  parts.push(`신체: ${s.physical_state}`);
+    if (s.recent_goal)     parts.push(`목표: ${s.recent_goal}`);
+    if (parts.length) previous_episode_end_state.push(`${s.character_name} — ${parts.join(", ")}`);
+  }
+
+  // ── repetition_risk: 반복 위험 패턴 감지 ──────────────────────
+  // rolling_summary에서 같은 패턴(의식상실/기절/쓰러짐 등)이 반복되면 경고
+  const REPEAT_PATTERNS: Array<{ re: RegExp; label: string }> = [
+    { re: /의식을?\s*(잃|잃어|상실)/, label: "의식 상실" },
+    { re: /기절/, label: "기절" },
+    { re: /쓰러|쓰러짐/, label: "쓰러짐" },
+    { re: /혼란|혼돈|혼수/, label: "혼란/혼수" },
+    { re: /처음\s*(만|발견|알게)/, label: "처음 만남/발견" },
+    { re: /위협(을|이|에)?\s*(받|감지|느)/, label: "같은 위협 감지" },
+    { re: /균열.{0,15}(나타|열|발생)/, label: "균열 반복 출현" },
+  ];
+  const repetition_risk: Array<{ pattern: string; reason: string }> = [];
+
+  if (rollingSummary) {
+    const recentLines = rollingSummary
+      .split("\n")
+      .filter(l => /^\d+화:/.test(l.trim()))
+      .slice(-(Math.min(episodeNumber - 1, 3)));  // 최근 3화 분석
+
+    for (const { re, label } of REPEAT_PATTERNS) {
+      const matchingEps = recentLines.filter(l => re.test(l));
+      if (matchingEps.length >= 2) {
+        repetition_risk.push({
+          pattern: label,
+          reason: `최근 ${matchingEps.length}화 연속 같은 패턴 감지: ${matchingEps.map(l => l.slice(0, 40)).join(" / ")}`,
+        });
+      }
+    }
+  }
+
+  // prevTail에서도 체크
+  if (prevTail) {
+    for (const { re, label } of REPEAT_PATTERNS.slice(0, 4)) {
+      if (re.test(prevTail) && !repetition_risk.some(r => r.pattern === label)) {
+        repetition_risk.push({
+          pattern: label,
+          reason: `직전 화 말미에서 '${label}' 패턴 감지 — 이번 화에서 같은 방식으로 반복 금지`,
+        });
+      }
+    }
+  }
+
+  // ── must_not_repeat: 반복 금지 항목 ───────────────────────────
+  const must_not_repeat: string[] = [
+    `직전 화(${prevEp}화) 마지막 사건을 이번 화(${episodeNumber}화)에서 새 사건처럼 다시 시작하지 말 것.`,
+    `이미 발생한 만남·고백·결정·각성을 처음 일어나는 것처럼 다시 쓰지 말 것.`,
+    `인물이 이미 알고 있는 정보를 다시 처음 알게 하지 말 것.`,
+  ];
+  // 반복 위험 패턴별 금지 추가
+  for (const r of repetition_risk) {
+    must_not_repeat.push(`'${r.pattern}' 패턴이 이번 화에서도 핵심 사건으로 반복되는 것 금지.`);
+  }
+  // 직전 화의 확정 사건을 명시적으로 반복 금지
+  for (const fact of previous_episode_facts.slice(0, 3)) {
+    must_not_repeat.push(`이미 확정된 사건 — "${fact}" — 을 다시 처음처럼 서술하지 말 것.`);
+  }
+
+  // ── must_progress: 반드시 전진해야 할 항목 ───────────────────
+  const must_progress: string[] = [
+    `이번 화는 ${prevEp}화의 결과/후속 행동으로 시작해야 한다.`,
+    `각 인물은 직전 상태에서 최소 하나의 새 변화(새 정보 획득, 새 결정, 새 행동)가 있어야 한다.`,
+  ];
+  for (const s of dynStates.slice(0, 3)) {
+    if (s.recent_goal) {
+      must_progress.push(`${s.character_name}: "${s.recent_goal}" 목표가 이번 화에서 진전되거나 변화해야 한다.`);
+    }
+  }
+  if (foreshadows.length > 0) {
+    must_progress.push(`미해결 복선 중 최소 하나를 이번 화에서 진전시켜야 한다: ${foreshadows.slice(0, 2).map(f => f.content).join(", ")}`);
+  }
+
+  // ── newly_required_changes: 이번 화에서 새로 변해야 하는 것 ─
+  const newly_required_changes: string[] = [
+    `직전 화 말미 상태에서 적어도 하나의 외부 사건 또는 인물 내면 변화가 새로 발생해야 한다.`,
+    `플롯이 정체(같은 위협/장소/상황의 반복)되지 않도록 새 요소를 도입해야 한다.`,
+  ];
+
+  // ── character_delta_requirements ──────────────────────────────
+  const character_delta_requirements: EpisodeDeltaContract["character_delta_requirements"] = [];
+  for (const s of dynStates) {
+    const arc = characterArcs[s.character_name];
+    const recentEvent = arc?.key_events?.slice(-1)[0] ?? "";
+    const forbidden: string[] = [];
+    if (recentEvent) forbidden.push(`직전 화 사건 반복: "${recentEvent.slice(0, 40)}"`);
+    if (s.emotional_state) forbidden.push(`감정 상태를 "${s.emotional_state}"로 그대로 유지만 하는 것`);
+
+    character_delta_requirements.push({
+      character_name: s.character_name,
+      previous_state: [
+        s.emotional_state ? `감정: ${s.emotional_state}` : "",
+        s.recent_goal ? `목표: ${s.recent_goal}` : "",
+        s.physical_state ? `신체: ${s.physical_state}` : "",
+      ].filter(Boolean).join(", ") || "알 수 없음",
+      required_change: `새 사건, 새 결정, 또는 이전 목표에 대한 구체적 진전`,
+      forbidden_regression: forbidden,
+    });
+  }
+
+  // ── plot_delta_requirements: open threads ─────────────────────
+  const plot_delta_requirements: EpisodeDeltaContract["plot_delta_requirements"] = [];
+  for (const f of foreshadows.slice(0, 4)) {
+    plot_delta_requirements.push({
+      thread: f.content.slice(0, 60),
+      previous_status: "미해결/진행 중",
+      required_progress: "이번 화에서 구체적 진전(단서 발견, 위협 현실화, 해결 시도)이 있어야 함",
+      forbidden_repeat: [`"${f.content.slice(0, 30)}" 상황을 변화 없이 다시 언급만 하는 것`],
+    });
+  }
+  // rolling_summary에서 미해결 스레드 추출 (간단 키워드 기반)
+  if (plot_delta_requirements.length === 0 && rollingSummary) {
+    const openThreadKws = ["계획", "추적", "비밀", "갈등", "임무", "봉인", "수색"];
+    for (const kw of openThreadKws) {
+      if (rollingSummary.includes(kw) && plot_delta_requirements.length < 2) {
+        plot_delta_requirements.push({
+          thread: `${kw} 관련 미해결 스레드`,
+          previous_status: "진행 중",
+          required_progress: "이번 화에서 새 단계로 진전",
+          forbidden_repeat: [`${kw} 상황을 변화 없이 반복 언급`],
+        });
+      }
+    }
+  }
+
+  return {
+    episode_number: episodeNumber,
+    previous_episode_facts,
+    previous_episode_end_state,
+    must_progress,
+    must_not_repeat,
+    newly_required_changes,
+    character_delta_requirements,
+    plot_delta_requirements,
+    repetition_risk,
+  };
 }

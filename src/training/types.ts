@@ -43,6 +43,10 @@ export interface PlannerTrace {
     has_prev_tail: boolean;
     has_continuity_contract?: boolean;
     continuity_known_facts?: number;
+    has_episode_delta_contract?: boolean;
+    delta_must_progress_count?: number;
+    delta_must_not_repeat_count?: number;
+    delta_repetition_risk_count?: number;
     foreshadow_count: number;
     // Arc-phase — planner 7-phase (state_extractor 기준)
     // NOTE: training/types.ts ArcPhase(4종)와 다름 — 혼용 금지. planner_arc_phase로 명시
