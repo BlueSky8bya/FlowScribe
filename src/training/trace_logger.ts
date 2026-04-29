@@ -80,6 +80,12 @@ export class TraceLogger {
   }): this {
     Object.assign(this.trace, opts);
 
+    // episode_delta_check를 planner_trace에 병합 (Step 5.25에서 tracer에 직접 첨부됨)
+    const deltaCheck = (this as any).episode_delta_check;
+    if (deltaCheck && this.trace.planner_trace) {
+      (this.trace.planner_trace as any).episode_delta_check = deltaCheck;
+    }
+
     // 학습 적합성 자동 판단
     this.trace.is_planner_sft_eligible =
       this.trace.plan_validation?.verdict === "PASS" &&

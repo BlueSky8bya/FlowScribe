@@ -138,6 +138,28 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
 
       fullText = pipelineResult.generated_text;
       clearInterval(heartbeat);
+
+      // episode content 저장 (generate.ts와 동일 패턴)
+      if (bookId && fullText) {
+        try {
+          const fallbackSummary = fullText.split(/[.。!?]/)[0]?.trim() ?? "";
+          await pool.query(
+            `INSERT INTO episodes (book_id, episode_number, content, summary)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (book_id, episode_number) DO UPDATE
+               SET content = EXCLUDED.content,
+                   summary = CASE WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary ELSE episodes.summary END`,
+            [bookId, episode, fullText, fallbackSummary]
+          );
+          await pool.query(
+            `UPDATE books SET current_episode = GREATEST(current_episode, $1), updated_at = NOW() WHERE id = $2`,
+            [episode + 1, bookId]
+          );
+        } catch (saveErr) {
+          logError("api:generate_v2", saveErr, { context: "episode content save", episode });
+        }
+      }
+
       // planner path: pipeline이 commitDynamicState를 완료한 후이므로 재조회
       const wbCtxDefs = ctx?.characters ?? [];
       const freshCharStates = bookId
