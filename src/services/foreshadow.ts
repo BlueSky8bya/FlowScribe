@@ -142,12 +142,25 @@ export async function checkAndResolveForeshadows(
   const resolved: string[] = [];
 
   for (const f of openList) {
-    // 키워드 중 2개 이상 본문에 포함되면 회수로 판정
+    // 키워드 매칭 기준 강화:
+    // - keywords 2개 이하: 모든 키워드가 포함되어야 함 (AND 조건)
+    // - keywords 3개 이상: 절반 초과 포함 + 본문에 회수 맥락 필요
+    // - 같은 에피소드에서 planted + resolved는 허용하지 않음 (즉시 회수 방지)
+    if (f.planted_episode === episodeNumber) continue; // 같은 화 planted는 resolved 불가
     const hitCount = f.keywords.filter(kw => content.includes(kw)).length;
-    const threshold = f.keywords.length >= 3 ? 2 : 1;
-    if (hitCount >= threshold) {
-      resolved.push(f.id);
+    const totalKw = f.keywords.length;
+    let meetsThreshold: boolean;
+    if (totalKw <= 2) {
+      // 2개 이하 키워드: 전부 포함해야 함
+      meetsThreshold = hitCount >= totalKw;
+    } else {
+      // 3개 이상: 절반 초과 + 최소 2개
+      meetsThreshold = hitCount >= 2 && hitCount > totalKw / 2;
     }
+    // 추가 필터: 본문이 너무 짧으면 (200자 미만) 키워드 단순 재언급 가능성 높음 → 건너뜀
+    if (!meetsThreshold) continue;
+    if (content.length < 200) continue;
+    resolved.push(f.id);
   }
 
   if (resolved.length) {

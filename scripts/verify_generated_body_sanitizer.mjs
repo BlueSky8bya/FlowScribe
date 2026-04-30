@@ -115,6 +115,19 @@ try {
   check("mixed: potongannya 제거", !r11.text.includes("potongannya"));
   check("mixed: AI 보존", r11.text.includes("AI"));
 
+  // ── CJK 한자 artifact 제거 (Phase 4.9 신규) ──
+  const r12 = sanitizeGeneratedBody("서민아가 다가왔다. \"무슨 일이 있었어요? 刚才 무슨 소리였어요?\" 그녀의 눈은");
+  check("刚才 제거됨", !r12.text.includes("刚才"));
+  check("CJK 제거 후 한국어 문맥 보존", r12.text.includes("무슨 일이 있었어요") && r12.text.includes("무슨 소리였어요"));
+  check("CJK: removed_foreign_fragments>=1", r12.removed_foreign_fragments >= 1);
+
+  // CJK 문자열 여러 개
+  const r13 = sanitizeGeneratedBody("그는 一二三四 이라고 쓰인 표지판을 보았다.");
+  check("一二三四 제거됨", !r13.text.includes("一二三四"));
+
+  // NON_KO_SCRIPT_RE에 CJK 범위 포함 확인
+  check("NON_KO_SCRIPT_RE CJK 범위 포함", src.includes("一-鿿") || src.includes("\\u4E00"));
+
 } catch(e) {
   fail("런타임 테스트 실패", e.message);
 }

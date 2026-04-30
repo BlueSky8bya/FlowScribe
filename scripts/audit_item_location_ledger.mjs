@@ -170,6 +170,88 @@ async function main() {
     }
   }
 
+  // ── 동시 소유 감지 (같은 아이템을 여러 인물이 같은 에피소드에서 소지) ──
+  let totalDualOwnership = 0;
+  const dualOwnershipIssues = [];
+
+  for (const ep of Object.keys(epGroups).sort((a, b) => +a - +b)) {
+    // ep 내 모든 인물의 아이템 수집 (이름 기준 정규화)
+    const itemOwnerMap = {}; // normalizedName → [charName]
+    for (const row of epGroups[ep]) {
+      const items = Array.isArray(row.items) ? row.items :
+        (typeof row.items === "string" ? JSON.parse(row.items || "[]") : []);
+      for (const item of items) {
+        const rawName = typeof item === "string" ? item : item?.name ?? "";
+        if (!rawName || rawName.length < 2) continue;
+        // 괄호 조건 제거해서 canonical name만 비교
+        const norm = rawName.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase();
+        if (norm.length < 2) continue;
+        if (!itemOwnerMap[norm]) itemOwnerMap[norm] = [];
+        itemOwnerMap[norm].push(row.character_name);
+      }
+    }
+    // 2명 이상이 같은 아이템 소지
+    for (const [normName, owners] of Object.entries(itemOwnerMap)) {
+      if (owners.length >= 2) {
+        totalDualOwnership++;
+        const msg = `ep${ep}: 동시 소유 "${normName}" — [${owners.join(", ")}]`;
+        dualOwnershipIssues.push(msg);
+        console.log(`  🔴 ${msg}`);
+      }
+    }
+  }
+
+  // ── 아이템 소실 감지 (소지하다가 이후 에피소드에서 사라진 경우) ──
+  let totalUnexplainedLoss = 0;
+  const lossIssues = [];
+
+  // 인물별 아이템 히스토리 구성
+  const charItemHistory = {}; // charName → { ep: Set<normalizedName> }
+  for (const ep of Object.keys(epGroups).sort((a, b) => +a - +b)) {
+    for (const row of epGroups[ep]) {
+      if (!charItemHistory[row.character_name]) charItemHistory[row.character_name] = {};
+      const items = Array.isArray(row.items) ? row.items :
+        (typeof row.items === "string" ? JSON.parse(row.items || "[]") : []);
+      const normNames = new Set(items.map(i => {
+        const raw = typeof i === "string" ? i : i?.name ?? "";
+        return raw.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase();
+      }).filter(n => n.length >= 2));
+      charItemHistory[row.character_name][ep] = normNames;
+    }
+  }
+
+  // 각 인물에 대해, 연속적으로 소지하던 아이템이 갑자기 사라지면 flag
+  for (const [charName, epMap] of Object.entries(charItemHistory)) {
+    const epNums = Object.keys(epMap).sort((a, b) => +a - +b);
+    for (let idx = 1; idx < epNums.length; idx++) {
+      const prevEp = epNums[idx - 1];
+      const currEp = epNums[idx];
+      // 연속 에피소드만 체크 (1 차이)
+      if (+currEp - +prevEp !== 1) continue;
+      const prevItems = epMap[prevEp];
+      const currItems = epMap[currEp];
+      for (const item of prevItems) {
+        if (item.length < 2) continue;
+        // 환경 오브젝트 키워드 스킵
+        if (/^(문|벽|바닥|천장|복도|계단|방|창문|의자|책상|테이블)$/.test(item)) continue;
+        if (!currItems.has(item)) {
+          // 이전 ep에 2화 이상 연속 소지하던 아이템만 flag
+          const prevPrevEp = epNums[idx - 2];
+          const hadBefore = prevPrevEp && epMap[prevPrevEp]?.has(item);
+          if (hadBefore) {
+            totalUnexplainedLoss++;
+            const msg = `ep${prevEp}→ep${currEp}: ${charName} 아이템 소실 "${item}" (ep${prevPrevEp}부터 소지)`;
+            lossIssues.push(msg);
+          }
+        }
+      }
+    }
+  }
+  if (lossIssues.length) {
+    console.log("\n── 아이템 소실 감지 ──");
+    for (const m of lossIssues) console.log(`  🟡 ${m}`);
+  }
+
   // SUMMARY
   console.log(`\n${"═".repeat(65)}`);
   console.log("SUMMARY");
@@ -179,13 +261,17 @@ async function main() {
   console.log(`item name drift:                  ${totalItemNameDrift}   ${totalItemNameDrift === 0 ? "✅" : "⚠️"}`);
   console.log(`missing canonical items (per ep): ${totalMissingCanonical}   ${totalMissingCanonical === 0 ? "✅" : "⚠️"}`);
   console.log(`English emotional_state:          ${totalEnglishState}   ${totalEnglishState === 0 ? "✅" : "❌"}`);
+  console.log(`dual ownership (same item, 2+ chars): ${totalDualOwnership}   ${totalDualOwnership === 0 ? "✅" : "❌"}`);
+  console.log(`unexplained item loss:            ${totalUnexplainedLoss}   ${totalUnexplainedLoss === 0 ? "✅" : "⚠️"}`);
   console.log(`location changes (across eps):    ${abruptLocationChanges}   (정보용)`);
 
-  const overallPass = totalSkillItems === 0 && totalEnglishState === 0;
+  const overallPass = totalSkillItems === 0 && totalEnglishState === 0 && totalDualOwnership === 0;
   console.log(`\n${"─".repeat(65)}`);
   console.log(overallPass
     ? "✅  PHASE 4 ITEM/LOCATION LEDGER AUDIT PASS"
-    : "⚠️   PHASE 4 ITEM/LOCATION LEDGER AUDIT CONDITIONAL"
+    : totalDualOwnership > 0
+      ? "❌  PHASE 4 ITEM/LOCATION LEDGER AUDIT FAIL (dual ownership)"
+      : "⚠️   PHASE 4 ITEM/LOCATION LEDGER AUDIT CONDITIONAL"
   );
   console.log(`${"═".repeat(65)}\n`);
 

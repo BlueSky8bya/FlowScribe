@@ -1,6 +1,10 @@
 /**
  * audit_scene_transitions.mjs
  * 에피소드 간 급격한 장면 점프 탐지
+ *
+ * character_dynamic_states.location 기반으로 이전 화→현재 화 위치 변화 감지.
+ * planner_trace.scene_beats.location은 부재할 수 있으므로 states를 primary source로 사용.
+ *
  * Usage: node scripts/audit_scene_transitions.mjs --book-id <uuid>
  */
 import { createRequire } from "module";
@@ -14,88 +18,112 @@ if (!bookId) { console.error("Usage: --book-id <uuid>"); process.exit(1); }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const [epRes, traceRes] = await Promise.all([
+const [epRes, stateRes] = await Promise.all([
   pool.query(
     `SELECT episode_number, content FROM episodes WHERE book_id=$1 ORDER BY episode_number`,
     [bookId]
   ),
   pool.query(
-    `SELECT DISTINCT ON (episode_number) episode_number, planner_trace
-     FROM run_traces WHERE book_id=$1
-     ORDER BY episode_number, created_at DESC`,
+    `SELECT character_name, episode_number, location
+     FROM character_dynamic_states WHERE book_id=$1
+     ORDER BY character_name, episode_number`,
     [bookId]
   ),
 ]);
 await pool.end();
 
 const episodes = epRes.rows;
-const traceMap = {};
-for (const r of traceRes.rows) traceMap[r.episode_number] = r.planner_trace;
 
-console.log(`\n═══════════════════════════════════════════════════════`);
-console.log(` AUDIT — Scene Transitions (book: ${bookId.slice(0, 8)}...)`);
-console.log(`═══════════════════════════════════════════════════════\n`);
+// character → episode → location
+const locMap = {};
+for (const r of stateRes.rows) {
+  if (!locMap[r.character_name]) locMap[r.character_name] = {};
+  locMap[r.character_name][r.episode_number] = r.location;
+}
 
-// 장면 점프 탐지 패턴
-const ABRUPT_PATTERNS = [
-  { re: /^(?:그\s*순간|갑자기|어느새|그때|그\s*사이)/, label: "갑작스러운 시작 부사" },
-  { re: /^[가-힣]{2,5}(?:는|은|이|가)\s+(?:[가-힣\s]+에서|[가-힣\s]+으로)/, label: "장소 이동 설명 없는 인물 등장" },
-];
+const ABSENT_MARKERS = new Set(["미등장", "알 수 없음", "불명", "비활성", "", null, undefined]);
 
-const TRANSITION_PATTERNS = [
-  /(?:[가-힣]+을|[가-힣]+를)\s+(?:지나|넘어|거쳐)\s+(?:[가-힣]+에|[가-힣]+으로)/,
-  /(?:발걸음|발자국|이동|향했다|갔다|도착했다|이동했다|걸어갔다|들어갔다|찾아갔다|나아갔다)/,
-  /(?:잠시\s*후|한참\s*후|시간이\s*(?:흘러|지나)|그\s*사이에|얼마\s*후|다음\s*날)/,
-  /(?:공기가|냄새가|빛이|온도가|바람이).*(?:맞았다|스쳤다|채웠다|감쌌다|불었다)/,
-  /(?:문을|복도를|계단을|통로를)\s*(?:열고|지나|내려|올라|따라)/,
-];
-
-// 같은 구역 내 세부 위치 변화는 진짜 장면 전환으로 보지 않는다
+// 같은 구역인지 (첫 토큰 일치)
 function isSameZone(a, b) {
   if (!a || !b) return false;
-  const zA = a.split(/[\s-]/)[0];
-  const zB = b.split(/[\s-]/)[0];
+  const zA = a.split(/[\s\-]/)[0];
+  const zB = b.split(/[\s\-]/)[0];
   return zA === zB;
 }
 
-let issues = 0;
-let warnings = 0;
+// 전환 문장 패턴 (이동/시간 경과 등)
+const TRANSITION_PATTERNS = [
+  /(?:발걸음|발자국|이동|향했다|갔다|도착했다|이동했다|걸어갔다|들어갔다|찾아갔다|나아갔다|옮겼다|뛰어갔다|올라갔다|내려갔다)/,
+  /(?:잠시\s*후|한참\s*후|시간이\s*(?:흘러|지나)|그\s*사이에|얼마\s*후|다음\s*날|그날|밤이\s*지나|아침이)/,
+  /(?:공기가|냄새가|빛이|온도가|바람이).*(?:맞았다|스쳤다|채웠다|감쌌다|불었다)/,
+  /(?:문을|복도를|계단을|통로를|출입구를|비상구를)\s*(?:열고|지나|내려|올라|따라|통과)/,
+  /(?:끌려|데려|따라|안내받|이동하)/,
+  /(?:장소를|위치를|공간을).*(?:이동|이탈|탈출|떠나)/,
+  /(?:이\s*곳|여기서|여기를)\s*(?:떠나|벗어|탈출)/,
+];
+
+const W = 65;
+console.log(`\n${"═".repeat(W)}`);
+console.log(` AUDIT — Scene Transitions (book: ${bookId.slice(0, 8)}...)`);
+console.log("═".repeat(W));
+
+let fatalCount = 0;
+let warnCount = 0;
 
 for (let i = 1; i < episodes.length; i++) {
   const prev = episodes[i - 1];
   const curr = episodes[i];
-  const epNum = curr.episode_number;
+  const prevEp = prev.episode_number;
+  const currEp = curr.episode_number;
+  const currHead = curr.content.slice(0, 400);
 
-  const prevTail = prev.content.slice(-200);
-  const currHead = curr.content.slice(0, 300);
-  const currFirstLine = currHead.split(/\n/)[0]?.trim() ?? "";
+  const hasTransition = TRANSITION_PATTERNS.some(re => re.test(curr.content));
 
-  // 직전 화 끝 위치 추출 (planner trace의 마지막 beat location)
-  const prevTrace = traceMap[prev.episode_number];
-  const currTrace = traceMap[epNum];
-  const prevEndLoc = prevTrace?.parsed_plan?.scene_beats?.slice(-1)[0]?.location ?? null;
-  const currStartLoc = currTrace?.parsed_plan?.scene_beats?.[0]?.location ?? null;
-
-  const locChange = prevEndLoc && currStartLoc && prevEndLoc !== currStartLoc && !isSameZone(prevEndLoc, currStartLoc);
-  const hasTransition = TRANSITION_PATTERNS.some(re => re.test(currHead));
-  const abruptPattern = ABRUPT_PATTERNS.find(p => p.re.test(currFirstLine));
-
-  if (locChange && !hasTransition) {
-    issues++;
-    console.log(`❌ ep${prev.episode_number}→ep${epNum}: 장소 변화 (${prevEndLoc} → ${currStartLoc}) + 전환 문장 없음`);
-    console.log(`   prev tail: ...${prevTail.slice(-80)}`);
-    console.log(`   curr head: ${currFirstLine.slice(0, 80)}`);
-  } else if (abruptPattern && locChange) {
-    warnings++;
-    console.log(`⚠️  ep${prev.episode_number}→ep${epNum}: 장소 변화 + "${abruptPattern.label}" 패턴`);
-    console.log(`   curr head: ${currFirstLine.slice(0, 80)}`);
-  } else {
-    console.log(`✅ ep${prev.episode_number}→ep${epNum}: 전환 OK${locChange ? ` (${prevEndLoc} → ${currStartLoc}, 전환 문장 있음)` : " (동일 장소)"}`);
+  // Collect all characters that have a real location change prev→curr
+  const jumpChars = [];
+  for (const [charName, epLocs] of Object.entries(locMap)) {
+    const prevLoc = epLocs[prevEp];
+    const currLoc = epLocs[currEp];
+    if (ABSENT_MARKERS.has(prevLoc) || ABSENT_MARKERS.has(currLoc)) continue;
+    if (prevLoc === currLoc) continue;
+    if (isSameZone(prevLoc, currLoc)) continue;
+    jumpChars.push({ charName, prevLoc, currLoc });
   }
+
+  if (jumpChars.length === 0) {
+    console.log(`\n✅ ep${prevEp}→ep${currEp}: 전환 OK (위치 변화 없음 또는 동일 구역)`);
+    continue;
+  }
+
+  if (hasTransition) {
+    console.log(`\n✅ ep${prevEp}→ep${currEp}: 전환 OK (위치 변화 + 이동 문장 있음)`);
+    for (const { charName, prevLoc, currLoc } of jumpChars) {
+      console.log(`   ${charName}: ${prevLoc} → ${currLoc}`);
+    }
+    continue;
+  }
+
+  // No transition phrase despite location change
+  const severity = jumpChars.length >= 2 ? "FAIL" : "WARN";
+  if (severity === "FAIL") fatalCount++;
+  else warnCount++;
+
+  const icon = severity === "FAIL" ? "❌" : "⚠️ ";
+  console.log(`\n${icon} ep${prevEp}→ep${currEp}: 위치 점프 감지 (이동 문장 없음) [${severity}]`);
+  for (const { charName, prevLoc, currLoc } of jumpChars) {
+    console.log(`   ${charName}: ${prevLoc} → ${currLoc}`);
+  }
+  console.log(`   curr head (100): ${currHead.slice(0, 100).replace(/\n/g, " ")}`);
 }
 
-console.log(`\n───────────────────────────────────────────────────────`);
-console.log(`abrupt_scene_jump: ${issues}건 (FAIL), ${warnings}건 (WARN)`);
-if (issues > 0) console.error("❌ SCENE TRANSITIONS: FAIL");
-else if (warnings > 0) console.log("⚠️  SCENE TRANSITIONS: WARN");
-else console.log("✅ SCENE TRANSITIONS: PASS");
+console.log(`\n${"─".repeat(W)}`);
+console.log(`location_jump_fatal: ${fatalCount}건 | warn: ${warnCount}건`);
+if (fatalCount > 0) {
+  console.error("❌ SCENE TRANSITIONS: FAIL");
+  process.exit(1);
+} else if (warnCount > 0) {
+  console.log("⚠️  SCENE TRANSITIONS: WARN");
+} else {
+  console.log("✅ SCENE TRANSITIONS: PASS");
+}
+console.log("═".repeat(W) + "\n");

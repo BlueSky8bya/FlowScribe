@@ -399,6 +399,53 @@ export async function runPlannerPipeline(
       ctx.characters.map(c => [c.name, c.initial_items ?? []]),
     );
 
+    // ── item dual-ownership guard ────────────────────────────────
+    // 같은 아이템이 여러 인물의 stateUpdates에 동시에 등장하면 이중 소유 발생.
+    // 규칙: 이전 화에서 소지하지 않았던 인물이 명시적으로 획득한 경우만 유지.
+    // 이전 화에서 모두 미소지였다면 canonical 순서 첫 번째 인물에게만 귀속.
+    if (stateUpdates.length > 1) {
+      // Collect normalized item name → list of updater character names
+      const itemOwnerCandidates = new Map<string, string[]>();
+      for (const upd of stateUpdates) {
+        if (!upd.items) continue;
+        const resolvedUpd = resolveCanonicalCharName(upd.character_name, canonicalNames).name;
+        if (!resolvedUpd) continue;
+        for (const it of upd.items as any[]) {
+          const rawName: string = typeof it === "string" ? it : (it?.name ?? "");
+          const normKey = rawName.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase();
+          if (normKey.length < 2) continue;
+          if (!itemOwnerCandidates.has(normKey)) itemOwnerCandidates.set(normKey, []);
+          itemOwnerCandidates.get(normKey)!.push(resolvedUpd);
+        }
+      }
+      // For items with multiple candidates, keep only the one who newly acquired it
+      for (const [normKey, owners] of itemOwnerCandidates.entries()) {
+        if (owners.length < 2) continue;
+        // Find who had it before
+        const prevOwners = owners.filter(o => {
+          const prevItems: any[] = prevMap.get(o)?.items ?? [];
+          return prevItems.some(i => {
+            const n: string = typeof i === "string" ? i : (i?.name ?? "");
+            return n.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase() === normKey;
+          });
+        });
+        const newOwners = owners.filter(o => !prevOwners.includes(o));
+        // Keeper: prefer new acquirer; if ambiguous, keep first canonical owner
+        const keeper = newOwners[0] ?? prevOwners[0] ?? owners[0];
+        // Remove from non-keepers' stateUpdates
+        for (const upd of stateUpdates) {
+          const resolvedUpd = resolveCanonicalCharName(upd.character_name, canonicalNames).name;
+          if (!resolvedUpd || resolvedUpd === keeper) continue;
+          if (!owners.includes(resolvedUpd)) continue;
+          upd.items = ((upd.items ?? []) as any[]).filter((it: any) => {
+            const rawName: string = typeof it === "string" ? it : (it?.name ?? "");
+            return rawName.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase() !== normKey;
+          });
+        }
+        logInfo("pipeline:itemLedger", `이중 소유 guard: "${normKey}" keeper=${keeper} removed_from=[${owners.filter(o => o !== keeper).join(",")}]`, {});
+      }
+    }
+
     // ── direct commit: planner가 명시한 상태 업데이트 ──────────
     if (stateUpdates.length > 0) {
       for (const upd of stateUpdates) {

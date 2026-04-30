@@ -36,8 +36,10 @@ const FOREIGN_FRAGMENT_RE = /(?<![a-zA-Z가-힣\d])[a-z]{4,}(?:\s+[a-z]{3,}){0,2
 // B. 한글에 직접 붙어있는 라틴 tokenizer artifact (예: 짓눌aminan였다, 그녀abeledtr를)
 const KOREAN_EMBEDDED_LATIN_RE = /(?<=[가-힣])[a-z]{3,}(?=[가-힣])|(?<=[가-힣])[a-z]{4,}|[a-z]{4,}(?=[가-힣])/g;
 
-// 키릴/아랍/태국어 등 비한글 비라틴 스크립트
-const NON_KO_SCRIPT_RE = /[Ѐ-ӿ؀-ۿ฀-๿ऀ-ॿ぀-ゟ゠-ヿ]/g;
+// 키릴/아랍/태국어/CJK 등 비한글 비라틴 스크립트
+// CJK 통합 한자(一-鿿): 현대 한국어 소설 본문에 등장하면 LLM artifact
+// 히라가나(぀-ゟ) / 가타카나(゠-ヿ): 일본어 조각
+const NON_KO_SCRIPT_RE = /[Ѐ-ӿ؀-ۿ฀-๿ऀ-ॿ぀-ヿ一-鿿㐀-䶿豈-﫿]/g;
 
 export function sanitizeGeneratedBody(raw: string): SanitizeResult {
   const warnings: string[] = [];
