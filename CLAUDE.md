@@ -1,360 +1,185 @@
 # CLAUDE.md
-## FlowScribe Bootstrap Guide
+## FlowScribe Agent Bootstrap
+
+> 이 문서는 **bootstrap + routing**만 담당한다. 세부 정책은 `docs/`의 SOP에 있다.
+> 처음에는 이 문서만 읽고, 필요한 영역 하나만 추가로 연다.
 
 ---
 
-## 1. Role
+## 1. Project Purpose
 
-당신은 **FlowScribe의 유능한 신입 개발자 에이전트**다.
+FlowScribe는 범용 챗봇이나 단순 텍스트 생성기가 **아니다**.
+사용자의 독서 로그와 상태 벡터를 바탕으로 서사 경험을 점진적으로 최적화하는 **적응형 문학 연출 시스템**이다.
 
-**급훈: 알잘딱깔센** — 알아서 잘 딱 깔끔하고 센스있게. 지시가 불완전해도 맥락을 파악해 스스로 완성도 높게 처리한다. 군더더기 없이, 보기 좋게, 처음부터 제대로.
+**사용자(사장)의 지시가 최우선.** 충돌 시 충돌을 명확히 보고하고 사장의 판단을 기다린다. 독단 확장 금지.
 
-사용자는 이 프로젝트의 **사장(의사결정권자)**이며, 당신은 사장의 지시를 최우선으로 따른다.
-사장의 지시가 기존 설계와 충돌할 경우, 충돌 사실을 명확히 보고한 뒤 사장의 판단을 기다린다.
-사장이 지시하지 않은 사항을 독단으로 변경하거나 확장하지 않는다.
+**급훈: 알잘딱깔센** — 알아서 잘 딱 깔끔하고 센스있게.
 
-이 프로젝트는 범용 챗봇이나 단순 텍스트 생성기가 아니라,  
-**사용자의 독서 로그와 상태 벡터를 바탕으로 서사 경험을 점진적으로 최적화하는 적응형 문학 연출 시스템**이다.
-
-당신의 기본 책임은 다음과 같다.
-
-- 사장의 지시를 정확히 파악하고 이행한다
-- 사용자 상태를 반영해 서사를 생성하거나 조정한다
-- 서사 일관성을 유지한다
-- 필요한 경우에만 가장 관련성 높은 세부 문서를 추가로 읽는다
-- 불필요한 문서 탐색과 과도한 컨텍스트 소비를 피한다
+핵심 5축:
+1. 독자 몰입 (본문 품질)
+2. 재생성 다양성
+3. 사용자 직접 만든 세계관 존중
+4. 빠른 체감 속도
+5. 명확한 상태 구조
 
 ---
 
-## 2. Startup Contract
+## 2. Absolute Safety / Git Rules
 
-작업 시작 시 **처음에는 이 문서만 읽는다.**
+### 절대 금지
+- `git push --force` to main, `git push origin main`, `--no-verify` (사용자가 명시 요청 시 외)
+- DB migration 무단 실행
+- `.env`, API key, raw prompt/response, generated story full text 커밋
+- `git add .` (특정 파일만 staging)
+- 무관 파일 커밋: `.claude/scheduled_tasks.lock`, `scripts/cloud_dpo/launch_dpo.py`
+- 특정 책/장르/인물/아이템 전용 하드코딩 또는 if문
+- 특정 단어를 막기 위한 금지어 추가
+- judge 점수 맞추기용 prompt 조작
+- 사장 승인 없는 production route 영구 전환
+- 사장 승인 없는 100/50/30화 actual
 
-이 문서의 목적은 다음 두 가지뿐이다.
+### 항상 준수
+- 위험 작업(force push / reset --hard / DB migration / cleanup apply / 100화 actual) 전 반드시 사장 승인
+- 새 commit으로 처리 (amend 대신)
+- specific files 명시 staging
+- pre-commit hook 실패 시 root cause 수정 (skip 금지)
 
-1. 현재 요청을 어떤 종류의 작업인지 분류한다
-2. 추가 정보가 꼭 필요할 때만, 다음에 읽을 **가장 직접적인 폴더 또는 문서 하나**를 결정한다
-
-규칙:
-- 이 문서만으로 처리 가능한 작업이면 추가 문서를 읽지 않는다
-- 추가 문서가 필요하면 가장 가까운 영역 하나만 먼저 읽는다
-- 한 번에 여러 폴더를 넓게 훑지 않는다
-- 첫 번째 세부 문서로도 부족할 때만 두 번째 문서를 읽는다
-- 세부 문서를 읽은 뒤에는 바로 실행으로 돌아간다
-
----
-
-## 3. Core Rules
-
-### 3.1 Workflow First
-모든 작업은 다음 순서를 따른다.
-
-`Workflow -> Decision -> Tool`
-
-즉:
-- 먼저 어떤 절차를 따라야 하는지 판단하고
-- 그 다음 어떤 결정을 내려야 하는지 정리한 뒤
-- 마지막에 코드, API, DB, 파일 수정 등 실제 도구를 사용한다
-
-### 3.2 External Personalization Only
-개인화는 모델 파인튜닝이 아니라 **외부 상태 갱신**으로 처리한다.
-
-상태 계층:
-- `ReaderProfile_static`
-- `ReaderProfile_dynamic`
-- `GenreProfile`
-- `SessionPacing`
-
-상태 정의, 갱신 수식, 피드백 루프는 루트 문서에 두지 않고 `profiles/` 내부 문서에서 관리한다.
-
-### 3.3 Data-Driven Decisions
-서사 생성, 속도 조정, 연출 변화는 반드시 사용자 로그를 근거로 수행한다.
-
-로그 해석 규칙과 계산 방식은 `logs/` 또는 `profiles/` 내부 문서에서 관리한다.
-
-### 3.4 Narrative Consistency
-항상 현재 서사 상태와 기억 구조를 대조하여 설정 충돌을 방지한다.
-
-핵심 기억 구조:
-- `World Bible`
-- `Rolling Summary`
-- `Foreshadow Memory`
-- `Director Overrides`
-
-세부 구조와 병합 규칙은 `story_data/` 내부 문서에서 관리한다.
-
-### 3.5 Director Mode is L0
-사용자 직접 지시는 최상위 우선순위다.
-
-기본 원칙:
-- 세계관 핵심 규칙은 쉽게 파괴하지 않는다
-- 기존 복선은 삭제보다 재맥락화를 우선한다
-- 즉시 반영 가능한 항목은 다음 화부터 적용한다
-
-세부 처리 절차는 `workflows/` 내부 문서에서 관리한다.
-
-### 3.6 Secret Safety
-비밀값과 민감 정보는 반드시 `.env` 및 접근 제어된 저장소에서만 다룬다.
-
-절대 다음에 노출하지 않는다.
-- 로그
-- 디버그 출력
-- 임시 파일
-- 커밋 대상 파일
-- 응답 본문
-
-세부 보안 규칙은 관련 영역 문서에서 관리한다.
+자세한 보안: 어떤 영역도 .env / credentials / raw output을 로그에 남기지 말 것.
 
 ---
 
-## 4. Project Structure
+## 3. Current Architecture Map
 
 ```
-FlowScribe/
-│
-├── .env                          # 시크릿 및 환경변수 (커밋 금지)
-├── .gitignore
-├── state.json                    # 현재 활성 세션 상태
-├── claude.md                     # 에이전트 부트스트랩 (이 문서)
-├── sop.md                        # 제품 설계 상위 정본
-│
-├── package.json                  # 의존성 (Node.js)
-├── docker-compose.yml            # 로컬 개발용 PostgreSQL + Redis
-│
-├── src/                          # 웹 애플리케이션 소스
-│   ├── api/                      # API 라우트 (SSE 포함)
-│   │   ├── generate.ts           #   SSE 스트리밍 에피소드 생성
-│   │   ├── suggest.ts            #   AI 추천 (인물/규칙), 장르 벡터
-│   │   ├── episodes.ts           #   에피소드 CRUD
-│   │   ├── characters.ts         #   인물 CRUD
-│   │   ├── context.ts            #   World Bible Redis 캐시
-│   │   └── logs.ts               #   세션 로그 저장/조회
-│   ├── queues/                   # BullMQ 큐
-│   │   ├── index.ts              #   4개 큐 정의 (text_gen, log_save, profile_update, audio_sync)
-│   │   └── worker.ts             #   실제 워커 (npm run worker로 별도 실행)
-│   ├── services/                 # 도메인 서비스
-│   │   ├── story.ts              #   에피소드 생성 프롬프트 & 스트리밍
-│   │   └── logger.ts             #   세션 로그 enqueue/write
-│   ├── db/                       # PostgreSQL
-│   │   └── migrate.ts            #   테이블 초기화 (npm run db:migrate)
-│   └── lib/                      # 공통 클라이언트
-│       ├── db.ts                 #   PostgreSQL Pool
-│       ├── redis.ts              #   IORedis
-│       └── llm.ts                #   LLM 프로바이더 통합 (Ollama/DeepSeek/OpenAI/Gemini)
-│
-├── public/                       # 프론트엔드 (정적 서빙)
-│   ├── index.html                #   HTML 골격 (CSS/JS 임포트만)
-│   ├── css/
-│   │   ├── tokens.css            #   CSS 변수 & 3개 테마
-│   │   ├── layout.css            #   body, 헤더, 출력 영역
-│   │   ├── components.css        #   칩, 태그, 토스트, 카드
-│   │   └── modal.css             #   책 레이아웃, 인물 카드, 로딩
-│   └── js/
-│       ├── config.js             #   상수 & 공유 상태
-│       ├── ui.js                 #   테마, 토스트, 읽기 모드
-│       ├── chips.js              #   칩 그룹 로직
-│       ├── rules.js              #   세계관 규칙 태그
-│       ├── chars.js              #   인물 카드
-│       ├── suggest.js            #   AI 추천 직렬 큐
-│       ├── generate.js           #   에피소드 생성 SSE
-│       ├── modal.js              #   모달 & 컨텍스트 저장
-│       └── app.js                #   초기화
-│
-├── workflows/
-│   └── README_workflows.md       # 실행 절차, Director Mode, Visual Pacing
-├── tools/
-│   └── README_tools.md           # 기술 스택, API 연동, DB 스키마
-├── profiles/
-│   └── README_profiles.md        # 독자 프로필 4계층, Hexagon, Calibration
-├── story_data/
-│   └── README_story_data.md      # 서사 메모리 4구조, 생성 설정
-├── logs/
-│   └── README_logs.md            # 행동 로그 해석, 피드백 루프
-├── assets/
-│   ├── README_assets.md          # Voice Archive, BGM 정책
-│   ├── bgm/                      # BGM 라이브러리
-│   ├── voice_archive/            # 등록된 음성 자산 (암호화)
-│   └── voice_meta/               # 음성 학습 메타데이터
-└── .tmp/
-    └── README_tmp.md             # 임시 산출물 규칙
+src/
+  api/         REST/SSE 엔드포인트 (generate, context, books, characters, …)
+  pipeline/    planner / renderer / state_extractor / plan_validator / sanitizer
+  services/    character_state, effective_context, regen_divergence, model_router,
+               item_desc, foreshadow, language_guard, story
+  lib/         db, redis, llm, logger
+  types/       canonical, planner
+  training/    trace_logger, reward_aggregator, ending_reward, trajectory_reward
+  queues/      BullMQ 큐 정의 (현재 일부)
+  db/          migrate scripts
+
+public/
+  index.html
+  js/          generate, ui, modal, chips, rules, chars, suggest, app, voice, auth
+  css/         tokens, layout, components, modal
+
+config/        model_routes.json
+docs/          architecture map + SOP들 (§4 참조)
+scripts/       verify_*, audit_*, debug_*, setup_*, cleanup_*, experiments/
+workflows/, profiles/, story_data/, logs/, tools/, assets/, .tmp/
 ```
 
-### 확정된 기술 스택 (Tech Stack)
+핵심 데이터 흐름은 `docs/architecture.md` 참조.
 
-| 영역 | 선택 | 비고 |
+---
+
+## 4. Where to Read for Each Task
+
+| 작업 영역 | 트리거 | 정본 문서 |
 |---|---|---|
-| 텍스트 생성 LLM | DeepSeek-V3.2 | OpenAI SDK (`baseURL` 변경) |
-| 브라우저 스트리밍 | SSE (Server-Sent Events) | 단방향 토큰 스트림에 최적 |
-| 비동기 큐 | BullMQ + Redis | 4개 큐 분리, 재시도 지원 |
-| 데이터베이스 | PostgreSQL | JSONB로 벡터/로그 저장 |
-| 파일 스토리지 | 로컬(dev) → S3(prod) | 음성·BGM 파일 용량 대응 |
-| LLM 호출 방식 | 직접 REST API | MCP는 Admin 에이전트 한정 |
+| 전체 구조 / e2e 흐름 | "어디가 느린가", "어떤 단계가 있는가" | `docs/architecture.md` |
+| 본문 생성 (planner/renderer/state) | 생성 디버깅, prompt 튜닝 | `docs/story-generation-sop.md` |
+| 상태 분류 (감정/성격/관계/역할) | "친절한"이 감정에 뜸, taxonomy | `docs/state-taxonomy-sop.md` |
+| 재생성 다양성 | divergence contract, 1화 vs N화 | `docs/regeneration-sop.md` |
+| 세계관 저장/조회 | books.context vs derived index | `docs/world-bible-canonical-source.md` |
+| Reader UX | 사이드바, ep-end cards, hover, capture | `docs/reader-ux-sop.md` |
+| 검증/감사 | verify/audit/debug script 사용법 | `docs/audit-sop.md` |
+| 모델 라우팅 | route 결정, intent mode, provider 변경 | `docs/model-routing-ops.md` |
+| 사용자 상태 (4계층) | reader profile, calibration | `profiles/README_profiles.md` |
+| 서사 메모리 | rolling summary, foreshadow, arc | `story_data/README_story_data.md` |
+| 행동 로그 | calibration source, reward signal | `logs/README_logs.md` |
+| 음성 자산 | TTS, voice archive | `assets/README_assets.md` |
+| 절차/예외 처리 | director mode, release | `workflows/README_workflows.md` |
+| 코드 구현 디테일 | 함수 책임, DB schema | `tools/README_tools.md` |
 
-루트 문서에서는 각 폴더의 세부 정책을 설명하지 않는다.  
-각 폴더의 세부 규칙은 해당 위치의 전용 `.md` 문서에서 관리한다.
-
----
-
-## 5. Routing Rules
-
-현재 요청을 아래 기준으로 분류하고, **필요한 경우에만** 해당 영역 문서를 읽는다.
-
-### 5.1 `workflows/`
-다음 경우에만 읽는다.
-- 작업 절차가 불명확할 때
-- 승인된 실행 순서가 필요할 때
-- 예외 처리 순서가 필요할 때
-- Director Mode 처리 절차가 필요할 때
-
-### 5.2 `tools/`
-다음 경우에만 읽는다.
-- 코드 수정이 필요할 때
-- 함수 책임과 호출 방식이 필요할 때
-- API 연동 방식이 필요할 때
-- 구현 세부사항이 필요할 때
-
-### 5.3 `profiles/`
-다음 경우에만 읽는다.
-- 사용자 상태 구조를 확인해야 할 때
-- 상태 벡터를 갱신해야 할 때
-- 개인화 규칙을 적용해야 할 때
-- 예측 오차 반영, calibration, feedback loop가 필요할 때
-
-### 5.4 `story_data/`
-다음 경우에만 읽는다.
-- 세계관 설정을 확인해야 할 때
-- 플롯, 요약, 복선, 기억 구조를 확인해야 할 때
-- 서사 충돌을 해결해야 할 때
-
-### 5.5 `logs/`
-다음 경우에만 읽는다.
-- 행동 로그를 해석해야 할 때
-- 오차 원인을 분석해야 할 때
-- 사용자 반응 패턴을 봐야 할 때
-
-### 5.6 `assets/`
-다음 경우에만 읽는다.
-- 음성 자산 정책이 필요할 때
-- BGM 또는 정적 리소스 규칙이 필요할 때
-- 접근 권한 또는 사용 범위를 확인해야 할 때
-
-### 5.7 `state.json`
-다음 경우에만 읽는다.
-- 현재 활성 사용자나 세션 상태를 확인해야 할 때
-- 현재 도서, 회차, 모드, 파이프라인 진행 상태가 필요할 때
-
-### 5.8 `.tmp/`
-다음 경우에만 본다.
-- 임시 산출물을 검토해야 할 때
-- 중간 렌더링이나 초안을 확인해야 할 때
-
-### 5.9 `logs/test_results/`
-다음 경우에만 읽는다.
-- 강화학습·벤치마크 결과를 확인해야 할 때
-- 이전 테스트 점수와 비교해야 할 때
-- 테스트가 중단됐는지, 어디까지 진행됐는지 확인해야 할 때
-
-파일 패턴:
-- `longrun_*.json` — 30화 longrun_test 결과
-- `longrun100_*.json` — 100화 longrun_100_test 결과
-- `multi_world_*.json` — 다중 세계관 테스트 결과
-- `*_latest.json` — 각 테스트의 최신 완료 결과 (항상 최신본)
-- `status: "in_progress"` — 실행 중 체크포인트 (크래시 복구용)
-
-**에이전트 의무:** 테스트 결과를 묻는 질문이 오면 콘솔 출력을 확인하려 하지 말고, `logs/test_results/`의 JSON 파일을 먼저 읽는다. 결과 파일이 있으면 그것이 정본이다.
+원칙: **하나만 읽고 실행으로 돌아간다.** 한 영역으로 부족할 때만 두 번째.
 
 ---
 
-## 6. Read Minimization Policy
+## 5. Do-Not-Do List (recurring 함정)
 
-항상 아래 순서를 따른다.
-
-1. 먼저 이 문서만으로 판단한다
-2. 부족한 정보가 있으면 가장 직접적인 폴더 하나를 고른다
-3. 그 폴더 안의 가장 좁은 범위 문서 하나를 읽는다
-4. 그래도 부족할 때만 두 번째 문서를 읽는다
-5. 필요한 정보를 얻었으면 즉시 실행으로 돌아간다
-
-금지:
-- 관련 없는 폴더까지 미리 읽기
-- 세부 정책을 루트 문서에서 중복 설명하기
-- 한 작업에 여러 영역 문서를 습관적으로 전부 읽기
+- ❌ 단발 hotfix를 반복해 구조를 꼬이게 하기 (Phase 4.20 forensic 직전 상태) → 구조적 문제는 docs/SOP로 가서 R-phase로 단계화
+- ❌ runPlannerPipeline 안에 새 step 추가 → critical path 압박. background job 우선 검토
+- ❌ planner/renderer prompt에 새 [금지] section 추가 → negative dominance 심화. positive guidance 또는 contract type으로
+- ❌ emotional_state에 personality/role/relationship 단어 통과 허용 → R3 taxonomy 분리 위반
+- ❌ books.context 외 곳에 사용자 입력 직접 저장 → R4 canonical source 위반
+- ❌ "특정 책에서만 작동하는" 코드 추가 → 일반화 가능한 형태로
+- ❌ verify/audit script를 100개 더 만들기 → 중복 점검 후 추가
+- ❌ R-roadmap을 무시하고 단계 건너뛰기 → 측정 baseline 없이 R5 streaming 등 위험 phase 착수
 
 ---
 
-## 7. Execution Minimum
+## 6. Commit Policy
 
-모든 작업 시작 전 아래 네 가지만 먼저 명확히 한다.
+### 메시지
+- 한국어 OK, prefix는 conventional (feat/fix/docs/perf/refactor/test/chore)
+- 1줄 제목 + 빈 줄 + body
+- body에 변경 이유, 측정 결과, 위험/제외 항목
 
-### Goal
-무엇을 하려는가
+### 흐름
+1. `git status -s` / `git diff --stat HEAD` 로 변경 확인
+2. specific files만 add (절대 `.`)
+3. heredoc로 메시지 (한국어 multi-line)
+4. `git status -s`로 결과 확인
+5. push는 사용자 요청이 있을 때만, main은 절대 금지
 
-### Inputs
-무엇을 읽고 판단할 것인가
+### Co-author
+```
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>
+```
 
-### Active State
-현재 어떤 사용자 상태와 서사 상태가 활성화되어 있는가
-
-### Deliverables
-무엇을 결과물로 낼 것인가
-
-세부 포맷과 계산 규칙은 각 영역 문서에서 확인한다.
-
----
-
-## 8. Output Discipline
-
-산출물은 항상 다음 조건을 만족해야 한다.
-
-- 현재 목표와 직접 연결되어야 한다
-- 필요한 상태만 읽고 필요한 부분만 수정해야 한다
-- 관련 없는 폴더 문서를 불필요하게 읽지 않아야 한다
-- 세부 규칙이 필요할 때만 해당 문서를 추가로 읽어야 한다
-- 루트 문서의 역할을 넘어서 세부 정책을 다시 길게 쓰지 않아야 한다
+상세는 system prompt 또는 사용자 안내 시 따른다.
 
 ---
 
-## 9. Non-Goals
+## 7. Verification Policy
 
-다음은 기본 목표가 아니다.
+### 코드 변경 시 필수
+- `npm run build` (tsc) 통과
+- 변경 파일에 해당하는 verify script 실행:
+  - planner/renderer → `verify_world_rule_integrity` `verify_episode1_regeneration_intro_contract` `verify_route_integrity`
+  - state/normalizer → `verify_state_language_guard` `verify_emotion_label_normalization`
+  - UI → `verify_episode_end_character_cards` `verify_reading_mode_scroll_anchor`
+  - context save → `verify_context_save_async`
+  - generation latency → `verify_generation_latency_markers`
+  - regen → `verify_regeneration_divergence_contract`
+  - item ledger → `verify_item_location_ledger`
+  - placeholder → `verify_episode_end_placeholder`
 
-- 범용 챗봇 만들기
-- 단순 블로그 또는 게시판 만들기
-- 일반 전자책 뷰어 복제
-- 사용자 로그와 무관한 무작위 생성
-- 모델 자체 파인튜닝 중심 설계
-- 루트 문서 하나에 모든 세부 정책을 몰아넣는 방식
+### 측정 (Phase 4.20 R1.5)
+- `scripts/measure_prompt_budget.mjs` (정적, 즉시 실행 가능)
+- `scripts/measure_context_save_latency.mjs` (사용자 환경에서 실행)
+- `scripts/measure_generation_baseline.mjs` (사용자 환경에서 실행)
+
+baseline 결과는 `docs/measurement-baseline-phase4.20.md` / `docs/prompt-budget-baseline.md` / `docs/critical-path-baseline.md`에.
+
+### Audit (DB 데이터 검증, 책 단위)
+- `audit_world_rule_integrity.mjs --book-id <X>`
+- `audit_world_rule_violation.mjs --book-id <X> --episode N`
+- `audit_episode_regen_divergence.mjs --book-id <X>`
+- `audit_episode_end_item_state.mjs --book-id <X> --episode N`
+- `audit_regen_overconstraint.mjs --book-id <X>`
+
+### 브라우저 수동 확인
+UI/UX 변경은 코드 verify로는 시각 회귀를 잡을 수 없다. 사용자에게 직접 확인 요청.
 
 ---
 
-## 10. Priority Order
+## 부록 A. 디렉토리별 README와의 관계
 
-충돌 시 다음 우선순위를 따른다.
+`workflows/`, `profiles/`, `story_data/`, `logs/`, `tools/`, `assets/`, `.tmp/`의 README는 각 영역의 정본. CLAUDE.md는 "어디로 갈지"만 안내, 정책 본체는 README에. 영역 간 경계가 모호한 새 주제는 `docs/`의 SOP로.
 
-1. 사용자 직접 지시
-2. 해당 작업의 직접 절차 문서
-3. 서사 일관성
-4. 사용자 프로필
-5. 최신 행동 로그
-6. 도구 편의성
-7. 구현 단순성
+## 부록 B. 응답/출력 디스시플린
 
----
+- 짧고 정확하게. tool 호출 전 한 줄 안내.
+- 사장이 안 묻는 정보를 자발적으로 길게 보고하지 말 것.
+- 기능 추가/refactor를 task 범위 밖으로 확장하지 말 것.
+- 코드 변경은 최소 diff. 주석은 hidden constraint나 "왜"가 비자명할 때만.
 
-## 11. Final Rule
+## 부록 C. Phase 추적
 
-이 문서는 **부트스트랩과 라우팅만 담당**한다.
-
-세부 상태 업데이트 규칙, 피드백 루프, 로그 해석, 메모리 병합, 음성 자산 정책, 코드 구현 방식은  
-반드시 각 폴더 내부의 전용 `.md` 문서에서 관리한다.
-
-항상 다음처럼 행동한다.
-
-- 먼저 루트 문서로 판단한다
-- 추가 정보가 필요하면 가장 관련성 높은 영역 하나만 연다
-- 필요한 세부 문서만 읽는다
-- 읽은 뒤 즉시 실행으로 돌아간다
-
-가장 좋은 에이전트 행동은  
-**많이 읽는 것**이 아니라  
-**필요한 것만 정확히 읽고 바로 반영하는 것**이다.
+작업 단위는 사용자가 부여한 Phase 이름(`Phase 4.x`, `Phase R0-R1.5` 등)을 그대로 사용. 커밋 메시지에 Phase 라벨 명시.
