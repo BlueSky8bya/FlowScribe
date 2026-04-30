@@ -512,6 +512,17 @@ function buildPlannerUserPrompt(
     if (cc.forbidden_regressions.length) {
       ccLines.push(`[금지된 퇴행 — 절대 금지]\n${cc.forbidden_regressions.map(r => `- ${r}`).join("\n")}`);
     }
+    // Phase 4.11: cross-episode 위치/visibility 누적
+    if (cc.character_position_state?.length) {
+      const posLines = cc.character_position_state.map(p =>
+        `- ${p.character_name}: 위치="${p.last_location}", visibility=${p.visibility}, 소지=${p.items_summary}`
+      );
+      ccLines.push(
+        `[직전 화 종료 시점 인물 상태 — 이번 화 시작점]\n${posLines.join("\n")}\n` +
+        `규칙: 인물 위치가 위와 다르게 시작하려면 scene_beats 중 하나에 이동/시간경과/외부개입 등 transition reason을 포함해야 한다. ` +
+        `visibility가 absent/cannot_act였던 인물은 이번 화에 등장 또는 행동시키려면 등장 계기를 명시해야 한다.`
+      );
+    }
     sections.push(`[연속성 계약 — 절대 준수]\n${ccLines.join("\n")}`);
   }
 

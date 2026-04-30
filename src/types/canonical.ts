@@ -268,6 +268,17 @@ export interface ContinuityContract {
   relationship_state: string[];
   open_threads: string[];
   forbidden_regressions: string[];
+  /**
+   * Phase 4.11 — cross-episode 인물 위치/visibility 누적.
+   * planner는 이 항목을 starting state로 받아 첫 beat에서 반영하거나
+   * scene_transition_reason과 함께 변경해야 한다.
+   */
+  character_position_state?: Array<{
+    character_name: string;
+    last_location: string;
+    visibility: string;     // present | absent | cannot_act
+    items_summary: string;  // 짧은 string (3개 이하)
+  }>;
 }
 
 // ══════════════════════════════════════════════════════════════

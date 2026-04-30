@@ -370,7 +370,7 @@ export function effectiveContextToStoryContext(ctx: EffectiveContext) {
  */
 function buildContinuityContract(
   episodeNumber: number,
-  dynStates: Array<{ character_name: string; location?: string | null; emotional_state?: string | null; recent_goal?: string | null; items?: any[] | null; physical_state?: string | null }>,
+  dynStates: Array<{ character_name: string; location?: string | null; emotional_state?: string | null; recent_goal?: string | null; items?: any[] | null; physical_state?: string | null; visibility_state?: string | null }>,
   characterArcs: Record<string, { state: string; key_events: string[] }>,
   foreshadows: Array<{ content: string; keywords: string[] }>,
   prevTail?: string,
@@ -447,6 +447,25 @@ function buildContinuityContract(
     }
   }
 
+  // ── Phase 4.11: cross-episode character_position_state ───────────
+  // 직전 화 dynStates에서 인물별 last_location / visibility / items 추출
+  const character_position_state = dynStates
+    .filter(s => s.character_name) // canonical filter는 이미 effective_context에서 적용됨
+    .map(s => {
+      const items = Array.isArray(s.items) ? s.items : [];
+      const itemNames = items
+        .map((i: any) => typeof i === "string" ? i : (i?.name ?? ""))
+        .filter(Boolean)
+        .slice(0, 3)
+        .join(", ");
+      return {
+        character_name: s.character_name,
+        last_location: s.location ?? "위치 불명",
+        visibility: (s as any).visibility_state ?? "present",
+        items_summary: itemNames || "없음",
+      };
+    });
+
   return {
     mode: "next_episode",
     must_continue_from: {
@@ -457,6 +476,7 @@ function buildContinuityContract(
     relationship_state,
     open_threads,
     forbidden_regressions,
+    character_position_state,
   };
 }
 
