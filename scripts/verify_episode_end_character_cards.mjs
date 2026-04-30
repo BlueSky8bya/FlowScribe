@@ -62,10 +62,23 @@ check("char-name-ref :hover 효과 제거", !/span\.char-name-ref:hover/.test(cs
 
 console.log("\n── [6] CSS 정의 (2열 grid) ──");
 check(".episode-end-cards 스타일 정의", /\.episode-end-cards\s*\{/.test(css));
-check(".ep-end-grid 2열 grid", /\.ep-end-grid\s*\{[^}]*grid-template-columns:repeat\(2/.test(css));
+check(".ep-end-grid auto-fit grid (2~3열)", /\.ep-end-grid\s*\{[\s\S]*?grid-template-columns:repeat\(auto-fit,minmax\(\d+px,1fr\)\)/.test(css));
+check(".ep-end-grid 안 .scene-char-item override (사이드바보다 큼)", /\.ep-end-grid\s+\.scene-char-item\s*\{/.test(css));
 check(".scene-char-min 스타일 정의 (사이드바)", /\.scene-char-min\s*\{/.test(css));
 
-console.log("\n── [7] 산출물 ──");
+console.log("\n── [7] 생성 중 노출 차단 ──");
+{
+  const idx = gen.search(/function _clearDebugPanels/);
+  const slice = idx >= 0 ? gen.slice(idx, idx + 1500) : "";
+  check("_clearDebugPanels에서 episodeEndCards를 hide+empty", /episodeEndCards/.test(slice));
+}
+{
+  const idx = gen.search(/function renderEpisodeEndCharCards/);
+  const slice = idx >= 0 ? gen.slice(idx, idx + 800) : "";
+  check("renderEpisodeEndCharCards에 _generating 가드", /_generating/.test(slice) && /wrap\.hidden\s*=\s*true/.test(slice));
+}
+
+console.log("\n── [8] 산출물 ──");
 check("public/js/generate.js exists", existsSync("public/js/generate.js"));
 
 console.log("\n" + "─".repeat(60));

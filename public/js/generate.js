@@ -802,10 +802,14 @@ function updateSceneCharPanel(charStates) {
 }
 
 // Phase 4.19 — 본문 하단 회차 종료 인물 카드 렌더
-// 사이드바에서 쓰던 확장/축소형 detailed 카드(소지품 카드 포함)를 그대로 사용, 2열 grid 배치.
+// 사이드바에서 쓰던 확장/축소형 detailed 카드(소지품 카드 포함)를 그대로 사용,
+// auto-fit grid (2~3열). 생성 중에는 절대 노출하지 않는다 — 재생성·다음화 생성 모두.
 function renderEpisodeEndCharCards(charStates) {
   const wrap = document.getElementById('episodeEndCards');
   if (!wrap) return;
+  // 재생성 / N화 생성 진행 중이면 카드 영역을 비워두고 종료
+  if (_generating) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+
   const outputText = document.getElementById('output')?.textContent ?? '';
   const visible = (charStates || []).filter(s => {
     if (!s || !s.character_name) return false;
@@ -1487,6 +1491,9 @@ function _clearDebugPanels() {
   // 생성 시작 시 이전 화 데이터가 남아 보이지 않도록 모든 디버그 패널 초기화
   const empty = id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; };
   const hide  = id => { const el = document.getElementById(id); if (el) el.hidden = true; };
+  // Phase 4.19 — 본문 하단 회차 종료 카드도 생성 중에는 노출 금지
+  const epEnd = document.getElementById('episodeEndCards');
+  if (epEnd) { epEnd.hidden = true; epEnd.innerHTML = ''; }
   const pending = '<div style="color:var(--text4);font-style:italic;padding:.4rem 0;">⏳ 생성 완료 후 표시</div>';
   const basicEl = document.getElementById('eqBasicInfo');
   if (basicEl) basicEl.innerHTML = pending;
