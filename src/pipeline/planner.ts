@@ -16,7 +16,8 @@
  * 파싱 실패 시: 결정론적 fallback 계획으로 대체 (파이프라인 계속 진행).
  */
 
-import { getLLMClient, getPlannerModel } from "../lib/llm.js";
+import { getLLMClient, getPlannerModel, getActiveProvider } from "../lib/llm.js";
+import { resolveTaskRoute, runLLMTask } from "../services/model_router.js";
 import { logInfo, logWarn } from "../lib/logger.js";
 import type { EffectiveContext } from "../types/canonical.js";
 import { HOOK_TYPES } from "../types/planner.js";
@@ -926,26 +927,54 @@ export async function runCreativePlanner(
   ctx: EffectiveContext,
   sc: ExtractedStateConstraints,
   modelOverride?: string,
+  routeSetOverride?: string,
 ): Promise<{ plan: CreativePlan; fallback_used: boolean; raw_output: string }> {
-  const llm   = getLLMClient();
-  const model = modelOverride ?? getPlannerModel();
+  const systemPrompt = buildPlannerSystemPrompt();
+  const userPrompt = buildPlannerUserPrompt(ctx, sc);
+
+  // Phase 4.14 — config 라우트가 planner에 다른 provider/model을 지정하면 router 사용.
+  // 그렇지 않으면 legacy path. routeSetOverride가 명시된 경우 우선 적용.
+  const route = resolveTaskRoute("planner", routeSetOverride);
+  const useRouter = !modelOverride
+    && route
+    && (route.provider !== getActiveProvider() || route.model !== getPlannerModel());
+
+  const model = modelOverride ?? (useRouter ? route!.model : getPlannerModel());
 
   logInfo("pipeline:planner", "창의적 장면 계획 생성", {
-    episode: ctx.episode_number, model,
+    episode: ctx.episode_number,
+    model,
+    provider: useRouter ? route!.provider : getActiveProvider(),
+    via: useRouter ? "router" : "legacy",
+    route_set_override: routeSetOverride,
   });
 
   try {
-    const res = await (llm.chat.completions.create as any)({
-      model,
-      messages: [
-        { role: "system", content: buildPlannerSystemPrompt() },
-        { role: "user",   content: buildPlannerUserPrompt(ctx, sc) },
-      ],
-      temperature: 0.65,   // 다양성 유지하되 JSON 스키마 준수율 향상
-      max_tokens: 3000,    // scene_beats 4개 + character_state_updates 4인물 + 여유
-    });
-
-    const raw = res.choices?.[0]?.message?.content ?? "";
+    let raw: string;
+    if (useRouter) {
+      const r = await runLLMTask("planner", {
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt },
+        ],
+        route_set_override: routeSetOverride,
+        temperature: 0.65,
+        max_tokens: 3000,
+      });
+      raw = r.text;
+    } else {
+      const llm = getLLMClient();
+      const res = await (llm.chat.completions.create as any)({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt },
+        ],
+        temperature: 0.65,
+        max_tokens: 3000,
+      });
+      raw = res.choices?.[0]?.message?.content ?? "";
+    }
     // character_state_updates는 CreativePlan과 별도로 raw에서 안전 추출
     let rawParsed: any = null;
     try { rawParsed = JSON.parse(raw.trim()); } catch {}

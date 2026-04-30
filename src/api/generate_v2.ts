@@ -67,6 +67,7 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     enable_trace: enableTrace = false,
     planner_model: plannerModelOverride,
     renderer_model: rendererModelOverride,
+    model_route: modelRoute,
   } = req.body as {
     book_id: string;
     episode: number;
@@ -81,6 +82,8 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
     enable_trace?: boolean;
     planner_model?: string;
     renderer_model?: string;
+    /** Phase 4.14 — config/model_routes.json 의 route_set 이름. 미지정 시 active route 사용. */
+    model_route?: string;
   };
 
   if (!bookId || !episode) {
@@ -151,6 +154,7 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
         bookId: bookId ?? undefined,
         plannerModelOverride,
         rendererModelOverride,
+        routeSetOverride: modelRoute,
       });
 
       fullText = pipelineResult.generated_text;

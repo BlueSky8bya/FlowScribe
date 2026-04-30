@@ -100,6 +100,8 @@ export interface PlannerPipelineOptions {
   bookId?: string;
   /** 단계별 진행 상황 콜백 — SSE status 이벤트용 */
   onStatus?: (msg: string) => void;
+  /** Phase 4.14 — 이번 호출에 적용할 route_set 이름 (model_router config). 미지정 시 active route 사용. */
+  routeSetOverride?: string;
 }
 
 const EMPTY_QUALITY_SCORES = {
@@ -123,6 +125,7 @@ export async function runPlannerPipeline(
     onStatus,
     plannerModelOverride,
     rendererModelOverride,
+    routeSetOverride,
   } = opts;
   const notify = (msg: string) => { onStatus?.(msg); };
 
@@ -142,7 +145,7 @@ export async function runPlannerPipeline(
   // ─── Step 2: Creative Planning (LLM) ─────────────────────────
   notify("플래너가 장면 비트와 인물 감정선을 설계하는 중...");
   const t_plan0 = Date.now();
-  const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints, plannerModelOverride);
+  const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints, plannerModelOverride, routeSetOverride);
   const planner_elapsed_ms = Date.now() - t_plan0;
   tracer?.setPlannerTrace({
     raw_llm_output: raw_output ?? "",
@@ -255,7 +258,7 @@ export async function runPlannerPipeline(
   let generatedText = "";
   let rawRenderedText = "";
   try {
-    const renderResult = await renderFromPlanWithTrace(scenePlan, ctx, rendererModelOverride);
+    const renderResult = await renderFromPlanWithTrace(scenePlan, ctx, rendererModelOverride, routeSetOverride);
     rawRenderedText = renderResult.text;
     // ── Prose Name Drift Detector: 생성 텍스트에서 canonical name 변형 탐지 (로그만) ──
     // 교정은 하지 않음 (한국어 조사 경계 파싱이 필요하여 오탐 위험 높음)
