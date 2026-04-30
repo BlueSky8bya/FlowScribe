@@ -20,6 +20,7 @@ import { reviseUntilPass } from "../services/revision.js";
 import { commitDynamicState, getLatestDynamicStates } from "../services/character_state.js";
 import { normalizeStateUpdate, normalizeEmotionalState, normalizeLocation, normalizePhysicalState, normalizeRecentGoal } from "../services/language_guard.js";
 import { sanitizeGeneratedBody } from "../services/text_sanitizer.js";
+import { judgeAndRepair } from "../services/narrative_coherence.js";
 import { normalizeItems, checkLocationChange, emptyItemLedgerCheck, emptyLocationLedgerCheck, type ItemLedgerCheck, type LocationLedgerCheck } from "../lib/item_ledger.js";
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
@@ -359,6 +360,82 @@ export async function runPlannerPipeline(
     });
     if (tracer) {
       (tracer as any).episode_delta_check = deltaCheckResult;
+    }
+  }
+
+  // ─── Step 5.4: Narrative Coherence Judge + Targeted Repair (Phase 4.10) ───
+  // selective: deterministic 감사가 후보를 발견했거나 강제 모드일 때만 Gemini judge 호출.
+  // fatal 확정 시 단락 단위 최소 수정. 전체 재생성 금지.
+  const coherenceForce =
+    process.env.COHERENCE_JUDGE === "force" ||
+    process.env.COHERENCE_JUDGE === "1";
+  const coherenceAllowRepair = process.env.COHERENCE_REPAIR !== "0"; // 기본 허용
+
+  // hint 수집: continuity / delta 결과 중 fatal 후보가 될 만한 것
+  const coherenceHints: string[] = [];
+  const tracerAny = tracer as any;
+  if (tracerAny?.continuity_check?.issues?.length) {
+    for (const i of tracerAny.continuity_check.issues) coherenceHints.push(`continuity: ${i}`);
+  }
+  if (tracerAny?.episode_delta_check?.repeated_patterns?.length) {
+    for (const p of tracerAny.episode_delta_check.repeated_patterns.slice(0, 3))
+      coherenceHints.push(`delta_repeat: ${p}`);
+  }
+
+  if (generatedText && (coherenceForce || coherenceHints.length > 0)) {
+    try {
+      // 누적 요약: 직전 화 tail 정도만 (비용 제한)
+      const prevSummary = ctx.prev_episode_tail
+        ? `직전 화 tail: ${String(ctx.prev_episode_tail).slice(0, 1500)}`
+        : undefined;
+
+      // states for judge: scenePlan.character_state_updates를 그대로 (post-normalize)
+      const judgeStates = (scenePlan.character_state_updates ?? []).map((u: any) => ({
+        character_name: u.character_name,
+        location: u.location ?? null,
+        physical_state: u.physical_state ?? null,
+        emotional_state: u.emotional_state ?? null,
+        items: u.items ?? [],
+        visibility_state: u.visibility_state ?? null,
+      }));
+
+      const result = await judgeAndRepair(
+        {
+          episode_number: ctx.episode_number,
+          content: generatedText,
+          states: judgeStates,
+          prevSummary,
+          hints: coherenceHints,
+        },
+        { force: coherenceForce, allowRepair: coherenceAllowRepair },
+      );
+
+      if (result.judge.judgeCalled) {
+        logInfo("pipeline:coherence", "narrative coherence judge 결과", {
+          episode: ctx.episode_number,
+          fatal: result.judge.fatalIssues.length,
+          major: result.judge.majorIssues.length,
+          minor: result.judge.minorIssues.length,
+          repaired: result.repaired.applied,
+          repair_failed: result.repaired.failed,
+          hints: coherenceHints.length,
+        });
+        if (result.repaired.applied > 0) {
+          generatedText = result.finalContent;
+        }
+        if (tracer) {
+          (tracer as any).coherence_check = {
+            fatal: result.judge.fatalIssues.length,
+            major: result.judge.majorIssues.length,
+            minor: result.judge.minorIssues.length,
+            repair_applied: result.repaired.applied,
+            repair_failed: result.repaired.failed,
+            judge_error: result.judge.judgeError,
+          };
+        }
+      }
+    } catch (err) {
+      logWarn("pipeline:coherence", "judge/repair 실행 실패 — skip", { error: String(err) });
     }
   }
 
