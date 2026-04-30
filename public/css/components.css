@@ -282,8 +282,8 @@
  * border-bottom 색은 wrapCharNamesInOutput()에서 인라인 style로 부여.
  */
 span.char-name-ref{
-  border-bottom:1.5px solid currentColor;
-  text-underline-offset:3px;
+  border-bottom:3px solid currentColor;
+  padding-bottom:1px;
   /* cursor 변화·hover transition 모두 제거 — 인터랙티브 신호 없음 */
 }
 /* 낭독 모드에서도 동일 처리 (인터랙션 비신호화) */

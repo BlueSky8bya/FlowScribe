@@ -1015,7 +1015,7 @@ function wrapCharNamesInOutput(charStates) {
     el.innerHTML = el.innerHTML.replace(regex, m => {
       const s = _charStateMap[m];
       const gColor = s ? (_GENDER_COLOR[s.gender] ?? '') : '';
-      const style = gColor ? ` style="border-bottom-color:${gColor}80"` : '';
+      const style = gColor ? ` style="border-bottom-color:${gColor}cc"` : '';
       return `<span class="char-name-ref" data-char="${m}"${style}>${m}</span>`;
     });
   });
