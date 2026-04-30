@@ -94,6 +94,11 @@ generateRouter.get("/", async (req: Request, res: Response) => {
   // ── Planner 경로 (use_planner=true) ─────────────────────────
   if (usePlanner) {
     enterGeneration();
+    // Phase 4.19C — 생성 latency 계측 마커
+    const _genT0 = Date.now();
+    const _genMark = (label: string, extra?: Record<string, unknown>) =>
+      logInfo("api:generate:latency", label, { book_id: bookId, episode, ms: Date.now() - _genT0, ...(extra ?? {}) });
+    _genMark("request_start");
     try {
       logInfo("api:generate", "플래너 경로 시작", { book_id: bookId, episode });
 
@@ -109,6 +114,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       ).catch(() => {});
 
       const ctx = await buildEffectiveContext({ bookId: bookId!, episodeNumber: episode });
+      _genMark("effective_context_done");
 
       // 컨텍스트 스냅샷 저장 (fire-and-forget)
       saveEpisodeSnapshot({ ...ctx, book_id: bookId! } as any).catch(() => {});
@@ -150,6 +156,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       } catch { /* 무시 */ }
       const t_ctx = Date.now();
       logInfo("api:generate", "buildEffectiveContext 완료", { book_id: bookId, episode, elapsed_ms: t_ctx - Date.now() });
+      _genMark("pipeline_start");
       const result = await runPlannerPipeline(ctx, {
         bookId: bookId!,
         doRevise: false,
@@ -160,9 +167,16 @@ generateRouter.get("/", async (req: Request, res: Response) => {
         plannerModelOverride,
         routeSetOverride: modelRoute,
       });
+      _genMark("pipeline_done", {
+        planner_ms: result.planner_elapsed_ms,
+        renderer_ms: result.renderer_elapsed_ms,
+        total_pipeline_ms: result.elapsed_ms,
+        chars: result.generated_text?.length ?? 0,
+      });
 
       // 텍스트를 token SSE로 전송 (generate.js의 json.token 핸들러가 수신)
       res.write(`data: ${JSON.stringify({ token: result.generated_text })}\n\n`);
+      _genMark("first_token_sent");
 
       // 에피소드 자동 저장 (rolling_summary가 다음 화에서 작동하도록)
       if (result.generated_text.trim()) {
@@ -226,7 +240,9 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       }
 
       // fresh char_states (planner가 commitDynamicState 완료 후)
+      const _stateT0 = Date.now();
       const freshStates = (await getLatestDynamicStates(bookId!, episode).catch(() => []));
+      _genMark("char_states_fetched", { state_fetch_ms: Date.now() - _stateT0, count: freshStates.length });
       const wbCtxDefs = ctx.characters ?? [];
       const freshCharStates = freshStates.map(s => {
         const canon = wbCtxDefs.find(c => c.name === s.character_name);
@@ -296,6 +312,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
         },
       })}\n\n`);
       res.end();
+      _genMark("done_sent");
       exitGeneration();
 
       // ── Background Audit (reader_fast 완료 후 비동기) ────────────

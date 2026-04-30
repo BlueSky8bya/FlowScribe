@@ -90,6 +90,11 @@ export function parseItemEntry(raw: any): Record<string, any> {
 const TTL = 60 * 60 * 24 * 7; // 7일
 
 contextRouter.post("/", async (req: Request, res: Response) => {
+  // Phase 4.19C — saveContext latency 계측
+  const _t0 = Date.now();
+  const _mark = (label: string) => logInfo("api:context:save:latency", label, { book_id: req.body?.book_id, ms: Date.now() - _t0 });
+  _mark("context_save_start");
+
   const { book_id, worldBible, storyConfig } = req.body;
   if (!book_id || !worldBible) {
     res.status(400).json({ error: "book_id and worldBible required" });
@@ -138,6 +143,7 @@ contextRouter.post("/", async (req: Request, res: Response) => {
       `UPDATE books SET context = $1::jsonb, updated_at = NOW() WHERE id = $2`,
       [JSON.stringify(payload), book_id]
     ).catch(() => {}); // books 테이블 없는 book_id면 무시
+    _mark("context_db_save_done");
 
     // Phase 4.19 — world_rules / world_configs 테이블 동기화
     // worldBible의 일반 규칙과 forbidden_settings를 정규화된 테이블에도 저장한다.
@@ -276,6 +282,8 @@ contextRouter.post("/", async (req: Request, res: Response) => {
       // setImmediate로 응답 사이클 후 실행 + 인물별 병렬 (Promise.all)
       if (enrichJobs.length) {
         setImmediate(() => {
+          const _bgT0 = Date.now();
+          logInfo("api:context:save:latency", "item_desc_bg_start", { book_id, jobs: enrichJobs.length });
           Promise.all(enrichJobs.map(j =>
             generateAndSaveItemDescriptions({
               book_id,
@@ -292,12 +300,15 @@ contextRouter.post("/", async (req: Request, res: Response) => {
                   user_desc: parsed.description ?? null,
                 };
               }),
-            }).catch((e) => logWarn("api:context:save", "item_desc 백그라운드 실패", { book_id, char: j.name, error: String(e?.message ?? e) }))
-          )).catch(() => {});
+            }).catch((e) => logWarn("api:context:save:latency", "item_desc_bg_error", { book_id, char: j.name, error: String(e?.message ?? e) }))
+          )).then(() => {
+            logInfo("api:context:save:latency", "item_desc_bg_done", { book_id, ms: Date.now() - _bgT0, jobs: enrichJobs.length });
+          }).catch(() => {});
         });
       }
     }
 
+    _mark("context_response_sent");
     res.json({ ok: true });
   } catch (err) {
     logError("api:context:save", err, { book_id });
