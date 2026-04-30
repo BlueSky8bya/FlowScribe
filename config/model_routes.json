@@ -1,0 +1,83 @@
+{
+  "$schema_comment": "Phase 4.12 Model Routing Configuration. router는 ${ENV_VAR} 형태를 process.env에서 치환한다.",
+  "active_route": "baseline_local",
+  "fallback_route": "baseline_local",
+
+  "route_sets": {
+    "baseline_local": {
+      "description": "현재 운영 — Phase 4.11까지의 baseline",
+      "routes": {
+        "world_setting_suggest":   { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
+        "rules_suggest":           { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
+        "mood_suggest":            { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
+        "character_suggest":       { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
+        "item_detail_suggest":     { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
+        "style_direction_suggest": { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
+
+        "planner":  { "provider": "ollama", "model": "${PLANNER_MODEL:-qwen2.5:14b}",  "temperature": 0.4, "json_mode": true },
+        "renderer": { "provider": "ollama", "model": "${RENDERER_MODEL:-qwen2.5:14b}", "temperature": 0.7 },
+        "state_extractor":  { "provider": "ollama", "model": "${SUMMARY_MODEL:-gemma3:12b}", "temperature": 0.2, "json_mode": true },
+
+        "summary_writer":      { "provider": "ollama", "model": "${SUMMARY_MODEL:-gemma3:12b}", "temperature": 0.3 },
+        "arc_summary_writer":  { "provider": "ollama", "model": "${SUMMARY_MODEL:-gemma3:12b}", "temperature": 0.3 },
+        "foreshadow_reasoning":{ "provider": "ollama", "model": "${SUMMARY_MODEL:-gemma3:12b}", "temperature": 0.2 },
+        "item_description":    { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.6 },
+
+        "narrative_repair":    { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 },
+        "post_validator":      { "provider": "ollama", "model": "${SUMMARY_MODEL:-gemma3:12b}", "temperature": 0.2 },
+        "post_revision":       { "provider": "ollama", "model": "${RENDERER_MODEL:-qwen2.5:14b}", "temperature": 0.5 }
+      },
+      "multi_routes": {
+        "reader_immersion_judge": [
+          { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 },
+          { "provider": "openai", "model": "${OPENAI_JUDGE_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
+        ]
+      }
+    },
+
+    "deepseek_renderer": {
+      "description": "Route B — DeepSeek로 본문 생성 (한국어 문장력 비교)",
+      "routes": {
+        "renderer":         { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
+        "narrative_repair": { "provider": "gemini",   "model": "gemini-2.5-flash", "temperature": 0.1 }
+      }
+    },
+
+    "deepseek_planner": {
+      "description": "Route C — DeepSeek로 plan 생성",
+      "routes": {
+        "planner":          { "provider": "deepseek", "model": "${DEEPSEEK_PLANNER_MODEL:-deepseek-chat}", "temperature": 0.4, "json_mode": true },
+        "narrative_repair": { "provider": "gemini",   "model": "gemini-2.5-flash", "temperature": 0.1 }
+      }
+    },
+
+    "deepseek_full": {
+      "description": "Route D — Planner + Renderer 둘 다 DeepSeek",
+      "routes": {
+        "planner":  { "provider": "deepseek", "model": "${DEEPSEEK_PLANNER_MODEL:-deepseek-chat}",  "temperature": 0.4, "json_mode": true },
+        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
+        "narrative_repair": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 }
+      }
+    },
+
+    "gemini_planner_deepseek_renderer": {
+      "description": "Route E — Planner는 Gemini, Renderer는 DeepSeek",
+      "routes": {
+        "planner":  { "provider": "gemini",   "model": "${GEMINI_PLANNER_MODEL:-gemini-2.5-flash}", "temperature": 0.4, "json_mode": true },
+        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
+        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
+      }
+    },
+
+    "high_quality_ensemble": {
+      "description": "Route F — Planner OpenAI, Renderer DeepSeek, Repair OpenAI/Gemini",
+      "routes": {
+        "planner":  { "provider": "openai",   "model": "${OPENAI_PLANNER_MODEL:-gpt-4.1-mini}", "temperature": 0.4, "json_mode": true },
+        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
+        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 },
+        "arc_summary_writer": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.3 },
+        "foreshadow_reasoning":{ "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.2 }
+      }
+    }
+  }
+}
