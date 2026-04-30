@@ -801,50 +801,174 @@ function updateSceneCharPanel(charStates) {
   panel.hidden = false;
 }
 
-// Phase 4.19 — 본문 하단 회차 종료 인물 카드 렌더 (감정·신체·소지품·위치 상세)
+// Phase 4.19 — 본문 하단 회차 종료 인물 카드 렌더
+// 사이드바에서 쓰던 확장/축소형 detailed 카드(소지품 카드 포함)를 그대로 사용, 2열 grid 배치.
 function renderEpisodeEndCharCards(charStates) {
   const wrap = document.getElementById('episodeEndCards');
   if (!wrap) return;
-  const visible = (charStates || []).filter(s => s && s.character_name);
+  const outputText = document.getElementById('output')?.textContent ?? '';
+  const visible = (charStates || []).filter(s => {
+    if (!s || !s.character_name) return false;
+    if (s.visibility_state === 'absent') return outputText.includes(s.character_name);
+    return true;
+  });
   if (!visible.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
 
   wrap.innerHTML = `
-    <div class="ep-end-title">이번 화 종료 시점 인물 상태</div>
-    <div class="ep-end-grid">
-      ${visible.map(s => {
-        const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
-        const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
-        const items = Array.isArray(s.items) ? s.items : [];
-        const itemHtml = items.length
-          ? items.map(it => {
-              const nm = typeof it === 'string' ? it : (it?.name ?? '');
-              const cond = typeof it === 'object' ? (it?.condition ?? '') : '';
-              return `<span class="ep-end-item">${nm}${cond ? `<em class="ep-end-item-cond">(${cond})</em>` : ''}</span>`;
-            }).join('')
-          : `<span class="ep-end-empty">빈손</span>`;
-        const emot = (s.emotional_state && String(s.emotional_state).trim()) || '미파악';
-        const phys = (s.physical_state && String(s.physical_state).trim()) || '정상';
-        const loc  = (s.location && String(s.location).trim()) || '미상';
-        const goal = (s.recent_goal && String(s.recent_goal).trim()) || '';
-        return `
-          <div class="ep-end-card" data-char="${s.character_name}">
-            <div class="ep-end-card-head" style="border-color:${gColor}33">
-              <span class="ep-end-name" style="color:${gColor}">${s.character_name}</span>
-              ${gLabel ? `<span class="ep-end-gender" style="color:${gColor};opacity:.7">${gLabel}</span>` : ''}
-            </div>
-            <div class="ep-end-row"><span class="ep-end-lbl">위치</span><span class="ep-end-val">${loc}</span></div>
-            <div class="ep-end-row"><span class="ep-end-lbl">감정</span><span class="ep-end-val">${emot}</span></div>
-            <div class="ep-end-row"><span class="ep-end-lbl">신체</span><span class="ep-end-val">${phys}</span></div>
-            ${goal ? `<div class="ep-end-row"><span class="ep-end-lbl">변화</span><span class="ep-end-val">${goal}</span></div>` : ''}
-            <div class="ep-end-row ep-end-items"><span class="ep-end-lbl">소지</span><div class="ep-end-items-wrap">${itemHtml}</div></div>
-          </div>`;
-      }).join('')}
-    </div>
+    <div class="ep-end-title">현재 인물 상태</div>
+    <div class="ep-end-grid">${visible.map(_buildSceneCharDetailedCardHtml).join('')}</div>
   `;
   wrap.hidden = false;
 }
 
-// Phase 4.19 — legacy 확장형 사이드바 본문은 보존하되 비활성. 이후 다른 흐름이 필요할 때 복구 가능.
+// Phase 4.19 — 사이드바 detailed 카드 빌더 (한 인물 → HTML).
+// 사이드바 legacy 사용처와 본문 하단 ep-end 카드 양쪽에서 재사용한다.
+function _buildSceneCharDetailedCardHtml(s) {
+  const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
+  const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
+  const nameDisplay = s.is_new_character
+    ? `${s.character_name} <span class="scene-char-new-tag">???</span>`
+    : s.character_name;
+
+  const row = (label, valHtml) =>
+    `<div class="scene-char-detail"><span class="detail-label">${label}:</span><div class="detail-val">${valHtml}</div></div>`;
+
+  const FANTASY_GENRES = /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i;
+  const isFantasyGenre = (typeof settingVals !== 'undefined' && settingVals.some(v => FANTASY_GENRES.test(v)));
+
+  const _qlabel = n => {
+    const t = n.toLowerCase();
+    if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
+    if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프|대거|블레이드|도\b/.test(t)) return { label:'무기', color:'#a04060' };
+    if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
+    if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
+    if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
+    if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
+    if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
+    if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
+    if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
+    if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
+    if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크|안대|렌즈|고글|바이저/.test(t)) return { label:'장비', color:'#307080' };
+    if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이|테더|케이블|와이어|줄|묶/.test(t)) return { label:'도구', color:'#607040' };
+    if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
+    if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
+    if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
+    if (_itemVocab[n]) return { label: _itemVocab[n].badge_label, color: _itemVocab[n].color };
+    return null;
+  };
+  const _QLABEL_DESC = {
+    '위험':'위험한 폭발물 또는 유해 물질',
+    '무기':'전투에 사용하는 무기',
+    '방어':'방어 및 보호용 장비',
+    '의료':'치료 및 의료에 사용하는 도구',
+    '정보':'정보 저장 및 처리 장치',
+    '의식':'의식 및 제례에 사용하는 도구',
+    '영적':'영적 존재와 관련된 도구',
+    '음향':'소리를 감지하거나 발생시키는 장치',
+    '기계':'기계식 보조 장치',
+    '군용':'군사 목적의 장비',
+    '장비':'전문 기술 장비',
+    '도구':'범용 작업 도구',
+    '고급':'고급 또는 특수 제작 장비',
+    '파손':'손상된 장비',
+    '낡음':'오래되거나 노후화된 물품',
+  };
+  const _itemDescFallback = name => {
+    const ql = _qlabel(name);
+    return (ql && _QLABEL_DESC[ql.label]) ?? null;
+  };
+  const _qlabelBadgeHtml = (ql) => ql
+    ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>`
+    : '';
+  const _parseItemName = (rawName) => {
+    const m = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    if (!m) return { displayName: rawName, inferredDesc: null };
+    const inside = m[2];
+    if (/^[SABCD]$|^[SABCD][급등]\b/.test(inside.trim())) return { displayName: rawName, inferredDesc: null };
+    if (/있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(inside)) {
+      return { displayName: m[1].trim(), inferredDesc: inside.trim() };
+    }
+    return { displayName: rawName, inferredDesc: null };
+  };
+
+  const itemsRow = (() => {
+    if (!s.items?.length) {
+      return row('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>');
+    }
+    const itemCards = s.items.map((it) => {
+      const rawName = typeof it === 'string' ? it : (it.name ?? '');
+      const grade      = typeof it === 'object' ? it.grade       : null;
+      const cond       = typeof it === 'object' ? it.condition   : null;
+      const desc       = typeof it === 'object' ? it.description : null;
+      const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
+      const itemBadgeLabel = typeof it === 'object' ? (it.badge_label ?? null) : null;
+      const itemCategory   = typeof it === 'object' ? (it.category   ?? null) : null;
+      const { displayName, inferredDesc } = _parseItemName(rawName);
+      const _BADGE_DESC = {
+        '전자':'전자 신호나 데이터를 다루는 장비',
+        '도구':'작업이나 탐색에 쓰이는 실용 도구',
+        '무기':'위협에 대응하기 위한 전투 장비',
+        '방어구':'위험으로부터 사용자를 보호하는 장비',
+        '소모품':'필요한 순간 사용하는 소모성 물품',
+        '문서':'기록이나 분석에 활용되는 정보 장치',
+        '마법':'마력을 담거나 발현하는 도구',
+        '통신':'전파나 신호를 통해 정보를 전달하는 장비',
+        '기타':'인물이 상황에 따라 활용하는 소지품',
+      };
+      const badgeDescFallback = (itemBadgeLabel && _BADGE_DESC[itemBadgeLabel])
+        || (itemCategory && _BADGE_DESC[itemCategory]) || null;
+      const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName) || badgeDescFallback || cond && `상태: ${cond}` || null;
+      const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
+      const _qlabelFromItem = (n) => {
+        if (itemBadgeLabel) {
+          const CAT_COLOR = {
+            무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
+            문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
+            의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 기타:'#888',
+          };
+          return { label: itemBadgeLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
+        }
+        return _qlabel(n);
+      };
+      const gradeHtml = (isFantasyGenre && grade)
+        ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
+        : _qlabelBadgeHtml(_qlabelFromItem(displayName));
+      const bodyRows = [
+        cond       ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
+        effectiveDesc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${effectiveDesc}</span></div>` : '',
+        hiddenNote ? `<div class="item-card-row"><span class="item-card-lbl">위치</span><span class="item-card-val">${hiddenNote}</span></div>` : '',
+      ].filter(Boolean).join('');
+      const hasDetail = !!bodyRows;
+      const name = displayName;
+      return `<div class="item-card${hasDetail ? ' item-card-expandable collapsed' : ''}"${gradeAttr}${hasDetail ? ' onclick="toggleItemCard(this)"' : ''}>
+        <div class="item-card-header">${gradeHtml}<span class="item-card-name">${name}</span>${hasDetail ? '<span class="item-card-arrow">▾</span>' : ''}</div>
+        ${hasDetail ? `<div class="item-card-body">${bodyRows}</div>` : ''}
+      </div>`;
+    }).join('');
+    return `<div class="scene-char-detail scene-char-items-row"><span class="detail-label">소지:</span><div class="item-cards-wrap">${itemCards}</div></div>`;
+  })();
+
+  const dataRows = [
+    row('감정', `<div class="emot-badge-wrap">${_emotBadgesHtml(s.emotional_state)}</div>`),
+    row('신체', _physBadgesHtml(s.physical_state || '정상')),
+    itemsRow,
+  ].filter(Boolean);
+  const expandedRows = dataRows.length
+    ? dataRows.join('')
+    : `<div class="scene-char-detail" style="color:var(--text4);font-style:italic;font-size:.75em;">이번 화 상태 미기록</div>`;
+
+  return `<div class="scene-char-item collapsed" data-char="${s.character_name}">
+    <div class="scene-char-header" onclick="toggleCharCard(this)">
+      <span class="scene-char-name" style="color:${gColor}">${nameDisplay}</span>
+      ${gLabel ? `<span class="scene-char-gender" style="color:${gColor};font-size:.72em;opacity:.7">${gLabel}</span>` : ''}
+      <span class="scene-char-expand-icon">▾</span>
+    </div>
+    <div class="scene-char-expanded">${expandedRows}</div>
+  </div>`;
+}
+
+// Phase 4.19 — legacy 확장형 사이드바 본문은 _buildSceneCharDetailedCardHtml로 위임.
+// 이후 다른 흐름에서 사이드바를 detailed로 되돌리고 싶을 때 그대로 사용 가능.
 function _legacyUpdateSceneCharPanelDetailed(charStates) {
   _currentCharStates = charStates;
   _charStateMap = Object.fromEntries(charStates.map(s => [s.character_name, s]));
@@ -857,168 +981,9 @@ function _legacyUpdateSceneCharPanelDetailed(charStates) {
     return true;
   });
   if (!visible.length) { panel.hidden = true; return; }
-  list.innerHTML = visible.map(s => {
-    const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
-    const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
-    const nameDisplay = s.is_new_character
-      ? `${s.character_name} <span class="scene-char-new-tag">???</span>`
-      : s.character_name;
-
-    // 등장 인물: 확장 패널 — 라벨/값 통일 구조
-    const row = (label, valHtml) =>
-      `<div class="scene-char-detail"><span class="detail-label">${label}:</span><div class="detail-val">${valHtml}</div></div>`;
-    const dataRows = [
-      row('감정', `<div class="emot-badge-wrap">${_emotBadgesHtml(s.emotional_state)}</div>`),
-      row('신체', _physBadgesHtml(s.physical_state || '정상')),
-      (() => {
-        if (!s.items?.length) {
-          return row('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>');
-        }
-        // 장르 감지: 판타지/이세계/무협/헌터물이면 S/A/B/C/D 등급 뱃지 허용
-        const FANTASY_GENRES = /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i;
-        const isFantasyGenre = (typeof settingVals !== 'undefined' && settingVals.some(v => FANTASY_GENRES.test(v)));
-
-        const _qlabel = n => {
-          const t = n.toLowerCase();
-          if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
-          if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프|대거|블레이드|도\b/.test(t)) return { label:'무기', color:'#a04060' };
-          if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
-          if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
-          if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
-          // 의식/종교 계열 (의수보다 앞에서 판단)
-          if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
-          // 영적/심령 계열
-          if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
-          // 음향/청음 계열
-          if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
-          // 기계/보조 계열 (의수, 의족)
-          if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
-          // 군용 계열
-          if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
-          if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크|안대|렌즈|고글|바이저/.test(t)) return { label:'장비', color:'#307080' };
-          if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이|테더|케이블|와이어|줄|묶/.test(t)) return { label:'도구', color:'#607040' };
-          if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
-          if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
-          if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-          // vocab fallback — LLM이 이전에 분류한 결과 사용
-          if (_itemVocab[n]) return { label: _itemVocab[n].badge_label, color: _itemVocab[n].color };
-          return null; // 미분류 아이템 — 배지 없음
-        };
-        // 이름만 있는 소지품에 대한 규칙 기반 fallback 설명 (20~60자, LLM 호출 없음)
-        // 배지 카테고리 → generic 설명 매핑 (새 카테고리 추가 시 자동 확장)
-        const _QLABEL_DESC = {
-          '위험':'위험한 폭발물 또는 유해 물질',
-          '무기':'전투에 사용하는 무기',
-          '방어':'방어 및 보호용 장비',
-          '의료':'치료 및 의료에 사용하는 도구',
-          '정보':'정보 저장 및 처리 장치',
-          '의식':'의식 및 제례에 사용하는 도구',
-          '영적':'영적 존재와 관련된 도구',
-          '음향':'소리를 감지하거나 발생시키는 장치',
-          '기계':'기계식 보조 장치',
-          '군용':'군사 목적의 장비',
-          '장비':'전문 기술 장비',
-          '도구':'범용 작업 도구',
-          '고급':'고급 또는 특수 제작 장비',
-          '파손':'손상된 장비',
-          '낡음':'오래되거나 노후화된 물품',
-        };
-        const _itemDescFallback = name => {
-          const ql = _qlabel(name);
-          return (ql && _QLABEL_DESC[ql.label]) ?? null;
-        };
-        const _qlabelBadgeHtml = (ql) => ql
-          ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>`
-          : '';
-        // 소지품 이름에서 상태/위치 설명 파싱: "리볼버 (수첩 아래 숨겨져 있음)" → name + inferred desc
-        const _parseItemName = (rawName) => {
-          const m = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-          if (!m) return { displayName: rawName, inferredDesc: null };
-          const inside = m[2];
-          // 등급 표기면 그대로 (S, A급, B등급 패턴)
-          if (/^[SABCD]$|^[SABCD][급등]\b/.test(inside.trim())) return { displayName: rawName, inferredDesc: null };
-          // 상태/위치 설명이면 분리 (동사/상태어 포함 여부로 판단)
-          if (/있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(inside)) {
-            return { displayName: m[1].trim(), inferredDesc: inside.trim() };
-          }
-          return { displayName: rawName, inferredDesc: null };
-        };
-
-        const itemCards = s.items.map((it, idx) => {
-          const rawName = typeof it === 'string' ? it : (it.name ?? '');
-          const grade      = typeof it === 'object' ? it.grade       : null;
-          const cond       = typeof it === 'object' ? it.condition   : null;
-          const desc       = typeof it === 'object' ? it.description : null;
-          const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
-          // char-states API가 직접 임베드한 badge_label/category 우선 사용
-          const itemBadgeLabel = typeof it === 'object' ? (it.badge_label ?? null) : null;
-          const itemCategory   = typeof it === 'object' ? (it.category   ?? null) : null;
-
-          const { displayName, inferredDesc } = _parseItemName(rawName);
-          // badge_label/category 기반 범용 설명 fallback
-          const _BADGE_DESC = {
-            '전자':'전자 신호나 데이터를 다루는 장비',
-            '도구':'작업이나 탐색에 쓰이는 실용 도구',
-            '무기':'위협에 대응하기 위한 전투 장비',
-            '방어구':'위험으로부터 사용자를 보호하는 장비',
-            '소모품':'필요한 순간 사용하는 소모성 물품',
-            '문서':'기록이나 분석에 활용되는 정보 장치',
-            '마법':'마력을 담거나 발현하는 도구',
-            '통신':'전파나 신호를 통해 정보를 전달하는 장비',
-            '기타':'인물이 상황에 따라 활용하는 소지품',
-          };
-          const badgeDescFallback = (itemBadgeLabel && _BADGE_DESC[itemBadgeLabel])
-            || (itemCategory && _BADGE_DESC[itemCategory]) || null;
-          const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName) || badgeDescFallback || cond && `상태: ${cond}` || null;
-
-          // 비판타지 장르에서는 S/A/B/C/D 뱃지 대신 _qlabel 사용
-          const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
-          // item 자체에 badge_label이 있으면 CAT_COLOR 매핑으로 색상 결정, 없으면 _qlabel fallback
-          const _qlabelFromItem = (n) => {
-            if (itemBadgeLabel) {
-              const CAT_COLOR = {
-                무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
-                문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
-                의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 기타:'#888',
-              };
-              return { label: itemBadgeLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
-            }
-            return _qlabel(n);
-          };
-          const gradeHtml = (isFantasyGenre && grade)
-            ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
-            : _qlabelBadgeHtml(_qlabelFromItem(displayName));
-          const bodyRows = [
-            cond       ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
-            effectiveDesc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${effectiveDesc}</span></div>` : '',
-            hiddenNote ? `<div class="item-card-row"><span class="item-card-lbl">위치</span><span class="item-card-val">${hiddenNote}</span></div>` : '',
-          ].filter(Boolean).join('');
-          const hasDetail = !!bodyRows;
-          const name = displayName;
-          return `<div class="item-card${hasDetail ? ' item-card-expandable collapsed' : ''}"${gradeAttr}${hasDetail ? ' onclick="toggleItemCard(this)"' : ''}>
-            <div class="item-card-header">${gradeHtml}<span class="item-card-name">${name}</span>${hasDetail ? '<span class="item-card-arrow">▾</span>' : ''}</div>
-            ${hasDetail ? `<div class="item-card-body">${bodyRows}</div>` : ''}
-          </div>`;
-        }).join('');
-        return `<div class="scene-char-detail scene-char-items-row"><span class="detail-label">소지:</span><div class="item-cards-wrap">${itemCards}</div></div>`;
-      })(),
-    ].filter(Boolean);
-    const expandedRows = dataRows.length
-      ? dataRows.join('')
-      : `<div class="scene-char-detail" style="color:var(--text4);font-style:italic;font-size:.75em;">이번 화 상태 미기록</div>`;
-
-    return `<div class="scene-char-item collapsed" data-char="${s.character_name}">
-      <div class="scene-char-header" onclick="toggleCharCard(this)">
-        <span class="scene-char-name" style="color:${gColor}">${nameDisplay}</span>
-        ${gLabel ? `<span class="scene-char-gender" style="color:${gColor};font-size:.72em;opacity:.7">${gLabel}</span>` : ''}
-        <span class="scene-char-expand-icon">▾</span>
-      </div>
-      <div class="scene-char-expanded">${expandedRows}</div>
-    </div>`;
-  }).join('');
+  list.innerHTML = visible.map(_buildSceneCharDetailedCardHtml).join('');
   panel.hidden = false;
 }
-
 // 소지품 카드 확장/축소 — 기본 펼침, 클릭으로 접기
 function toggleItemCard(card) {
   card.classList.toggle('collapsed');
@@ -1040,15 +1005,16 @@ function wrapCharNamesInOutput(charStates) {
   if (!names.length) return;
   const escaped = names.map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
   const regex = new RegExp(`(${escaped.join('|')})`, 'g');
+  // Phase 4.19 — hover 카드 기능 제거. 성별별 밑줄 색만 유지.
+  // border-bottom-color: 성별 색상 + 20 (alpha)으로 은은한 밑줄.
   outputEl.querySelectorAll('p, li, blockquote, h1, h2, h3').forEach(el => {
     el.innerHTML = el.innerHTML.replace(regex, m => {
       const s = _charStateMap[m];
       const gColor = s ? (_GENDER_COLOR[s.gender] ?? '') : '';
-      const style = gColor ? ` style="border-bottom-color:${gColor}20"` : '';
+      const style = gColor ? ` style="border-bottom-color:${gColor}80"` : '';
       return `<span class="char-name-ref" data-char="${m}"${style}>${m}</span>`;
     });
   });
-  _ensureHoverListener();
 }
 
 // 기존 책 로드 시 char_states 없을 때 맵만 채움 (패널 표시 없이)
@@ -1058,48 +1024,12 @@ function seedCharStateMapFromGenderMap(charStates) {
   wrapCharNamesInOutput(charStates);
 }
 
-// 단일 문서 레벨 hover 리스너 — 중복 방지
+// Phase 4.19 — hover 리스너 완전 제거. 본문 인물명은 성별 밑줄 색만 갖고,
+// 인물 상세는 본문 하단 Episode End Character Cards에서 확인한다.
+// charHoverCard DOM은 남아 있을 수 있으나 영구 hidden 처리.
 function _ensureHoverListener() {
-  if (_hoverListenerMounted) return;
-  _hoverListenerMounted = true;
-
   const card = document.getElementById('charHoverCard');
-  if (!card) return;
-
-  // Phase 4.19 — hover에서 감정/신체 정보 제거. 이름 + 성별만 표시.
-  // 본문 중간 시점에 미래 회차의 감정/상태가 노출되어 발생하던 몰입 저하 방지.
-  // 인물 상세는 본문 하단의 Episode End Character Cards에서 확인한다.
-  function showCard(el, name) {
-    const s = _charStateMap[name]; if (!s) return;
-    const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
-
-    const nameEl = card.querySelector('.char-hover-name');
-    nameEl.textContent = name;
-    nameEl.style.color = gColor;
-
-    const genderLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
-    const subtitleEl  = card.querySelector('.char-hover-subtitle');
-    const sepEl       = document.getElementById('hoverSep');
-    if (subtitleEl) subtitleEl.textContent = genderLabel;
-    if (sepEl) sepEl.textContent = '';
-
-    const statusEl = document.getElementById('hoverRowStatus');
-    if (statusEl) statusEl.innerHTML = '';
-
-    // 화면 경계 처리
-    const rect = el.getBoundingClientRect();
-    const cardW = 200;
-    const left = rect.left + rect.width / 2 - cardW / 2;
-    card.style.left = `${Math.max(8, Math.min(left, window.innerWidth - cardW - 8))}px`;
-    card.style.top  = `${rect.bottom + 6}px`;
-    card.hidden = false;
-  }
-
-  document.addEventListener('mouseover', e => {
-    const r = e.target.closest('.char-name-ref');
-    if (r) showCard(r, r.dataset.char);
-    else if (!e.target.closest('#charHoverCard')) card.hidden = true;
-  });
+  if (card) card.hidden = true;
 }
 
 let _auditPollTimer = null;

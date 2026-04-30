@@ -234,63 +234,38 @@
 .scene-char-min .scene-char-name{font-size:.84em;font-weight:700;}
 .scene-char-min .scene-char-gender{font-size:.72em;}
 
-/* Phase 4.19 — Episode End Character Cards (본문 하단) */
+/* Phase 4.19 — Episode End Character Cards (본문 하단)
+ * 사이드바에서 쓰던 .scene-char-item / .scene-char-expanded / .item-card 디자인을
+ * 그대로 재사용하고 컨테이너만 2열 grid로 배치한다.
+ */
 .episode-end-cards{
   margin:24px 0 12px;padding:14px 12px 16px;
   border-top:1px dashed var(--border2);
 }
 .ep-end-title{
   font-size:.82em;color:var(--text3);letter-spacing:.05em;
-  margin:0 0 10px;text-transform:none;
+  margin:0 0 10px;
 }
 .ep-end-grid{
-  display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;
+  display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;
 }
-.ep-end-card{
-  background:var(--bg2);border:1px solid var(--border2);border-radius:10px;
-  padding:10px 12px;font-size:.82em;line-height:1.4;
+@media (max-width:720px){
+  .ep-end-grid{grid-template-columns:1fr;}
 }
-.ep-end-card-head{
-  display:flex;align-items:center;gap:.4rem;
-  padding-bottom:6px;margin-bottom:6px;
-  border-bottom:1px solid;
-}
-.ep-end-name{font-weight:700;font-size:.95em;}
-.ep-end-gender{font-size:.78em;}
-.ep-end-row{display:flex;gap:.5rem;margin-top:3px;}
-.ep-end-row.ep-end-items{flex-direction:column;gap:3px;}
-.ep-end-lbl{
-  flex-shrink:0;width:32px;color:var(--text4);font-size:.86em;
-}
-.ep-end-val{color:var(--text);word-break:break-word;}
-.ep-end-items-wrap{display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;}
-.ep-end-item{
-  display:inline-flex;align-items:center;gap:3px;
-  padding:2px 7px;background:var(--bg3,var(--bg2));border:1px solid var(--border);
-  border-radius:6px;font-size:.86em;color:var(--text2,var(--text));
-}
-.ep-end-item-cond{
-  font-style:normal;color:var(--text4);font-size:.86em;margin-left:2px;
-}
-.ep-end-empty{color:var(--text4);font-style:italic;}
 .scene-char-detail .char-detail-type{color:var(--text4);font-size:.95em;}
 
-/* ── Name reference spans in output ──────────────────────── */
+/* ── Name reference spans in output ──────────────────────────
+ * Phase 4.19 — hover 기능 제거. 성별 색 기반 정적 밑줄만 유지.
+ * border-bottom 색은 wrapCharNamesInOutput()에서 인라인 style로 부여.
+ */
 span.char-name-ref{
-  text-decoration:underline;
-  text-decoration-style:dotted;
-  text-decoration-color:var(--accent);
+  border-bottom:1.5px solid currentColor;
   text-underline-offset:3px;
-  cursor:help;
-  transition:color .15s, text-decoration-color .15s;
+  /* cursor 변화·hover transition 모두 제거 — 인터랙티브 신호 없음 */
 }
-span.char-name-ref:hover{
-  text-decoration-style:solid;
-  color:var(--accent);
-}
-/* 낭독 모드에서도 밑줄 유지 (p cursor:pointer 덮어쓰기 방지) */
+/* 낭독 모드에서도 동일 처리 (인터랙션 비신호화) */
 body.mode-aloud span.char-name-ref,
-body.mode-tts span.char-name-ref { cursor:help; }
+body.mode-tts span.char-name-ref { cursor:inherit; }
 
 /* ── Character Hover Card ─────────────────────────────────── */
 .char-hover-card{position:fixed;z-index:2000;background:var(--bg2);border:1px solid var(--accent-border);border-radius:10px;padding:9px 13px;min-width:120px;max-width:210px;pointer-events:none;box-shadow:0 4px 20px rgba(0,0,0,.45);}
