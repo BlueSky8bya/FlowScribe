@@ -22,7 +22,8 @@ if (!bookId) { console.error("Usage: --book-id <uuid>"); process.exit(1); }
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 // 범용 transition phrase: 이동/등장/시간 경과/하강/상승/끌림 등
-const TRANSITION_RE = /(이동|향해|향하|걸어|들어가|나와서|나갔|나섰|복도|문을\s*열|계단|시간이\s*흘렀|얼마\s*후|잠시\s*후|마침내\s*도착|당도|내려갔|내려섰|올라갔|올라섰|떨어졌|굴러|추락|끌려|잡혀|이끌려|기어|기다|뛰어|달려|이르렀|당도|진입)/;
+// 한국어 동사 활용형 커버: "들어가/들어갔/들어와/들어왔" 등을 포괄하기 위해 어간 단위로 매칭
+const TRANSITION_RE = /(이동|향해|향하|걸어|걸었|걷는|걷던|들어[가갔간갈와왔]|나오[다았]|나와|나갔|나가|나섰|나서[고는며다]|복도|문을\s*열|계단|시간이\s*흘렀|얼마\s*후|잠시\s*후|마침내\s*도착|당도|내려[가갔간갈오왔]|내려섰|올라[가갔간갈오왔]|올라섰|떨어[졌져진]|굴러|추락|끌[려렸린]|잡[혀혔힌]|이끌[려렸]|기어|기다|뛰어|뛰었|달려|달렸|이르렀|진입|진[입출]|발을\s*들|발걸음|돌아[와왔])/;
 const ABSENT_VIS = new Set(["absent", "cannot_act"]);
 
 // 인물 이름 주변 transition 검사 — 본문에 인물 이름과 transition phrase가 함께 등장하는지
@@ -89,10 +90,15 @@ async function main() {
       if (prevLoc && currLoc && prevLoc !== currLoc &&
           prevLoc !== "미등장" && currLoc !== "미등장" &&
           prevLoc !== "위치 불명" && currLoc !== "위치 불명") {
-        // zone prefix 비교 (같은 큰 구역 내 이동은 OK)
-        const prevZone = prevLoc.split(/[\s\-,]/)[0];
-        const currZone = currLoc.split(/[\s\-,]/)[0];
-        if (prevZone !== currZone) {
+        // 같은 zone 판정: 공통 토큰 (한국어 명사 ≥ 2자)이 있으면 same zone
+        // 예: "도시 외곽, 독소 구역" vs "독소 구역" → 공통 "독소", "구역" → same
+        const tokenize = s => s.replace(/[,()（）\-]/g, " ")
+          .split(/\s+/).filter(t => t.length >= 2);
+        const prevTokens = new Set(tokenize(prevLoc));
+        const currTokens = new Set(tokenize(currLoc));
+        const common = [...prevTokens].filter(t => currTokens.has(t));
+        const sameZone = common.length > 0;
+        if (!sameZone) {
           // 본문에 인물 이름 주변 transition phrase가 있는지 확인 (per-character check)
           if (!hasTransitionForCharacter(currBody, charName)) {
             epIssues.push({

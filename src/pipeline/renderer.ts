@@ -15,6 +15,7 @@
 
 import { getLLMClient, getRendererModel, getActiveProvider } from "../lib/llm.js";
 import { logInfo } from "../lib/logger.js";
+import { resolveTaskRoute, runLLMTask } from "../services/model_router.js";
 import type { EffectiveContext } from "../types/canonical.js";
 import type { ScenePlan } from "../types/planner.js";
 
@@ -271,36 +272,60 @@ export async function renderFromPlanWithTrace(
   ctx: EffectiveContext,
   modelOverride?: string,
 ): Promise<RenderResult> {
-  const llm    = getLLMClient();
-  const model  = modelOverride ?? getRendererModel();
   const maxTok = Math.max(2048, Math.ceil(plan.target_length * 0.65 * 1.8) + 500);
-
-  logInfo("pipeline:renderer", "렌더링 시작", {
-    episode: ctx.episode_number, model, target_length: plan.target_length,
-  });
-
-  const extraOptions = getActiveProvider() === "ollama"
-    ? { options: { num_ctx: 8192 } }
-    : {};
-
   const systemPrompt = buildRendererSystemPrompt(plan, ctx);
   const userPrompt   = `${ctx.episode_number}화를 ${ctx.gen_config.pov} 시점으로 생성해줘.`;
 
-  const t0  = Date.now();
-  const res = await (llm.chat.completions.create as any)({
+  // Phase 4.13 — config 라우트가 renderer에 다른 provider/model을 지정하면 router 사용.
+  // 그렇지 않으면 legacy path (lib/llm.ts) 유지 — non-breaking.
+  const route = resolveTaskRoute("renderer");
+  const useRouter = !modelOverride
+    && route
+    && (route.provider !== getActiveProvider() || route.model !== getRendererModel());
+
+  const t0 = Date.now();
+  const model = modelOverride ?? (useRouter ? route!.model : getRendererModel());
+
+  logInfo("pipeline:renderer", "렌더링 시작", {
+    episode: ctx.episode_number,
     model,
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user",   content: userPrompt },
-    ],
-    temperature: 0.85,
-    max_tokens: maxTok,
-    stop: ["[END]"],
-    ...extraOptions,
+    provider: useRouter ? route!.provider : getActiveProvider(),
+    target_length: plan.target_length,
+    via: useRouter ? "router" : "legacy",
   });
 
+  let text: string;
+  if (useRouter) {
+    const r = await runLLMTask("renderer", {
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt },
+      ],
+      temperature: 0.85,
+      max_tokens: maxTok,
+    });
+    text = r.text;
+  } else {
+    const llm = getLLMClient();
+    const extraOptions = getActiveProvider() === "ollama"
+      ? { options: { num_ctx: 8192 } }
+      : {};
+    const res = await (llm.chat.completions.create as any)({
+      model,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt },
+      ],
+      temperature: 0.85,
+      max_tokens: maxTok,
+      stop: ["[END]"],
+      ...extraOptions,
+    });
+    text = res.choices?.[0]?.message?.content ?? "";
+  }
+
   return {
-    text:          res.choices?.[0]?.message?.content ?? "",
+    text,
     system_prompt: systemPrompt,
     user_prompt:   userPrompt,
     model_used:    model,
