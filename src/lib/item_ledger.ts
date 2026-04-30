@@ -204,6 +204,9 @@ export function splitConditionFromName(rawName: string): { name: string; conditi
  * @param ownerCanonicalItems - 해당 인물의 canonical initial_items
  * @param prevItems - 직전 화 dynamic items (carry-forward 기준)
  */
+// 한국어 비포함 + canonical/prev 매칭 실패 시 reject할 라틴 약어 화이트리스트
+const ALLOWED_LATIN_ITEM_RE = /^(S\d+|USB|AI|PC|TV|GPS|CCTV|ID|IP|DNA|RNA|VR|AR|UV)(\s|$)/i;
+
 export function resolveItemName(
   rawItemName: string,
   ownerCanonicalItems: ItemEntry[],
@@ -220,6 +223,25 @@ export function resolveItemName(
       resolution: "skill_rejected",
       reason: `skill-like item rejected: ${rawItemName}`,
     };
+  }
+
+  // 1c. 한국어 비포함 항목 — canonical/prev/allowlist 외에는 reject (영어 artifact 방지)
+  // 예: "Sidearm", "Flashlight", "Radio" 같은 LLM 영어 출력 차단
+  const hasKorean = /[가-힣]/.test(rawItemName);
+  if (!hasKorean && !ALLOWED_LATIN_ITEM_RE.test(rawItemName.trim())) {
+    const inCanonical = [...ownerCanonicalItems, ...prevItems].some(c => {
+      if (!c?.name) return false;
+      const a = c.name.toLowerCase().trim();
+      const b = rawItemName.toLowerCase().trim();
+      return a === b || a.includes(b) || b.includes(a);
+    });
+    if (!inCanonical) {
+      return {
+        canonical_name: null,
+        resolution: "rejected",
+        reason: `non-Korean item not in canonical/allowlist: ${rawItemName}`,
+      };
+    }
   }
 
   // 1b. 환경 사물 reject (식탁, 의자, 가구 등 scene object)

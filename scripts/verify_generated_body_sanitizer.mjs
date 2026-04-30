@@ -128,6 +128,12 @@ try {
   // NON_KO_SCRIPT_RE에 CJK 범위 포함 확인
   check("NON_KO_SCRIPT_RE CJK 범위 포함", src.includes("一-鿿") || src.includes("\\u4E00"));
 
+  // ── 히브리어 artifact 제거 (Phase 4.9 신규) ──
+  const r14 = sanitizeGeneratedBody("차가운 שלנו 굴레에서 빛이 나왔다.");
+  check("שלנו (히브리어) 제거됨", !r14.text.includes("שלנו"));
+  check("히브리어 제거 후 한국어 보존", r14.text.includes("차가운") && r14.text.includes("굴레"));
+  check("NON_KO_SCRIPT_RE 히브리 범위 포함", src.includes("֐-׿") || src.includes("\\u05D0"));
+
 } catch(e) {
   fail("런타임 테스트 실패", e.message);
 }

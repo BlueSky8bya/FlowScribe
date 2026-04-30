@@ -39,7 +39,7 @@ const KOREAN_EMBEDDED_LATIN_RE = /(?<=[가-힣])[a-z]{3,}(?=[가-힣])|(?<=[가-
 // 키릴/아랍/태국어/CJK 등 비한글 비라틴 스크립트
 // CJK 통합 한자(一-鿿): 현대 한국어 소설 본문에 등장하면 LLM artifact
 // 히라가나(぀-ゟ) / 가타카나(゠-ヿ): 일본어 조각
-const NON_KO_SCRIPT_RE = /[Ѐ-ӿ؀-ۿ฀-๿ऀ-ॿ぀-ヿ一-鿿㐀-䶿豈-﫿]/g;
+const NON_KO_SCRIPT_RE = /[Ѐ-ӿ֐-׿؀-ۿ฀-๿ऀ-ॿ぀-ヿ一-鿿㐀-䶿豈-﫿]/g;
 
 export function sanitizeGeneratedBody(raw: string): SanitizeResult {
   const warnings: string[] = [];
