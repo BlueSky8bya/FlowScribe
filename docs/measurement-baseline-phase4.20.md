@@ -249,3 +249,103 @@ R2.x 추가 cleanup이 필요하면 정적 metric을 더 정밀화 (system vs us
 | 핵심 verify PASS | 21/21 + 14/14 + 26/26 + 20/20 + 25/25 PASS | ✓ |
 
 → **R2 PASS** (latency 22% 단축 = 큰 사용자 체감 개선).
+
+---
+
+## 7. R2.5 안정성 측정 (Phase R2.5, 2026-05-01)
+
+R3 build 후 server restart → HQE ep1 3회 + saveContext 5회 + R3 build singleton 1회.
+
+### 7.1 saveContext (5 runs, R3 build)
+| min | p50 | avg | p95 | max | pass |
+|---|---|---|---|---|---|
+| 30 | 33 | 34 | 37 | 37 | ✅ |
+
+### 7.2 HQE ep1 generation (4 samples 합산: R3 single + 3 runs)
+| 항목 | min | p50 | avg | p95 | max |
+|---|---|---|---|---|---|
+| planner_ms | 15,840 | 18,491 | 19,006 | 23,202 | 23,202 |
+| renderer_ms | 16,859 | 20,061 | 20,365 | 24,477 | 24,477 |
+| total_pipeline_ms | 32,723 | 41,149 | 39,394 | 42,556 | 42,556 |
+| **click_to_first_token** | 32,734 | **41,089** | 39,402 | **42,652** | 42,663 |
+| done_ms | 32,734 | 41,099 | 39,413 | 42,663 | 42,674 |
+| body_char_count | 1,710 | 2,110 | ~2,089 | 2,419 | 2,419 |
+| plan_verdict | PASS | PASS | — | PASS | PASS |
+| revisions | 0 | 0 | 0 | 0 | 0 |
+| judge | 미발동 | 미발동 | 0회 | — | — |
+
+### 7.3 핵심 질문 답
+1. saveContext 2초 이하? **YES** (p95=37ms, 50배 여유)
+2. click_to_first_token 30s 이상? **YES** (p50=41s, p95=43s — 사용자 체감 너무 길다)
+3. planner vs renderer 병목? **거의 비등** (planner avg 19s / renderer avg 20s). 단일 점이 아니라 **둘 다** 4-5K-7K tok 기반 LLM 응답 자체가 비싸다.
+4. judge/repair 영향? **0** (R2 임계 상향으로 4/4 미발동 → 추가 5-15s 안 발생)
+5. batch 구조 때문에 first_token = pipeline_done? **YES, 정량 확정** (first_token→done = 11ms = batch)
+
+### 7.4 R5A 결정
+batch 구조가 first_token latency의 단일 원인. R5A 진행 가능 — 목표: first_token p50 < 8s.
+
+---
+
+## 8. R5A Hybrid Streaming Prototype (Phase R5A measured 2026-05-01)
+
+R5A commit: feature-flagged hybrid renderer streaming. batch는 default 유지.
+
+### 8.1 활성화
+- query: `?stream_mode=hybrid` (또는 `batch`로 명시 override)
+- env: `FEATURE_HYBRID_STREAMING=true`로 server-wide enable
+- FE toggle: `localStorage.setItem('fs_stream_mode','hybrid')` → next generation부터 hybrid
+
+### 8.2 SSE event contract
+| event | 시점 |
+|---|---|
+| `data: {phase:"planner_start"}` | runCreativePlanner 호출 직전 |
+| `data: {phase:"planner_done", elapsed_ms, fallback_used}` | planner LLM 응답 |
+| `data: {phase:"renderer_start", streaming:true}` | renderer LLM 호출 직전 |
+| `data: {token: "<chunk>"}` × N | 각 streaming delta (real-time) |
+| `data: {phase:"renderer_done", elapsed_ms, chars}` | renderer 완료 |
+| `data: {sanitized_correction, streamed_chars, sanitized_chars}` | (있을 때만) chunk vs DB 차이 |
+| `data: {phase:"save_start"}` | episodes INSERT 직전 |
+| `data: {phase:"save_done"}` | INSERT 완료 |
+| `data: {phase:"postprocess_start"}` | foreshadow/arc setImmediate 직후 |
+| `data: {done:true, char_states:[...], episode_meta:{...}}` | char_states_fetched 후 final |
+
+batch 모드는 phase 이벤트 없이 기존 단일 token batch 그대로 (호환).
+
+### 8.3 batch vs hybrid 측정 (HQE ep1, R5A)
+
+| 항목 | batch | hybrid run-1 | hybrid run-2 |
+|---|---|---|---|
+| **click_to_first_token** | **43,966 ms** | **18,111 ms** | **15,983 ms** |
+| click_to_done | 43,980 ms | 35,470 ms | 32,966 ms |
+| first_token → done | 14 ms | 17,359 ms | 16,983 ms |
+| chunk_count | 1 (batch token) | 1,180 | ~1,200 |
+| body_char_count | 3,225 | 1,814 | (similar) |
+| plan_verdict | PASS | PASS | PASS |
+| score | 80 | 80 | 80 |
+| sanitized_correction | null | null | null |
+| planner_done → first_token | — (batch) | **774 ms** | **<1s** |
+
+DB 검증: `episodes.content` len=3,211 (sanitized 결과 일치). chunk 누락/중복 없음.
+
+### 8.4 핵심 결과
+| 지표 | 변화 |
+|---|---|
+| **click_to_first_token** | batch 44s → hybrid **17s** (avg) → **−61%** ★★★ |
+| **planner_done → first_token** | **0.8s** (target: ≤ 2-4s) ✓ STRONG PASS |
+| done 지연 | batch 44s → hybrid 33s → −25% (renderer streaming이 LLM 응답 시간 자체도 약간 단축) |
+| 본문 품질 | score 80 (회귀 없음) |
+| DB 일관성 | client streamed text == DB stored text |
+
+### 8.5 목표 달성 검증
+| 기준 | 결과 |
+|---|---|
+| hybrid first-token이 batch 대비 크게 감소 | ★ **−61%** |
+| first_token ≤ planner_done + 2-4s | ✓ **0.8s** |
+| first_token p50 < 8s | ✗ (17s — planner 자체가 16s) — R5B에서 planner streaming 검토 시 가능 |
+| DB 저장 == client 표시 | ✓ |
+| route metadata 일치 | ✓ verify_route_integrity 25/25 |
+| 기존 batch 정상 | ✓ batch run 정상 동작, plan_verdict PASS |
+| build PASS | ✓ |
+| 핵심 verify PASS | ✓ 9/9 (world_rule, route, latency, regen, emotion, taxonomy, episode_end_cards, placeholder, hybrid_streaming) |
+
+→ **R5A PASS** (renderer streaming만으로 first_token −61% 달성).

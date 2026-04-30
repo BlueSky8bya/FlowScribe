@@ -32,6 +32,8 @@ const episode = parseInt(args[args.indexOf("--episode") + 1] ?? "1", 10);
 const route = args.includes("--route") ? args[args.indexOf("--route") + 1] : null;
 const runs = args.includes("--runs") ? parseInt(args[args.indexOf("--runs") + 1]) : 1;
 const appUrl = args.includes("--app-url") ? args[args.indexOf("--app-url") + 1] : (process.env.APP_URL ?? "http://localhost:3000");
+// Phase 4.20 R5A — stream_mode (batch | hybrid). default batch (server fallback).
+const streamMode = args.includes("--stream-mode") ? args[args.indexOf("--stream-mode") + 1] : null;
 
 const fsToken = process.env.FS_TOKEN ?? null;
 const authHeaders = fsToken ? { "Authorization": `Bearer ${fsToken}` } : {};
@@ -50,8 +52,9 @@ function pct(arr, p) {
 
 async function generateOnce(label) {
   const routeParam = route ? `&model_route=${encodeURIComponent(route)}` : "";
+  const streamParam = streamMode ? `&stream_mode=${encodeURIComponent(streamMode)}` : "";
   // regen_nonce로 매번 다른 결과 유도 (cache hit 방지)
-  const url = `${appUrl}/api/generate?episode=${episode}&book_id=${bookId}&use_planner=true&regen_nonce=${Date.now().toString(36)}${routeParam}`;
+  const url = `${appUrl}/api/generate?episode=${episode}&book_id=${bookId}&use_planner=true&regen_nonce=${Date.now().toString(36)}${routeParam}${streamParam}`;
 
   const t0 = Date.now();
   let firstTokenAt = null;
@@ -59,6 +62,9 @@ async function generateOnce(label) {
   let charCount = 0;
   let episodeMeta = null;
   let charStatesCount = null;
+  let chunkCount = 0;
+  const phaseTimes = {};
+  let sanitizedCorrection = null;
 
   const res = await fetch(url, { method: "GET", headers: { "Accept": "text/event-stream", ...authHeaders } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -82,6 +88,15 @@ async function generateOnce(label) {
         if (parsed.token) {
           if (firstTokenAt == null) firstTokenAt = Date.now();
           charCount += parsed.token.length;
+          chunkCount += 1;
+        }
+        if (parsed.phase) {
+          phaseTimes[parsed.phase] = (phaseTimes[parsed.phase] ?? null) === null
+            ? { ms: Date.now() - t0, ...(parsed.elapsed_ms != null ? { stage_elapsed_ms: parsed.elapsed_ms } : {}) }
+            : phaseTimes[parsed.phase];
+        }
+        if (parsed.sanitized_correction) {
+          sanitizedCorrection = { streamed_chars: parsed.streamed_chars, sanitized_chars: parsed.sanitized_chars };
         }
         if (parsed.done) {
           doneAt = Date.now();
@@ -98,12 +113,16 @@ async function generateOnce(label) {
 
   return {
     label,
+    stream_mode: streamMode ?? "batch",
     click_to_first_token_ms: click_to_first_token,
     click_to_done_ms: click_to_done,
     first_token_to_done_ms: first_token_to_done,
     body_char_count: charCount,
     char_states_count: charStatesCount,
-    planner_ms: episodeMeta?.planner_ms ?? null,           // (Phase 4.19C에서 episode_meta에 안 넣음 — logger 마커로 확인)
+    chunk_count: chunkCount,
+    phase_times: phaseTimes,
+    sanitized_correction: sanitizedCorrection,
+    planner_ms: episodeMeta?.planner_ms ?? null,
     renderer_ms: episodeMeta?.renderer_ms ?? null,
     total_pipeline_ms: episodeMeta?.total_pipeline_ms ?? null,
     plan_verdict: episodeMeta?.plan_verdict ?? null,

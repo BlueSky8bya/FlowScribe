@@ -260,6 +260,7 @@ export async function renderFromPlanWithTrace(
   ctx: EffectiveContext,
   modelOverride?: string,
   routeSetOverride?: string,
+  onChunk?: (delta: string) => void,
 ): Promise<RenderResult> {
   const maxTok = Math.max(2048, Math.ceil(plan.target_length * 0.65 * 1.8) + 500);
   const systemPrompt = buildRendererSystemPrompt(plan, ctx);
@@ -281,6 +282,7 @@ export async function renderFromPlanWithTrace(
     provider: useRouter ? route!.provider : getActiveProvider(),
     target_length: plan.target_length,
     via: useRouter ? "router" : "legacy",
+    streaming: !!onChunk,
   });
 
   // Phase 4.18 — 재생성 시 prose-level 다양성도 약하게 강화 (cap 0.95).
@@ -301,6 +303,7 @@ export async function renderFromPlanWithTrace(
       route_set_override: routeSetOverride,
       temperature: _temperatureRenderer,
       max_tokens: maxTok,
+      ...(onChunk ? { onChunk } : {}),
     });
     text = r.text;
   } else {
@@ -308,18 +311,43 @@ export async function renderFromPlanWithTrace(
     const extraOptions = getActiveProvider() === "ollama"
       ? { options: { num_ctx: 8192 } }
       : {};
-    const res = await (llm.chat.completions.create as any)({
-      model,
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user",   content: userPrompt },
-      ],
-      temperature: _temperatureRenderer,
-      max_tokens: maxTok,
-      stop: ["[END]"],
-      ...extraOptions,
-    });
-    text = res.choices?.[0]?.message?.content ?? "";
+    if (onChunk) {
+      // Phase 4.20 R5A — legacy path streaming (Ollama 등)
+      const stream: any = await (llm.chat.completions.create as any)({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt },
+        ],
+        temperature: _temperatureRenderer,
+        max_tokens: maxTok,
+        stop: ["[END]"],
+        stream: true,
+        ...extraOptions,
+      });
+      let buffer = "";
+      for await (const chunk of stream) {
+        const delta = chunk?.choices?.[0]?.delta?.content ?? "";
+        if (delta) {
+          buffer += delta;
+          try { onChunk(delta); } catch { /* sink */ }
+        }
+      }
+      text = buffer;
+    } else {
+      const res = await (llm.chat.completions.create as any)({
+        model,
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user",   content: userPrompt },
+        ],
+        temperature: _temperatureRenderer,
+        max_tokens: maxTok,
+        stop: ["[END]"],
+        ...extraOptions,
+      });
+      text = res.choices?.[0]?.message?.content ?? "";
+    }
   }
 
   return {

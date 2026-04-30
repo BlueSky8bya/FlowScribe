@@ -96,6 +96,11 @@ generateRouter.get("/", async (req: Request, res: Response) => {
   const modelRoute            = req.query.model_route   as string | undefined;
   // 1화 재생성 다양성 유도용 nonce (클라이언트가 regenerate() 시 전달)
   const regenNonce = req.query.regen_nonce as string | undefined;
+  // Phase 4.20 R5A — stream_mode (batch | hybrid). hybrid: renderer token chunk SSE.
+  // env FEATURE_HYBRID_STREAMING=true가 있으면 자동 활성. query는 명시적 override.
+  const _streamModeQ = (req.query.stream_mode as string | undefined) ?? null;
+  const _streamModeEnv = process.env.FEATURE_HYBRID_STREAMING === "true";
+  const useHybridStream = _streamModeQ === "hybrid" || (_streamModeEnv && _streamModeQ !== "batch");
 
   // ── Planner 경로 (use_planner=true) ─────────────────────────
   if (usePlanner) {
@@ -163,6 +168,24 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       const t_ctx = Date.now();
       logInfo("api:generate", "buildEffectiveContext 완료", { book_id: bookId, episode, elapsed_ms: t_ctx - Date.now() });
       _genMark("pipeline_start");
+      // Phase 4.20 R5A — hybrid: phase 이벤트와 token chunk를 SSE로 직접 emit.
+      let _firstChunkSent = false;
+      let _streamedChars = 0;
+      const _hybridOnChunk = useHybridStream
+        ? (delta: string) => {
+            // 명백한 marker 청크는 표시하지 않음 (sanitizer가 어차피 제거).
+            if (!delta) return;
+            res.write(`data: ${JSON.stringify({ token: delta })}\n\n`);
+            _streamedChars += delta.length;
+            if (!_firstChunkSent) { _firstChunkSent = true; _genMark("first_token_sent", { mode: "hybrid" }); }
+          }
+        : undefined;
+      const _hybridOnPhase = useHybridStream
+        ? (p: string, extra?: Record<string, unknown>) => {
+            res.write(`data: ${JSON.stringify({ phase: p, ...(extra ?? {}) })}\n\n`);
+          }
+        : undefined;
+
       const result = await runPlannerPipeline(ctx, {
         bookId: bookId!,
         doRevise: false,
@@ -172,17 +195,33 @@ generateRouter.get("/", async (req: Request, res: Response) => {
         rendererModelOverride,
         plannerModelOverride,
         routeSetOverride: modelRoute,
+        ...(useHybridStream ? { onRendererChunk: _hybridOnChunk, onPhase: _hybridOnPhase } : {}),
       });
       _genMark("pipeline_done", {
         planner_ms: result.planner_elapsed_ms,
         renderer_ms: result.renderer_elapsed_ms,
         total_pipeline_ms: result.elapsed_ms,
         chars: result.generated_text?.length ?? 0,
+        stream_mode: useHybridStream ? "hybrid" : "batch",
       });
 
-      // 텍스트를 token SSE로 전송 (generate.js의 json.token 핸들러가 수신)
-      res.write(`data: ${JSON.stringify({ token: result.generated_text })}\n\n`);
-      _genMark("first_token_sent");
+      if (useHybridStream) {
+        // hybrid: 클라이언트가 본 raw chunks와 DB 저장될 sanitized 텍스트가 다를 수 있음.
+        // 차이가 의미 있으면 patched_text 이벤트로 정정 (UI는 last token까지 받은 후 교체).
+        const sanitized = result.generated_text;
+        if (_streamedChars !== sanitized.length) {
+          res.write(`data: ${JSON.stringify({
+            sanitized_correction: true,
+            streamed_chars: _streamedChars,
+            sanitized_chars: sanitized.length,
+          })}\n\n`);
+        }
+        res.write(`data: ${JSON.stringify({ phase: "save_start" })}\n\n`);
+      } else {
+        // 기존 batch 경로 — 텍스트를 단일 token으로 전송 (generate.js의 json.token 핸들러가 수신)
+        res.write(`data: ${JSON.stringify({ token: result.generated_text })}\n\n`);
+        _genMark("first_token_sent");
+      }
 
       // 에피소드 자동 저장 (rolling_summary가 다음 화에서 작동하도록)
       if (result.generated_text.trim()) {
@@ -203,6 +242,10 @@ generateRouter.get("/", async (req: Request, res: Response) => {
             [episode + 1, bookId!]
           );
           logInfo("api:generate", "에피소드 자동 저장 완료", { book_id: bookId, episode });
+          if (useHybridStream) {
+            res.write(`data: ${JSON.stringify({ phase: "save_done" })}\n\n`);
+            res.write(`data: ${JSON.stringify({ phase: "postprocess_start" })}\n\n`);
+          }
 
           // ── foreshadow + arc_summary post-processing (비동기, generate_v2.ts 동기화) ──
           const _savedEpisode = episode;

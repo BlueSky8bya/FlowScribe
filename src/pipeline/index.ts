@@ -102,6 +102,10 @@ export interface PlannerPipelineOptions {
   onStatus?: (msg: string) => void;
   /** Phase 4.14 — 이번 호출에 적용할 route_set 이름 (model_router config). 미지정 시 active route 사용. */
   routeSetOverride?: string;
+  /** Phase 4.20 R5A — renderer token chunk callback. 설정 시 stream=true로 호출. */
+  onRendererChunk?: (delta: string) => void;
+  /** Phase 4.20 R5A — pipeline phase 이벤트 콜백 (planner_start/done, renderer_start/done 등). */
+  onPhase?: (phase: string, extra?: Record<string, unknown>) => void;
 }
 
 const EMPTY_QUALITY_SCORES = {
@@ -126,8 +130,11 @@ export async function runPlannerPipeline(
     plannerModelOverride,
     rendererModelOverride,
     routeSetOverride,
+    onRendererChunk,
+    onPhase,
   } = opts;
   const notify = (msg: string) => { onStatus?.(msg); };
+  const phase  = (p: string, extra?: Record<string, unknown>) => { try { onPhase?.(p, extra); } catch { /* sink */ } };
 
   // TraceLogger — tracePool 전달 시에만 활성화 (운영 중 데이터 수집)
   let tracer: import("../training/trace_logger.js").TraceLogger | null = null;
@@ -144,9 +151,11 @@ export async function runPlannerPipeline(
 
   // ─── Step 2: Creative Planning (LLM) ─────────────────────────
   notify("플래너가 장면 비트와 인물 감정선을 설계하는 중...");
+  phase("planner_start");
   const t_plan0 = Date.now();
   const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints, plannerModelOverride, routeSetOverride);
   const planner_elapsed_ms = Date.now() - t_plan0;
+  phase("planner_done", { elapsed_ms: planner_elapsed_ms, fallback_used });
   tracer?.setPlannerTrace({
     raw_llm_output: raw_output ?? "",
     parsed_plan: fallback_used ? null : creativePlan as unknown as import("../types/planner.js").ScenePlan,
@@ -254,11 +263,12 @@ export async function runPlannerPipeline(
 
   // ─── Step 5: Rendering (LLM) ─────────────────────────────────
   notify("대사와 지문을 소설로 렌더링하는 중...");
+  phase("renderer_start", { streaming: !!onRendererChunk });
   const t_render0 = Date.now();
   let generatedText = "";
   let rawRenderedText = "";
   try {
-    const renderResult = await renderFromPlanWithTrace(scenePlan, ctx, rendererModelOverride, routeSetOverride);
+    const renderResult = await renderFromPlanWithTrace(scenePlan, ctx, rendererModelOverride, routeSetOverride, onRendererChunk);
     rawRenderedText = renderResult.text;
     // ── Prose Name Drift Detector: 생성 텍스트에서 canonical name 변형 탐지 (로그만) ──
     // 교정은 하지 않음 (한국어 조사 경계 파싱이 필요하여 오탐 위험 높음)
@@ -302,6 +312,7 @@ export async function runPlannerPipeline(
     logWarn("pipeline", "렌더링 오류", { error: String(err) });
   }
   const renderer_elapsed_ms = Date.now() - t_render0;
+  phase("renderer_done", { elapsed_ms: renderer_elapsed_ms, chars: generatedText.length });
 
   // ─── Step 5.25: Continuity Check (ep >= 2) ───────────────────
   if (ctx.episode_number >= 2 && generatedText && ctx.continuity_contract) {

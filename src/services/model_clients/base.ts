@@ -18,6 +18,8 @@ export interface ChatRequest {
   /** OpenAI-compatible: response_format json_object 등 */
   json_mode?: boolean;
   timeout_ms?: number;
+  /** Phase 4.20 R5A — token chunk callback. 설정 시 stream=true로 호출하고 각 delta를 emit한다. */
+  onChunk?: (delta: string) => void;
 }
 
 export interface ChatResponse {

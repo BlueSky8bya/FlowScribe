@@ -135,6 +135,8 @@ export interface LLMTaskInput {
   temperature?: number;
   max_tokens?: number;
   timeout_ms?: number;
+  /** Phase 4.20 R5A — token chunk callback. 설정 시 stream=true. */
+  onChunk?: (delta: string) => void;
 }
 
 export interface LLMTaskResult extends ChatResponse {
@@ -165,6 +167,7 @@ export async function runLLMTask(
     max_tokens: input.max_tokens ?? route.max_tokens,
     json_mode: input.json_mode ?? route.json_mode,
     timeout_ms: input.timeout_ms ?? route.timeout_ms,
+    ...(input.onChunk ? { onChunk: input.onChunk } : {}),
   };
   const t0 = Date.now();
   const res = await client.chat(req);

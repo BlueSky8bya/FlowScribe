@@ -27,6 +27,48 @@ export class OpenAICompatibleClient implements LLMProviderClient {
 
   async chat(req: ChatRequest): Promise<ChatResponse> {
     const t0 = Date.now();
+
+    // Phase 4.20 R5A — onChunk 제공 시 stream=true. 각 delta를 callback으로 emit하고
+    // 최종 ChatResponse는 동일한 형태로 조립해 반환한다 (batch 호출자 호환).
+    if (req.onChunk) {
+      const stream = await this.client.chat.completions.create({
+        model: req.model,
+        messages: req.messages.map(m => ({ role: m.role, content: m.content })),
+        temperature: req.temperature ?? 0.7,
+        ...(req.max_tokens !== undefined ? { max_tokens: req.max_tokens } : {}),
+        // streaming일 때 OpenAI는 json_mode와 일부 모델 호환성 이슈 있으므로 task측에서 stream을 쓸 때는 json 출력을 안 쓴다고 가정.
+        ...(req.json_mode ? { response_format: { type: "json_object" } } : {}),
+        stream: true,
+        stream_options: { include_usage: true },
+      } as any) as any;
+      let buffer = "";
+      let finishReason: string | undefined;
+      let usage: any = undefined;
+      for await (const chunk of stream) {
+        const choice = chunk.choices?.[0];
+        const delta = choice?.delta?.content ?? "";
+        if (delta) {
+          buffer += delta;
+          try { req.onChunk(delta); } catch { /* sink callback 오류 — text는 계속 buffer */ }
+        }
+        if (choice?.finish_reason) finishReason = choice.finish_reason;
+        if (chunk.usage) usage = chunk.usage;
+      }
+      return {
+        text: buffer,
+        raw: undefined,
+        usage: usage ? {
+          prompt_tokens: usage.prompt_tokens,
+          completion_tokens: usage.completion_tokens,
+          total_tokens: usage.total_tokens,
+        } : undefined,
+        elapsed_ms: Date.now() - t0,
+        provider: this.provider_name,
+        model: req.model,
+        finish_reason: finishReason,
+      };
+    }
+
     const completion = await this.client.chat.completions.create({
       model: req.model,
       messages: req.messages.map(m => ({ role: m.role, content: m.content })),

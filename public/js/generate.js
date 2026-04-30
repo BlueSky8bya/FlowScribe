@@ -611,7 +611,11 @@ function generate() {
   let _generateFinished = false;
 
   const _regenParam = window._regenNonce ? `&regen_nonce=${encodeURIComponent(window._regenNonce)}` : "";
-  const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${_genSession.bookIdAtStart}&use_planner=true${_regenParam}`);
+  // Phase 4.20 R5A — feature flag toggle. localStorage.fs_stream_mode = 'hybrid' 또는 'batch'.
+  // 기본값은 batch (기존 동작). 개발자 콘솔: localStorage.setItem('fs_stream_mode','hybrid')
+  const _streamMode = (typeof localStorage !== 'undefined' && localStorage.getItem('fs_stream_mode')) || '';
+  const _streamParam = _streamMode === 'hybrid' || _streamMode === 'batch' ? `&stream_mode=${_streamMode}` : '';
+  const es = new EventSource(`/api/generate?episode=${currentEpisode}&book_id=${_genSession.bookIdAtStart}&use_planner=true${_regenParam}${_streamParam}`);
   es.onmessage = e => {
     if (e.data === "[DONE]") { _finishGeneration(); return; }
     try {
@@ -623,6 +627,13 @@ function generate() {
           el.style.opacity = '0';
           setTimeout(() => { if (el) { el.textContent = json.status; el.style.opacity = '1'; } }, 200);
         }
+      } else if (json.phase) {
+        // Phase 4.20 R5A — hybrid streaming phase 이벤트 (개발자 추적용).
+        // UI 변화는 token 도착으로 처리됨. 여기선 dev 로깅만.
+        console.debug("[generate] phase:", json.phase, json);
+      } else if (json.sanitized_correction) {
+        // chunk vs DB 차이 알림 (R5A 프로토타입은 본문 교체 안 함). 로그만.
+        console.debug("[generate] sanitized_correction:", json);
       } else if (json.error) {
         _generating = false;
         window._fsActiveGen = null; window._fsLastBgToastKey = null;
