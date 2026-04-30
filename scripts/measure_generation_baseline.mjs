@@ -33,8 +33,11 @@ const route = args.includes("--route") ? args[args.indexOf("--route") + 1] : nul
 const runs = args.includes("--runs") ? parseInt(args[args.indexOf("--runs") + 1]) : 1;
 const appUrl = args.includes("--app-url") ? args[args.indexOf("--app-url") + 1] : (process.env.APP_URL ?? "http://localhost:3000");
 
+const fsToken = process.env.FS_TOKEN ?? null;
+const authHeaders = fsToken ? { "Authorization": `Bearer ${fsToken}` } : {};
 if (!bookId || bookId.startsWith("--")) {
   console.error("Usage: --book-id <uuid> --episode N [--route NAME] [--runs 1] [--app-url ...]");
+  console.error("auth: FS_TOKEN env var (JWT) — required if server has auth enabled");
   process.exit(2);
 }
 
@@ -57,7 +60,7 @@ async function generateOnce(label) {
   let episodeMeta = null;
   let charStatesCount = null;
 
-  const res = await fetch(url, { method: "GET", headers: { "Accept": "text/event-stream" } });
+  const res = await fetch(url, { method: "GET", headers: { "Accept": "text/event-stream", ...authHeaders } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
   const reader = res.body.getReader();

@@ -22,8 +22,11 @@ const args = process.argv.slice(2);
 const bookId = args[args.indexOf("--book-id") + 1];
 const runs = args.includes("--runs") ? parseInt(args[args.indexOf("--runs") + 1]) : 5;
 const appUrl = args.includes("--app-url") ? args[args.indexOf("--app-url") + 1] : (process.env.APP_URL ?? "http://localhost:3000");
+const fsToken = process.env.FS_TOKEN ?? null;
+const authHeaders = fsToken ? { "Authorization": `Bearer ${fsToken}` } : {};
 if (!bookId || bookId.startsWith("--")) {
   console.error("Usage: --book-id <uuid> [--runs 5] [--app-url http://localhost:3000]");
+  console.error("auth: FS_TOKEN env var (JWT) — required if server has auth enabled");
   process.exit(2);
 }
 
@@ -35,7 +38,7 @@ function pct(arr, p) {
 }
 
 async function fetchExistingContext() {
-  const r = await fetch(`${appUrl}/api/context/${bookId}`);
+  const r = await fetch(`${appUrl}/api/context/${bookId}`, { headers: authHeaders });
   if (!r.ok) throw new Error(`GET /api/context failed: ${r.status}`);
   return await r.json();
 }
@@ -44,7 +47,7 @@ async function postContext(payload) {
   const t0 = Date.now();
   const r = await fetch(`${appUrl}/api/context`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...authHeaders },
     body: JSON.stringify(payload),
   });
   const elapsed = Date.now() - t0;

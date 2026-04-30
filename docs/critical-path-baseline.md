@@ -64,39 +64,38 @@
 
 logger 출력에서 위 마커들을 grep하면 단계별 ms를 직접 확인 가능. raw prompt/response는 logger에 안 남김.
 
-## 4. Click-to-First-Token Baseline (사용자 측정 후 채움)
+## 4. Click-to-First-Token Baseline (Phase R1.5 measured 2026-05-01)
 
-| route | episode | runs | first_token p50 (ms) | first_token p95 (ms) | done p50 (ms) | done p95 (ms) | judge 발동률 |
-|---|---|---|---|---|---|---|---|
-| baseline_local | 1 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| high_quality_ensemble | 1 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| baseline_local | 5 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
-| high_quality_ensemble | 5 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| route | episode | runs | first_token (ms) | done (ms) | first_token→done | body chars | judge | plan_verdict |
+|---|---|---|---|---|---|---|---|---|
+| high_quality_ensemble | 1 | 1 | **54,061** | 54,072 | 11 | 2,124 | 미발동 | PASS (80) |
 
-**측정 명령:**
+prior run (14:50:34, ep>=2): total_pipeline 88,086 / planner 72,254 / renderer 15,802.
+
+**핵심 finding:**
+- forensic 추정(8-15s)의 **2-3배** 더 큼 → forensic은 너무 낙관적이었음.
+- first_token→done = 11 ms = 본문 batch (token streaming 0).
+- 이번 run은 judge 미발동인데도 54s — **prompt+모델 응답 자체가 큰 비용**.
+
+**측정 명령 (재현용):**
 ```bash
-node scripts/measure_generation_baseline.mjs --book-id <test_book_id> --episode 1 \
+node scripts/measure_generation_baseline.mjs --book-id 2f4bc632... --episode 1 \
      --route high_quality_ensemble --runs 1
-node scripts/measure_generation_baseline.mjs --book-id <test_book_id> --episode 1 \
-     --runs 1   # baseline_local
 ```
 
-**예상 (Phase 4.20 forensic):**
-- baseline_local: first_token p50 ~ 12-20 s
-- high_quality_ensemble: first_token p50 ~ 8-15 s (DeepSeek renderer + OpenAI planner)
-- judge 발동 시 +5-15 s
-
-## 5. saveContext Baseline (사용자 측정 후 채움)
+## 5. saveContext Baseline (Phase R1.5 measured 2026-05-01)
 
 ```bash
-node scripts/measure_context_save_latency.mjs --book-id <test_book_id> --runs 5
+node scripts/measure_context_save_latency.mjs --book-id 2f4bc632... --runs 5
 ```
 
 | | min (ms) | p50 (ms) | avg (ms) | p95 (ms) | max (ms) | pass (target < 2000) |
 |---|---|---|---|---|---|---|
-| Phase 4.19C 후 | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
+| Phase 4.19C 후 | 34 | 42 | 43 | **58** | 58 | **✅ PASS** |
 
-Phase 4.19C에서 setImmediate로 분리 — 응답 자체는 빠를 것 (DB write + redis set 만). LLM enrich는 background.
+samples: [42, 34, 35, 58, 47]
+
+Phase 4.19C `setImmediate + Promise.all` 분리 효과 확인. saveContext는 더 이상 critical path 병목 아님. R2/R5 우선순위에서 제외.
 
 ## 6. Step별 분리 가능성 (R5 hybrid)
 
@@ -124,10 +123,10 @@ Phase 4.19C에서 setImmediate로 분리 — 응답 자체는 빠를 것 (DB wri
 
 | # | 질문 | 답 |
 |---|---|---|
-| 1 | first_token_latency가 정말 batch 구조 때문에 큰가? | **YES** — 정적 분석으로 확정. 측정값 채우면 정량 확정 |
-| 2 | saveContext latency는 async 분리 후 줄었는가? | 측정 필요 (§5) |
-| 3 | planner와 renderer 중 어느 쪽이 더 큰 병목인가? | 두 LLM 비슷 (5-10s 각각). pipeline_done에 둘 합산. logger의 planner_ms / renderer_ms로 정확 분해 |
-| 4 | judge/repair 발동률 + 시간? | logger 마커 + 측정 필요 |
+| 1 | first_token_latency가 정말 batch 구조 때문에 큰가? | **YES 정량 확정** — pipeline 99.6%, batch 11ms |
+| 2 | saveContext latency는 async 분리 후 줄었는가? | **YES 확정** — p95=58ms (target<2000) |
+| 3 | planner와 renderer 중 어느 쪽이 더 큰 병목인가? | **planner > renderer** — measured 31.7s vs 22.0s, prior 72s vs 16s. planner가 더 크고 변동성 큼 |
+| 4 | judge/repair 발동률 + 시간? | 1/1 미발동 (PASS score=80). 그래도 54s — judge 없는 base latency가 이미 큼 |
 | 5 | state extraction이 본문 표시 전 blocking? | YES — runPlannerPipeline 안에서 처리, R5에서 background 분리 |
 | 6 | prompt token 가장 큰 구간? | `[연속성 계약]` 800-1500, `[재생성 분기 계약]` 600-1200 — `prompt-budget-baseline.md` |
 | 7 | negative >> positive? | YES — planner 0.89, renderer 0.56 (정적 측정 확정) |

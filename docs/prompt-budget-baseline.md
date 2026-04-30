@@ -162,3 +162,13 @@ baseline (이 문서) 대비 -15% / -10% 달성 + pos/neg ratio ≥ 1.0 회복 �
 - system prompt vs user prompt 분리 측정은 R2에서 별도 도구로 정밀화
 
 R1.5는 baseline 고정이 목적이므로 이 정도 정밀도로 충분.
+
+## 9. 동적 측정과의 연결 (Phase R1.5)
+
+`docs/measurement-baseline-phase4.20.md` §2 / `docs/critical-path-baseline.md` §4 참조.
+
+R1.5 baseline (HQE ep1 1회):
+- planner_ms = 31,750 ms (measured) vs source chars 42,717 / approx_max 17,087 tok
+- renderer_ms = 22,003 ms (measured) vs source chars 12,786 / approx_max 5,115 tok
+
+→ planner LLM 응답 시간이 약 **0.74 ms / approx_token** (HQE OpenAI). prompt 1K tok 줄이면 약 0.7s 감소 추정. R2에서 planner 1.5K tok 가지치기 시 약 1-1.5s 단축 가능.
