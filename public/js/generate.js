@@ -2038,67 +2038,75 @@ ${resolveVars(wrap.innerHTML)}
       '.cap-char-card > div, .cap-char-card > div > div, .cap-item-row > div'
     ));
     const splitYs = [];
+    // R5A-C v7 — 페이지 비어있음 검출용 contentTops: 실제 텍스트 콘텐츠가 있는 element의
+    //   top y 모음. 페이지 [yStart, yEnd) 안에 contentTop이 하나도 없으면 그 페이지는 빈 영역.
+    const contentTops = [];
     for (const el of els) {
       const rect = el.getBoundingClientRect();
       const top    = Math.round((rect.top    - wrapTop) * scale);
       const bottom = Math.round((rect.bottom - wrapTop) * scale);
-      // bottom y는 항상 후보 (단락/sub-row 끝). 배지가 있는 row의 경우 row 전체 bottom →
-      // 배지 + 텍스트 둘 다 위쪽에 안전하게 포함된 상태에서 cut.
+      // bottom y는 항상 split 후보 (단락/sub-row 끝).
       splitYs.push(bottom);
-      // atomic block (카드/소지품 row)은 TOP y도 후보 — 시작 직전에 자르면 통째로 다음 페이지.
+      // atomic block (카드/소지품 row)은 TOP y도 split 후보.
       const isAtomic = [...el.classList].some(c => ATOMIC_BLOCK.has(c));
       if (isAtomic) splitYs.push(top);
+      // 콘텐츠 존재 신호: 텍스트가 있는 element만 contentTops에 등록.
+      const hasText = (el.textContent || '').trim().length > 0;
+      if (hasText) contentTops.push(top);
     }
     const splitCandidates = splitYs
       .filter(y => y > 0 && y < canvas.height)
       .sort((a, b) => a - b);
+    const contentTopsSorted = contentTops
+      .filter(y => y >= 0 && y < canvas.height)
+      .sort((a, b) => a - b);
     document.body.removeChild(pngWrap);
-    return { canvas, scale, splitCandidates };
+    return { canvas, scale, splitCandidates, contentTops: contentTopsSorted };
   };
 
   // ── 페이지 분할 — 단락 경계 우선, fallback 고정 높이 ──────────
   // 이상적 분할선 근처의 마지막 단락 하단을 실제 분할점으로 사용해 글자 잘림 방지
   const PAGE_H = 5600;  // canvas 픽셀 기준 (logical 1400px × scale 4)
-  // R5A-C v6 — 마지막 빈 페이지 제거 임계: 페이지 높이가 이 값 미만이면 직전 페이지에 병합.
-  const MIN_TAIL_PAGE_H = 200;
-  const sliceCanvas = (canvas, splitCandidates = []) => {
+  // R5A-C v7 — sliceCanvas:
+  //   1) splitCandidates로 단락 경계 우선 cut.
+  //   2) 마지막 페이지에 실제 콘텐츠(contentTops 안의 element top y)가 하나도 없으면 → 빈 페이지 → 직전과 병합.
+  //   하드코딩된 픽셀 임계 사용 안 함. 콘텐츠 element 기반 의미적 검출.
+  const sliceCanvas = (canvas, splitCandidates = [], contentTops = []) => {
     const total = Math.ceil(canvas.height / PAGE_H);
     if (total === 1) return [canvas];
-    const pages = [];
+    // 페이지 분할 (yRanges)
+    const ranges = [];
     let yStart = 0;
     for (let i = 0; i < total; i++) {
       const idealEnd = Math.min(yStart + PAGE_H, canvas.height);
-      // 이상적 분할선 이하의 단락 하단 중 마지막 것을 분할점으로 선택
-      // 단 너무 짧으면(이상 높이의 40% 미만) 다음 페이지에 맡기고 hard-cut
-      const SLACK = PAGE_H * 0.15;  // ±15% 여유 범위
+      const SLACK = PAGE_H * 0.15;
       const minCut = yStart + PAGE_H * 0.4;
       const candidate = [...splitCandidates]
         .filter(y => y > minCut && y <= idealEnd + SLACK)
         .pop();
       const yEnd = (i === total - 1) ? canvas.height : (candidate ?? idealEnd);
-      const pg = document.createElement('canvas');
-      pg.width  = canvas.width;
-      pg.height = yEnd - yStart;
-      pg.getContext('2d').drawImage(canvas, 0, -yStart);
-      pages.push(pg);
+      ranges.push({ yStart, yEnd });
       yStart = yEnd;
       if (yStart >= canvas.height) break;
     }
-    // 마지막 페이지가 빈/얇은 배경(예: 100px 미만)이면 직전 페이지에 병합 (얇은 빈 장 제거)
-    if (pages.length >= 2) {
-      const last = pages[pages.length - 1];
-      if (last.height < MIN_TAIL_PAGE_H) {
-        const prev = pages[pages.length - 2];
-        const merged = document.createElement('canvas');
-        merged.width  = prev.width;
-        merged.height = prev.height + last.height;
-        const ctx = merged.getContext('2d');
-        ctx.drawImage(prev, 0, 0);
-        ctx.drawImage(last, 0, prev.height);
-        pages.splice(pages.length - 2, 2, merged);
+    // 마지막 페이지에 실제 콘텐츠 element가 시작되지 않으면 직전 페이지에 흡수.
+    // (배경/여백만 있고 텍스트·카드가 없는 페이지를 의미적으로 검출.)
+    if (ranges.length >= 2) {
+      const last = ranges[ranges.length - 1];
+      const hasContent = contentTops.some(y => y >= last.yStart && y < last.yEnd);
+      if (!hasContent) {
+        const prev = ranges[ranges.length - 2];
+        ranges.splice(ranges.length - 2, 2, { yStart: prev.yStart, yEnd: last.yEnd });
       }
     }
-    return pages;
+    // canvas slice
+    return ranges.map(r => {
+      const pg = document.createElement('canvas');
+      pg.width  = canvas.width;
+      pg.height = r.yEnd - r.yStart;
+      pg.getContext('2d').drawImage(canvas, 0, -r.yStart);
+      return pg;
+    });
   };
 
   // ── 다장 순차 복사 오버레이 ────────────────────────────────
@@ -2168,8 +2176,8 @@ ${resolveVars(wrap.innerHTML)}
   // 3순위: text/plain
   if (navigator.clipboard?.write && typeof ClipboardItem !== 'undefined') {
     try {
-      const { canvas, splitCandidates } = await makePngCanvas();
-      const pages = sliceCanvas(canvas, splitCandidates);
+      const { canvas, splitCandidates, contentTops } = await makePngCanvas();
+      const pages = sliceCanvas(canvas, splitCandidates, contentTops);
       console.debug('[capture]', { pages: pages.length, w: canvas.width, h: canvas.height, candidates: splitCandidates.length });
 
       if (pages.length === 1) {
@@ -2206,8 +2214,8 @@ ${resolveVars(wrap.innerHTML)}
     done(); return;
   } catch {
     try {
-      const { canvas, splitCandidates } = await makePngCanvas();
-      const pages = sliceCanvas(canvas, splitCandidates);
+      const { canvas, splitCandidates, contentTops } = await makePngCanvas();
+      const pages = sliceCanvas(canvas, splitCandidates, contentTops);
       for (let i = 0; i < pages.length; i++) {
         await new Promise(res => setTimeout(res, i === 0 ? 0 : 300));
         const a = document.createElement('a');
