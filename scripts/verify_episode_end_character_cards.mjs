@@ -62,8 +62,10 @@ check("char-name-ref :hover 효과 제거", !/span\.char-name-ref:hover/.test(cs
 
 console.log("\n── [6] CSS 정의 (2열 grid) ──");
 check(".episode-end-cards 스타일 정의", /\.episode-end-cards\s*\{/.test(css));
-check(".ep-end-grid auto-fit grid (2~3열)", /\.ep-end-grid\s*\{[\s\S]*?grid-template-columns:repeat\(auto-fit,minmax\(\d+px,1fr\)\)/.test(css));
+check(".ep-end-grid auto-fit grid (1~3열 자동)", /\.ep-end-grid\s*\{[\s\S]*?grid-template-columns:repeat\(auto-fit,minmax\(\d+px,1fr\)\)/.test(css));
 check(".ep-end-grid 안 .scene-char-item override (사이드바보다 큼)", /\.ep-end-grid\s+\.scene-char-item\s*\{/.test(css));
+check(".episode-end-cards 명시 width + max-width (column flex 안에서 1열 쪼그라듦 방지)",
+  /\.episode-end-cards\s*\{[\s\S]*?width:100%[\s\S]*?max-width:\d+px/.test(css));
 check(".scene-char-min 스타일 정의 (사이드바)", /\.scene-char-min\s*\{/.test(css));
 
 console.log("\n── [7] 생성 중 노출 차단 ──");

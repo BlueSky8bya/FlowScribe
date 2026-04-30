@@ -239,9 +239,16 @@
  * 그대로 재사용한다. 컨테이너는 화면 폭에 따라 1~3열 자동 조정.
  * 사이드바보다 본문 톤에 맞도록 카드 자체를 키움(폰트·여백).
  */
+/* 본문(#output)이 max-width:760px이고 .output-scroll-area가 column flex+
+ * align-items:center다. 명시 폭이 없으면 grid가 콘텐츠 크기로 쪼그라들어
+ * 1열만 표시된다. 카드 영역은 본문보다 약간 넓게 max-width를 잡아 화면 폭에
+ * 따라 1~3열 자동 조정되게 한다.
+ */
 .episode-end-cards{
+  width:100%;max-width:900px;
   margin:28px 0 16px;padding:18px 14px 22px;
   border-top:1px dashed var(--border2);
+  box-sizing:border-box;
 }
 .ep-end-title{
   font-size:.95em;color:var(--text3);letter-spacing:.04em;
@@ -249,7 +256,7 @@
 }
 .ep-end-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(320px,1fr));
+  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
   gap:14px;
 }
 /* 본문 하단 카드는 사이드바보다 한 단계 크게 보이도록 override */
