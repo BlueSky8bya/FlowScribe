@@ -86,19 +86,58 @@ function geminiRequest(promptText: string, maxTokens = 3000): Promise<{ status: 
   });
 }
 
+function repairTruncatedJSON(s: string): string {
+  const stack: string[] = [];
+  let inStr = false;
+  let escape = false;
+  let lastColon = -1;
+  let lastValueStart = -1;
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i];
+    if (escape) { escape = false; continue; }
+    if (c === "\\") { escape = true; continue; }
+    if (c === '"') {
+      if (!inStr) lastValueStart = i;
+      inStr = !inStr;
+      continue;
+    }
+    if (inStr) continue;
+    if (c === ":") { lastColon = i; lastValueStart = -1; }
+    else if (c === "{") { stack.push("}"); lastValueStart = i; }
+    else if (c === "[") { stack.push("]"); lastValueStart = i; }
+    else if (c === "}" || c === "]") { stack.pop(); lastValueStart = i; }
+    else if (c !== " " && c !== "\n" && c !== "\t" && c !== ",") { lastValueStart = i; }
+  }
+  let prefix = "";
+  let suffix = "";
+  if (inStr) suffix += '"';
+  else if (lastColon > lastValueStart) prefix = "null";
+  suffix += stack.reverse().join("");
+  return s + prefix + suffix;
+}
+
 function parseGeminiJSON<T = any>(raw: string): T | { _parse_error: string } {
+  let clean: string;
   try {
     const env = JSON.parse(raw);
     const text =
       env.candidates?.[0]?.content?.parts?.find((p: any) => !p.thought && p.text)?.text ?? "";
-    const clean = text
+    clean = text
       .replace(/^```json\s*/i, "")
       .replace(/^```\s*/i, "")
       .replace(/\s*```\s*$/i, "")
       .trim();
-    return JSON.parse(clean) as T;
   } catch (e) {
-    return { _parse_error: (e as Error).message };
+    return { _parse_error: `envelope: ${(e as Error).message}` };
+  }
+  // direct parse
+  try { return JSON.parse(clean) as T; } catch {}
+  // truncation repair
+  try {
+    const repaired = repairTruncatedJSON(clean);
+    return JSON.parse(repaired) as T;
+  } catch (e2) {
+    return { _parse_error: `repair failed: ${(e2 as Error).message}` };
   }
 }
 
