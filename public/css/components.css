@@ -245,7 +245,9 @@
  * 따라 1~3열 자동 조정되게 한다.
  */
 .episode-end-cards{
-  width:100%;max-width:900px;
+  width:100%;
+  /* 본문 텍스트 박스(#output max-width:760px)와 동일한 너비 — 3열 시 본문 폭 일치. */
+  max-width:760px;
   margin:28px 0 16px;padding:18px 14px 22px;
   border-top:1px dashed var(--border2);
   box-sizing:border-box;
@@ -256,10 +258,12 @@
 }
 .ep-end-grid{
   display:grid;
-  /* Phase 4.20 R5A stabilization — 카드 너비를 3열 레이아웃 기준으로 고정.
-   * 1~2개일 때 카드가 화면 너비로 늘어지지 않게 max도 290px로 cap.
-   * (container max-width 900px / 3열 / gap 14px ≈ 285-290px). */
-  grid-template-columns:repeat(auto-fit,minmax(260px,290px));
+  /* R5A-C 보강 — 카드 너비 350px (1~2명 가운데 정렬), 3+ 명일 때 본문 너비 맞춰 3열.
+   *  1명 → 350px (max), justify-content:center → 가운데
+   *  2명 → 350px × 2 + gap = 714px ≤ 760px → 가운데
+   *  3명+ → auto-fit이 3 columns 배치, (760-2*gap)/3 ≈ 244px each (min 240 충족)
+   * minmax(240,350): 1-2명일 때 350 cap, 3명+일 때 244로 줄어 3열 자동. */
+  grid-template-columns:repeat(auto-fit,minmax(240px,350px));
   justify-content:center;
   gap:14px;
   /* grid default align-items:stretch이면 한 카드가 펼쳐질 때 같은 row의 다른

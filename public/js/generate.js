@@ -1999,10 +1999,26 @@ ${resolveVars(wrap.innerHTML)}
     pngWrap.style.top        = '0';
     document.body.appendChild(pngWrap);
     const canvas = await html2canvas(pngWrap, { backgroundColor: bgColor, scale, useCORS: true, logging: false, width: 900 });
-    // 단락 하단 위치 수집 — removeChild 전에 측정해야 레이아웃이 살아있음
+    // 단락/카드 분할 후보 위치 수집 — removeChild 전에 측정해야 레이아웃이 살아있음
+    //
+    // R5A-C 보강: 인물 카드(.cap-char-card) / 소지품 row(.cap-item-row)는 atomic block으로
+    // 다뤄 페이지 경계에서 잘리지 않게 한다. bottom y만 후보로 쓰면 카드 가운데에서 잘림 →
+    // TOP y도 후보로 추가해 카드/row를 통째로 다음 페이지로 보낼 수 있게 한다.
     const wrapTop = pngWrap.getBoundingClientRect().top;
-    const splitCandidates = Array.from(pngWrap.querySelectorAll('p, .scene-para, .dialogue-line, .cap-char-card, .cap-item-row'))
-      .map(el => Math.round((el.getBoundingClientRect().bottom - wrapTop) * scale))
+    const ATOMIC_BLOCK = new Set(['cap-char-card', 'cap-item-row']);
+    const els = Array.from(pngWrap.querySelectorAll('p, .scene-para, .dialogue-line, .cap-char-card, .cap-item-row'));
+    const splitYs = [];
+    for (const el of els) {
+      const rect = el.getBoundingClientRect();
+      const top    = Math.round((rect.top    - wrapTop) * scale);
+      const bottom = Math.round((rect.bottom - wrapTop) * scale);
+      // bottom y는 항상 후보 (단락 끝)
+      splitYs.push(bottom);
+      // atomic block은 TOP y도 후보 — 카드 시작 직전에 자르면 카드 통째로 다음 페이지
+      const isAtomic = [...el.classList].some(c => ATOMIC_BLOCK.has(c));
+      if (isAtomic) splitYs.push(top);
+    }
+    const splitCandidates = splitYs
       .filter(y => y > 0 && y < canvas.height)
       .sort((a, b) => a - b);
     document.body.removeChild(pngWrap);
