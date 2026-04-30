@@ -78,6 +78,36 @@
         "arc_summary_writer": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.3 },
         "foreshadow_reasoning":{ "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.2 }
       }
+    },
+
+    "gemma3_12b_fast_local": {
+      "description": "Route D — gemma3:12b 단독 fast local (API 없이 동작)",
+      "routes": {
+        "planner":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.4 },
+        "renderer": { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.7 },
+        "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
+        "narrative_repair": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 }
+      }
+    },
+
+    "gemma3_27b_full_local": {
+      "description": "Route H — gemma3:27b 단독 local high-quality (API 없이)",
+      "routes": {
+        "planner":  { "provider": "ollama", "model": "gemma3:27b", "temperature": 0.4 },
+        "renderer": { "provider": "ollama", "model": "gemma3:27b", "temperature": 0.7 },
+        "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
+        "narrative_repair": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 }
+      }
+    },
+
+    "gemma3_27b_planner_deepseek_renderer": {
+      "description": "Route I — gemma3:27b planner + DeepSeek renderer (cost/quality 균형)",
+      "routes": {
+        "planner":  { "provider": "ollama", "model": "gemma3:27b", "temperature": 0.4 },
+        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
+        "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
+        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
+      }
     }
   }
 }
