@@ -2110,12 +2110,12 @@ ${resolveVars(wrap.innerHTML)}
   };
 
   // ── 다장 순차 복사 오버레이 ────────────────────────────────
-  // R5A-C v6 — 매 장마다 "N번째 장 복사하기" 버튼 명시 (1번째도 자동 복사 안 함).
-  //   사용자가 무의식적으로 2번째 장부터 누르는 실수 방지.
-  //   indicator 글자 키움 + 색상 명도 ↑ (배경 #1c1a17 대비 가독성).
+  // R5A-C v8 — 페이지 nav: [이전] [복사하기] [다음], 닫기 X는 우상단.
+  //   복사 상태는 페이지별 추적 (copiedSet) → 이전/다음 이동 후에도 상태 유지.
+  //   이전 페이지로 돌아가서 다시 복사 가능 → 실수 시 닫고 재진입 불필요.
   const showPageCopyUI = (pages) => {
     let idx = 0;
-    let copied = false;  // 현재 idx 페이지 복사 완료 여부
+    const copiedSet = new Set();  // 복사 완료된 페이지 idx 모음
 
     const toBlob = (pg) => new Promise(res => pg.toBlob(res, 'image/png'));
 
@@ -2123,50 +2123,53 @@ ${resolveVars(wrap.innerHTML)}
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.72);display:flex;align-items:center;justify-content:center;font-family:inherit;';
 
     const panel = document.createElement('div');
-    panel.style.cssText = 'background:#1c1a17;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:32px 32px 26px;width:400px;box-shadow:0 12px 40px rgba(0,0,0,.9);';
+    panel.style.cssText = 'position:relative;background:#1c1a17;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:32px 32px 26px;width:420px;box-shadow:0 12px 40px rgba(0,0,0,.9);';
 
     const close = () => document.body.removeChild(overlay);
 
     const render = () => {
-      const isLast = idx === pages.length - 1;
+      const isFirst = idx === 0;
+      const isLast  = idx === pages.length - 1;
+      const copied  = copiedSet.has(idx);
+      const allCopied = copiedSet.size === pages.length;
       const thumbUrl = pages[idx].toDataURL('image/png');
-      // R5A-C v6 — indicator 가독성 보강: font 1.15rem + color #d4c0a8 (배경 대비 충분).
+      // 색상 — 배경 #1c1a17 대비 가독성 충분
       panel.innerHTML = `
-        <div style="font-size:1.15rem;color:#d4c0a8;letter-spacing:.04em;margin-bottom:.9rem;font-weight:600;">순차 복사 · <span style="color:#f4e4c8;">${idx+1}</span>번째 장 / 총 ${pages.length}장</div>
+        <button id="_cap_close" aria-label="닫기" style="position:absolute;top:12px;right:12px;background:transparent;border:none;color:#a89880;font-size:1.5rem;line-height:1;cursor:pointer;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .15s;">×</button>
+        <div style="font-size:1.15rem;color:#d4c0a8;letter-spacing:.04em;margin-bottom:.9rem;font-weight:600;padding-right:32px;">순차 복사 · <span style="color:#f4e4c8;">${idx+1}</span>번째 장 / 총 ${pages.length}장 ${allCopied ? '<span style="color:#22c55e;font-size:.9em;">· 모두 복사됨</span>' : ''}</div>
         <img src="${thumbUrl}" style="width:100%;border-radius:6px;border:1px solid rgba(255,255,255,.08);margin-bottom:1.1rem;display:block;">
-        <div style="font-size:1.05rem;color:${copied?'#22c55e':'#a09080'};margin-bottom:1.4rem;line-height:1.8;">
+        <div style="font-size:1.05rem;color:${copied?'#22c55e':'#c0a080'};margin-bottom:1.4rem;line-height:1.8;min-height:3.5em;">
           ${copied
             ? `<b style="color:#e8e0d4;">${idx+1}번째 장</b> 클립보드 복사 완료<br><span style="padding-left:1em;">바로 <kbd style="background:#2a2a2a;padding:.15em .5em;border-radius:4px;font-size:1rem;">Ctrl+V</kbd> 붙여넣기</span>`
-            : `<span style="color:#c0a080;">${idx+1}번째 장 복사 대기 — 아래 버튼 클릭</span>`}
+            : `<span>${idx+1}번째 장 복사 대기 — 아래 [복사하기] 클릭</span>`}
         </div>
-        <div style="display:flex;gap:.6rem;">
-          ${!copied
-            ? `<button id="_cap_copy_now" style="flex:1;background:#c87840;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${idx+1}번째 장 복사하기</button>`
-            : (isLast
-              ? `<button id="_cap_done" style="flex:1;background:#22c55e;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">전체 완료 ✓</button>`
-              : `<button id="_cap_next" style="flex:1;background:#c87840;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${idx+2}번째 장 복사하기</button>`)
-          }
-          <button id="_cap_close" style="background:#2a2a2a;border:none;border-radius:8px;padding:.7rem 1.1rem;color:#a89880;font-size:1rem;cursor:pointer;">닫기</button>
+        <div style="display:flex;gap:.5rem;">
+          <button id="_cap_prev" ${isFirst?'disabled':''} style="background:${isFirst?'#1f1d1a':'#2a2a2a'};border:none;border-radius:8px;padding:.7rem 1rem;color:${isFirst?'#555':'#c0a890'};font-size:1rem;cursor:${isFirst?'not-allowed':'pointer'};font-weight:600;">‹ 이전</button>
+          <button id="_cap_copy" style="flex:1;background:${copied?'#3a4a35':'#c87840'};border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${copied?'다시 복사':`${idx+1}번째 장 복사하기`}</button>
+          <button id="_cap_next" ${isLast?'disabled':''} style="background:${isLast?'#1f1d1a':'#2a2a2a'};border:none;border-radius:8px;padding:.7rem 1rem;color:${isLast?'#555':'#c0a890'};font-size:1rem;cursor:${isLast?'not-allowed':'pointer'};font-weight:600;">다음 ›</button>
         </div>`;
 
-      panel.querySelector('#_cap_copy_now')?.addEventListener('click', async () => {
+      const closeBtn = panel.querySelector('#_cap_close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', close);
+        closeBtn.addEventListener('mouseenter', () => closeBtn.style.background = 'rgba(255,255,255,.08)');
+        closeBtn.addEventListener('mouseleave', () => closeBtn.style.background = 'transparent');
+      }
+      panel.querySelector('#_cap_copy')?.addEventListener('click', async () => {
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': await toBlob(pages[idx]) })]);
-        copied = true;
+        copiedSet.add(idx);
         render();
       });
-      panel.querySelector('#_cap_next')?.addEventListener('click', async () => {
-        idx++;
-        copied = true;  // 즉시 복사
-        await navigator.clipboard.write([new ClipboardItem({ 'image/png': await toBlob(pages[idx]) })]);
-        render();
+      panel.querySelector('#_cap_prev')?.addEventListener('click', () => {
+        if (idx > 0) { idx--; render(); }
       });
-      panel.querySelector('#_cap_done')?.addEventListener('click', close);
-      panel.querySelector('#_cap_close')?.addEventListener('click', close);
+      panel.querySelector('#_cap_next')?.addEventListener('click', () => {
+        if (idx < pages.length - 1) { idx++; render(); }
+      });
     };
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
-    // 첫 장은 자동 복사 안 함 — 사용자가 "1번째 장 복사하기" 버튼 명시 클릭.
     render();
   };
 
