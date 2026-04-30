@@ -283,90 +283,58 @@ function buildPlannerSystemPrompt(): string {
 
 당신은 소설 장면 설계자다. 소설 본문을 쓰지 않는다. JSON 계획만 출력한다.
 
-아래 JSON 형식만 출력한다 (다른 텍스트 없이):
+JSON만 출력 (다른 텍스트 없이):
 {
-  "carryover_effects": [
-    {"character_name": "인물명", "description": "이번 화 첫 단락에서 드러나야 할 직전 사건의 여파", "must_appear_in_opening": true}
-  ],
-  "world_rule": {
-    "rule_content": "활용할 세계관 규칙 원문",
-    "activation_type": "constraint",
-    "scene_usage": "이 규칙이 이번 화에서 어떤 상황에서 인물의 행동·선택에 실제로 영향을 미치는지"
-  },
-  "scene_beats": [
-    {"beat_number": 1, "summary": "장면 비트 요약", "characters_involved": ["인물명"], "location": "장소"}
-  ],
+  "carryover_effects": [{"character_name":"...","description":"이번 화 첫 단락에서 드러날 직전 사건 여파","must_appear_in_opening":true}],
+  "world_rule": {"rule_content":"활용할 규칙 원문","activation_type":"constraint","scene_usage":"이 규칙이 인물 행동·선택에 어떻게 영향 주는지"},
+  "scene_beats": [{"beat_number":1,"summary":"비트 요약","characters_involved":["..."],"location":"..."}],
   "hook_type": "unresolved_situation",
-  "hook_payload": "훅의 내용 요약 (1~2문장)",
-  "hook_concrete_event": "마지막 2~4문장에서 실제로 일어날 구체적 사건 묘사",
-  "character_state_updates": [
-    {
-      "character_name": "인물명",
-      "emotional_state": "이번 화 종료 시점 감정 상태 (짧은 상태어, 예: 불안, 결의, 공포) — 반드시 이전 화와 다른 상태여야 한다",
-      "physical_state": "부상·피로 등 신체 상태 변화 (변화 없으면 생략)",
-      "items": [{"name": "아이템명", "grade": "S/A/B/C/D", "condition": "손상·충전·봉인 등 상태 (정상이면 생략)", "description": "짧은 용도·내력 (선택)"}],
-      "location": "이번 화 종료 시점 위치 (변화 없으면 생략)",
-      "visibility_state": "present",
-      "recent_goal": "이번 화에서 이 인물이 추구하는 구체적 목표나 태도 (1~2문장)"
-    }
-  ]
+  "hook_payload": "훅 내용 1~2문장",
+  "hook_concrete_event": "마지막 2~4문장의 실제 인물 행동·사건",
+  "character_state_updates": [{
+    "character_name":"...",
+    "emotional_state":"종료 시점 감정 (짧은 상태어 — 불안/결의/공포 등, 이전 화와 다르게)",
+    "physical_state":"부상·피로 변화 (없으면 생략)",
+    "items":[{"name":"...","grade":"S/A/B/C/D","condition":"손상·충전 등 상태 (정상이면 생략)","description":"짧은 용도·내력 (선택)"}],
+    "location":"종료 시점 위치 (변화 없으면 생략)",
+    "visibility_state":"present",
+    "recent_goal":"이번 화 인물 목표·태도 1~2문장"
+  }]
 }
 
-hook_type 규칙 — 반드시 준수:
-- hook_type 값은 반드시 아래 식별자 목록 중 정확히 하나를 그대로 사용한다.
-- 번역, 변형, 새 식별자 생성 절대 금지. 아래 영문 식별자 그대로 출력.
-- 허용 식별자:
-  immediate_threat | unexpected_discovery | new_problem | unresolved_situation | revelation
-  betrayal_hint | emotional_break | ironic_reversal | cliffhanger_choice | tender_moment
-  ominous_calm | memory_trigger | last_moment_failure | sudden_loss | alliance_shift | time_pressure
+hook_type 허용값 (영문 식별자 그대로, 번역·변형 안 함):
+immediate_threat | unexpected_discovery | new_problem | unresolved_situation | revelation | betrayal_hint | emotional_break | ironic_reversal | cliffhanger_choice | tender_moment | ominous_calm | memory_trigger | last_moment_failure | sudden_loss | alliance_shift | time_pressure
 
 규칙:
-- scene_beats는 2~4개. 각 비트는 인물 행동·사건이 명확해야 한다.
-- world_rule.activation_type은 "constraint"(행동 제약) / "conflict_cause"(갈등 원인) / "resolution_means"(해결 수단) 중 하나.
-- world_rule.scene_usage는 "이 규칙 때문에 ~가 ~할 수 없다/해야 한다" 형식.
-- hook_concrete_event는 분위기 묘사("어둠이 깔렸다" 등)가 아닌 실제 인물 행동·사건이어야 한다.
+- scene_beats는 2~4개, 각 비트는 인물 행동·사건이 명확하다.
+- world_rule.activation_type ∈ {"constraint" 행동 제약, "conflict_cause" 갈등 원인, "resolution_means" 해결 수단}.
+- world_rule.scene_usage는 "이 규칙 때문에 ~가 ~한다" 형식.
+- hook_concrete_event는 분위기 묘사가 아닌 실제 인물 행동·사건이다.
 
-[반복 패턴 금지 — 반드시 준수]
-- "주인공이 낯선 환경에 등장/각성 → 누군가와 첫 만남 → 외부 위협이 나타난다" 형식의 3단 공식 절대 금지.
-- beat 1을 "눈을 떴다/깨어났다/정신이 들었다/의식이 돌아왔다" 류 각성 묘사로 시작하는 것 금지.
-- 외부 물리적 위협(짐승·괴물·적·추격자 등)을 hook으로 사용하는 것은 intro/early 국면에서 금지.
-- 각 화는 이전 화와 완전히 다른 감정적 출발점·사건 유형에서 시작해야 한다.
-- beat를 설계할 때 "이 화·이 인물·이 세계관에서만 일어날 수 있는 구체적 사건"을 반드시 1개 이상 넣어야 한다.
-- 인물의 내면 갈등(선택 기로, 의심, 결심, 배신감, 수치심, 충동 등)이나 관계 역학 변화를 중심으로 설계하는 것을 권장한다.
-- [1화 전용] 이야기의 첫 화에서는 인물이 처한 상황보다 인물 자체의 목소리·태도·세계 인식이 먼저 드러나야 한다. "사건이 일어난다"보다 "이 인물은 어떤 존재인가"를 보여주는 것이 우선이다.
-- character_state_updates: 이번 화 종료 시점 인물 상태 예측. scene_beats에 등장하는 핵심 인물만 포함.
-- items 필드는 **반드시 출력**한다. 이번 화에서 소지품 변화가 없어도 현재 소지 중인 물건 전체를 그대로 기재한다. 아무것도 없으면 빈 배열 []로 명시한다. 절대 생략하지 않는다.
-- 그 외 변화 없는 필드(location, physical_state 등)는 생략 가능.
-- emotional_state는 반드시 이전 화 상태와 달라야 한다. 서사 맥락에 따른 자연스러운 감정 변화가 있어야 한다.
-- recent_goal은 이번 화에서 해당 인물이 추구하는 구체적인 목표나 태도를 1~2문장으로 서술한다.
+[반복 패턴 변주]
+- "낯선 환경 등장/각성 → 첫 만남 → 외부 위협" 3단 공식 사용 안 함.
+- beat 1은 각성 묘사(눈을 떴다·깨어났다·정신이 들었다)로 시작 안 함.
+- intro/early 국면에서 외부 물리적 위협(짐승·괴물·적·추격자)을 hook으로 사용 안 함.
+- 각 화는 이전 화와 다른 감정적 출발점·사건 유형에서 시작한다.
+- 모든 beat 설계에 "이 화·이 인물·이 세계관에서만 일어날 구체적 사건"을 1개 이상 포함한다. 내면 갈등(선택·의심·결심·배신감·수치심·충동)이나 관계 역학 변화를 중심으로 설계하는 것을 권장한다.
+- [1화 전용] 사건보다 인물의 목소리·태도·세계 인식이 먼저 드러난다 — "이 인물은 어떤 존재인가"를 우선 보여준다.
+- character_state_updates: 화 종료 시점 핵심 인물 상태. scene_beats 등장 인물만.
+- items는 항상 출력 (변화 없으면 현재 소지 그대로, 없으면 빈 배열). 생략 안 함. 변화 없는 다른 필드(location, physical_state 등)는 생략 가능.
+- emotional_state는 이전 화와 다르게 한다 — 서사 맥락의 자연스러운 변화.
+- recent_goal은 이번 화 인물 목표·태도를 1~2문장.
 
-[소지품 배정 원칙 — 반드시 준수]
-- 인물에게 소지품을 배정할 때 반드시 세계관·배경·시대·상황과 일치하는 물건만 사용한다.
-- 판단 기준: "이 세계의 이 인물이 이 상황에서 실제로 가질 수 있는가?"를 먼저 검증한다.
-- 소지품은 인물의 성격·역할·처지와도 일치해야 한다. 인물 성향·역할과 맞지 않는 물건은 배정 금지.
-- 소지품이 없거나 맨손 상태라면 items 필드를 빈 배열로 두거나 생략한다. 억지로 물건을 채우지 않는다.
-- 이미 [인물 현재 상태]에 소지품이 명시되어 있다면 그대로 유지하고, 이번 화에서 획득·분실·파손된 경우에만 변경한다.
-- ★ 장면에 등장하는 소품(쇠사슬, 밧줄, 함정, 가구 등)은 소지품이 아니다. 인물이 직접 소유·휴대하는 물건만 items에 넣는다.
-- ★★ 소지품 이름(name)은 사용자가 설정한 원본 이름을 그대로 사용한다. 절대로 축약하거나 임의로 변경하지 않는다.
-  예시: "고성능 손전등" → "손전등"으로 줄이는 것 금지. 그대로 "고성능 손전등"으로 출력할 것.
-- ★★ 소지품 상태 변화는 name이 아니라 condition에 기록한다.
-  금지: name: "손전등(방전)" / name: "방전된 손전등"
-  정답: name: "고성능 손전등", condition: "방전"
-- ★★ 스킬·능력·특성·이능·마법 능력·패시브는 items에 절대 넣지 않는다.
-  예시: "똑똑이 스킬", "고유 스킬: 분석", "마법 능력 Lv.3" 등은 items 아님. 완전 제외할 것.
+[소지품 원칙]
+- 세계관·배경·시대·상황과 인물 성격·역할에 일치하는 물건만 배정. "이 세계의 이 인물이 이 상황에서 가질 수 있는가" 우선 검증. 소지품 없으면 빈 배열 — 억지로 채우지 않는다.
+- [인물 현재 상태]에 명시된 소지품은 유지하고, 획득·분실·파손 시에만 변경.
+- 장면 소품(쇠사슬·밧줄·함정·가구)은 items 아님 — 인물이 직접 휴대하는 물건만.
+- 이름(name): 사용자 원본 그대로 (축약·변경 안 함). 예 "고성능 손전등" → "손전등" 안 줄임. 상태 변화는 condition에 기록 — name: "고성능 손전등", condition: "방전" (X: name "손전등(방전)").
+- 스킬·능력·특성·마법·패시브는 items에 들어가지 않는다 — 완전 제외.
 
-[소지품 등급 및 상태 원칙 — 반드시 준수]
-- 모든 소지품에 grade(S/A/B/C/D)를 배정한다. 기준: 세계관 내 희소성·인물 처지·서사적 의미.
-  S: 세계관 내 극히 드물거나 서사적으로 핵심인 물건 (전설 무기, 유일한 유품 등)
-  A: 고품질·고가·특별한 내력의 물건 (정예 장비, 고위직 상징물 등)
-  B: 표준 품질·기능에 충실한 물건 (일반 군용 장비, 숙련자 도구 등)
-  C: 낡거나 저렴하거나 흔한 물건
-  D: 파손·기능 저하·임시방편으로 쓰는 물건
-- condition(상태)은 인물의 성격·생활방식·처지를 반영한다.
-  깔끔하거나 자존심 강한 인물의 첫 화 장비: "상태 양호", "날이 잘 서 있음" 등 정비된 상태
-  빈곤하거나 방랑 중인 인물: 낡거나 수리 흔적 있어도 자연스럽게
-  이야기 중 파손·소모가 없었다면 첫 화 condition은 인물 성격 기반으로 설정
-- description은 물건의 짧은 용도나 내력을 1문장 이내로 서술 (생략 가능).
+[소지품 등급·상태]
+- 모든 items에 grade 배정 (세계관 희소성·인물 처지·서사적 의미 기준):
+  S 극히 드물거나 핵심 / A 고품질·특별 내력 / B 표준 품질 / C 낡거나 흔함 / D 파손·기능 저하.
+- condition은 인물 성격·생활방식 반영 (깔끔·자존심 강함 → 양호 / 빈곤·방랑 → 낡음). 첫 화 condition은 성격 기반으로 설정.
+- description은 1문장 이내 (생략 가능).
 - JSON만 출력. 앞뒤 설명 없음.`;
 }
 
@@ -462,14 +430,9 @@ function buildPlannerUserPrompt(
     "";
   const worldLabel = [worldGenre, worldBg].filter(Boolean).join(" / ") || worldDesc;
   const worldConstraintBlock = worldLabel
-    ? `[★ 세계관 장소 제약 — 최우선 준수]\n` +
-      `현재 이야기의 세계: ${worldLabel}\n` +
-      `규칙:\n` +
-      `1. scene_beats와 character_state_updates의 location은 반드시 현재 이야기 세계에 실존 가능한 장소여야 한다.\n` +
-      `2. [인물 현재 상태]의 위치가 이 세계관과 맞지 않으면(이전 화 오류 포함), 그 값을 무시하고 세계관에 맞는 장소로 직접 대체한다.\n` +
-      `3. 등장인물이 다른 세계·시대·차원에서 왔더라도, 현재 이야기의 배경은 위 세계다. 인물의 출신 세계 장소(예: 현대 학교·교실·사무실·아파트)는 현재 화 배경으로 절대 사용 불가 — 회상·꿈 장면으로만 허용된다.\n` +
-      `4. [직전 화 말미]에 세계관과 맞지 않는 장소가 나타나면 이전 회차 오류다 — 그 장소를 따르지 않고 세계관에 맞는 자연스러운 장소로 교정한다.\n` +
-      `5. 장소가 불명확할 때는 직전 화의 서사 흐름과 세계관에서 가장 자연스러운 장소를 직접 선택한다.`
+    ? `[★ 세계관 장소 — 최우선]\n` +
+      `현재 세계: ${worldLabel}\n` +
+      `모든 location은 이 세계에 실존 가능한 장소만 사용. 이전 화/현재 상태에 세계 외 장소가 있으면 그 값을 무시하고 세계 안 장소로 대체한다(회상·꿈 제외). 인물의 출신 세계 장소는 현재 화 배경으로 사용 불가.`
     : null;
 
   // ── 프롬프트 조립 ──────────────────────────────────────────────
@@ -489,11 +452,7 @@ function buildPlannerUserPrompt(
   if (absoluteText) {
     const absoluteHeader =
       `[절대 규칙 — 본문에서 반드시 준수]\n` +
-      `※ 각 항목의 자연어 의미를 그대로 따르라:\n` +
-      `   • 부정형(금지·하지 마라·없다)이면 그 사건/요소가 본문에서 일어나지 않게 하라.\n` +
-      `   • 긍정형/전제(있다·일어난다·전개된다)이면 본문이 그 전제를 부정하지 않도록 하고,\n` +
-      `     도입(전이·각성·만남 등)을 묘사하는 전제는 ${ctx.episode_number === 1 ? "이번 1화 본문 안에서 그 도입 상황이 명시적으로 그려지게" : "이미 1화에서 일어난 사건으로 전제하고"} 하라.\n` +
-      `   • 설명충처럼 규칙 문장을 그대로 본문에 옮겨 적지 말고, 행동·묘사·대사로 자연스럽게 반영하라.\n` +
+      `각 항목의 자연어 의미 그대로 적용. 부정형은 그 일이 일어나지 않게, 긍정형/전제는 ${ctx.episode_number === 1 ? "이번 1화 본문 안에서 명시적으로 그려지게" : "이미 일어난 사건으로 전제하게"} (도입(전이·각성·만남) 묘사 포함). 규칙 문장을 본문에 그대로 옮기지 말고 행동·묘사·대사로 반영.\n` +
       absoluteText;
     sections.push(absoluteHeader);
   }
@@ -516,35 +475,33 @@ function buildPlannerUserPrompt(
     ].filter(Boolean);
 
     if (cc.known_facts.length) {
-      ccLines.push(`[이미 알려진 사실 — 처음 일어난 것처럼 반복 금지]\n${cc.known_facts.map(f => `- ${f}`).join("\n")}`);
+      ccLines.push(`[이미 알려진 사실 — 처음 일어난 것처럼 다루지 않는다]\n${cc.known_facts.slice(0, 8).map(f => `- ${f}`).join("\n")}`);
     }
     if (cc.relationship_state.length) {
       ccLines.push(`[인물 관계 현황]\n${cc.relationship_state.map(r => `- ${r}`).join("\n")}`);
     }
     if (cc.open_threads.length) {
-      ccLines.push(`[열린 플롯 스레드 — 이번 화에서 최소 1~2개 이어야 한다]\n${cc.open_threads.map(t => `- ${t}`).join("\n")}`);
+      ccLines.push(`[열린 플롯 — 이번 화에서 1~2개 이어간다]\n${cc.open_threads.map(t => `- ${t}`).join("\n")}`);
     }
     if (cc.forbidden_regressions.length) {
-      ccLines.push(`[금지된 퇴행 — 절대 금지]\n${cc.forbidden_regressions.map(r => `- ${r}`).join("\n")}`);
+      ccLines.push(`[퇴행 금지 — 본문 전개에서 유지]\n${cc.forbidden_regressions.map(r => `- ${r}`).join("\n")}`);
     }
     // Phase 4.11: cross-episode 위치/visibility 누적
     if (cc.character_position_state?.length) {
       const posLines = cc.character_position_state.map(p =>
-        `- ${p.character_name}: 위치="${p.last_location}", visibility=${p.visibility}, 소지=${p.items_summary}`
+        `- ${p.character_name}: "${p.last_location}", ${p.visibility}, ${p.items_summary}`
       );
       ccLines.push(
-        `[직전 화 종료 시점 인물 상태 — 이번 화 시작점]\n${posLines.join("\n")}\n` +
-        `규칙: 인물 위치가 위와 다르게 시작하려면 scene_beats 중 하나에 이동/시간경과/외부개입 등 transition reason을 포함해야 한다. ` +
-        `visibility가 absent/cannot_act였던 인물은 이번 화에 등장 또는 행동시키려면 등장 계기를 명시해야 한다.`
+        `[직전 화 종료 시점 인물 상태]\n${posLines.join("\n")}\n` +
+        `위치/등장이 다르게 시작하려면 scene_beats에 이동·시간경과·등장 계기 중 하나를 포함한다.`
       );
     }
     // Phase 4.16: 감정/목표 progression requirements
     if (cc.emotional_progression_requirements?.length) {
       const reqLines = cc.emotional_progression_requirements.map(r => `- ${r.instruction}`);
       ccLines.push(
-        `[감정·목표 진전 필수 — 정체 인물]\n${reqLines.join("\n")}\n` +
-        `유의: 감정 단어만 바꾸지 말 것. 같은 감정이 유지되더라도 ` +
-        `결정/행동/관계 변화/새 정보 노출/대가 지불/신념 변화/목표 구체화 중 하나가 본문에 실제로 발생해야 한다.`
+        `[감정·목표 진전 필수]\n${reqLines.join("\n")}\n` +
+        `같은 감정이 유지되어도 결정/행동/관계 변화/정보 노출/대가 지불/목표 구체화 중 하나가 본문에 실제로 일어난다.`
       );
     }
     sections.push(`[연속성 계약 — 절대 준수]\n${ccLines.join("\n")}`);
@@ -555,12 +512,9 @@ function buildPlannerUserPrompt(
     // ep2+ 연속성 강제: 직전 화 말미가 있으면 반드시 그 장면에서 이어지도록 지시
     sections.push(
       `[연속성 — 절대 준수]\n` +
-      `이번 화는 위 [직전 화 말미]의 마지막 순간에서 직접 이어진다.\n` +
-      `- beat 1은 반드시 직전 화가 끝난 시점·상황의 연속선상에서 시작한다.\n` +
-      `- "깨어난다/눈을 뜬다/정신이 든다" 등 시간 점프나 리셋 금지. 흐름이 끊기지 않아야 한다.\n` +
-      `- 직전 화 마지막에 등장한 인물·감정을 beat 1에서 바로 이어받는다.\n` +
-      `- 직전 화와 완전히 다른 새 장면으로 시작하는 것 금지.\n` +
-      `- 단, [★ 세계관 장소 일관성] 규칙이 항상 우선한다. 직전 화의 장소가 세계관과 맞지 않으면 그 장소를 무시하고 세계관에 맞는 자연스러운 연속 장소로 대체한다.`
+      `beat 1은 위 [직전 화 말미] 마지막 순간의 연속선상에서 시작한다 — 직전 화의 인물·감정·상황을 그대로 이어받는다.\n` +
+      `시간 점프(깨어난다/눈을 뜬다/정신이 든다)나 새 장면 출발은 흐름을 끊으므로 사용하지 않는다.\n` +
+      `예외: [★ 세계관 장소] 규칙이 우선 — 직전 화 장소가 세계관과 맞지 않으면 세계 안 자연스러운 연속 장소로 대체한다.`
     );
   }
 
@@ -580,10 +534,8 @@ function buildPlannerUserPrompt(
   const recentHooks: string[] = (ctx as any).recent_hook_types ?? [];
   if (recentHooks.length >= 1) {
     sections.push(
-      `[hook_type 다양성 — 반드시 준수]\n` +
-      `직전 화 hook_type 이력: ${recentHooks.join(" → ")}\n` +
-      `이번 화는 위 이력에 있는 hook_type, 특히 가장 최근 "${recentHooks[recentHooks.length - 1]}"을 반복하지 않는다.\n` +
-      `arc_phase 권장 목록 안에서 이력과 다른 hook_type을 선택한다.`
+      `[hook_type 다양성]\n` +
+      `직전 hook 이력: ${recentHooks.join(" → ")} — 가장 최근 "${recentHooks[recentHooks.length - 1]}" 반복 안 함. arc_phase 권장 목록 중 이력과 다른 값 선택.`
     );
   }
 
@@ -603,12 +555,9 @@ function buildPlannerUserPrompt(
     }
     if (inactive.length > 0) {
       sections.push(
-        `[비활성 인물 로테이션 — JSON 출력 필수 조건]\n` +
-        `다음 인물은 최근 화에서 목표·행동·사건 기록이 없다: ${inactive.join(", ")}\n` +
-        `이번 화 scene_beats JSON에서 최소 Beat 1개의 "characters_involved" 배열에 반드시 다음 인물 중 하나 이상을 포함해야 한다: [${inactive.map(n => `"${n}"`).join(", ")}]\n` +
-        `이 조건을 충족하지 않는 JSON 출력은 유효하지 않다.\n` +
-        `해당 인물이 수행해야 할 역할 예시: 새 단서 발견 / 다른 인물과 충돌 / 독립적 행동 수행 / 중요 정보 제공\n` +
-        `단순 배경 등장이 아닌, 서사 진행에 실질적 영향을 주는 역할로 배정한다.`
+        `[비활성 인물 로테이션 — JSON 필수]\n` +
+        `최근 화에 활동 기록이 없는 인물: ${inactive.join(", ")}\n` +
+        `scene_beats 중 최소 1 beat의 "characters_involved"에 위 인물 중 1명 이상을 포함시킨다 (단순 배경이 아닌 서사 진행 역할 — 단서 발견·충돌·독립 행동·정보 제공 등).`
       );
     }
   }
@@ -650,17 +599,15 @@ function buildPlannerUserPrompt(
       emotional_route: "감정 경로",
     };
     const axesText = regenContract.must_vary_axes.map(a => axesLabel[a] ?? a).join(", ");
+    // Phase 4.20 R2: must_preserve는 [절대 규칙]/[연속성 계약]과 중복 → 제거. axes 예시 라인 제거.
     sections.push(
       `[재생성 분기 계약 — ${regenContract.mode}, attempt ${regenContract.attempt_count}]\n` +
-      `직전 시도(N_old) 골격 — 짧은 signature만 노출 (전문은 의도적으로 가려둠):\n` +
-      (sigLines.length ? sigLines.join("\n") : "(추출 불가 — 자유로운 분기)") +
+      `직전 시도(N_old) signature (전문은 노출 안 함):\n` +
+      (sigLines.length ? sigLines.join("\n") : "(추출 불가 — 자유 분기)") +
       recurringText +
-      `\n\n[유지 대상 — must_preserve]\n` +
-      regenContract.must_preserve.map(s => `- ${s}`).join("\n") +
-      `\n\n[분기 대상 — must_vary axes]\n가능한 분기 axes: ${axesText}\n` +
-      `이번 시도는 위 axes 가운데 **최소 ${regenContract.hint_min_divergent_axes}개 이상**에서 직전 시도와 다른 선택을 한다.\n` +
-      `axis 분기 예: 다른 도입 장소를 고르면서, 첫 갈등의 trigger를 다르게 설정하고, 정보 공개 순서를 바꾼다.\n` +
-      `다양성은 "아무거나"가 아니라 "같은 맥락에서 다른 선택"이다 — 세계관·인물 정체성은 그대로 유지.`
+      `\n\n[분기 대상 — must_vary axes]\n가능: ${axesText}\n` +
+      `이번 시도는 위 axes 중 **최소 ${regenContract.hint_min_divergent_axes}개**에서 직전 시도와 다른 선택을 한다. ` +
+      `세계관·인물 정체성은 유지 — "같은 맥락에서 다른 선택"이다.`
     );
 
     // 이전 시도 raw beat 텍스트는 prompt에 넣지 않는다.
@@ -672,16 +619,16 @@ function buildPlannerUserPrompt(
     }
   }
 
-  // 직전 화 / 스토리 흐름 기반 반복 방지 — 재생성이 아닌 일반 다음화 생성에만 적용
+  // 직전 화 / 스토리 흐름 기반 진전 방향 — 재생성이 아닌 일반 다음화 생성에만 적용
   if ((prevTailText || storyFlowText) && !isRegen) {
     avoidLines.push(
-      "- 직전 화에서 이미 일어난 사건(만남·대화·발견·약속)을 처음 일어나는 것처럼 반복 금지.",
-      "- 동일 장소·동일 인물 조합·동일 목적으로 사건이 '원점으로 돌아간 것처럼' 구성하는 것 금지.",
-      "- 단, 직전 화 감정·장소·상황의 연속선 위에서 사건이 전진하는 것은 필수다. 연속성을 깨는 새 출발점 금지."
+      "- 직전 화 사건(만남·대화·발견·약속)은 이미 일어난 것으로 전제하고, 그 결과 위에서 새 전개를 만든다.",
+      "- 같은 장소·인물·목적이 반복될 때는 새 정보·새 결정·새 결과 중 하나로 변주한다.",
+      "- 직전 화 감정·장소·상황의 연속선에서 사건이 전진한다 — 새 출발점 대신 이어지는 진전."
     );
   }
 
-  // 1화 도입부 원칙 — 신규 ep1 또는 ep1 재생성. universal 원칙.
+  // 1화 도입부 원칙 — 신규 ep1 또는 ep1 재생성.
   if (ctx.episode_number === 1) {
     const genre = ctx.world_config?.genre ?? "";
     const bg    = ctx.world_config?.background ?? "";
@@ -689,17 +636,11 @@ function buildPlannerUserPrompt(
     sections.push(
       `[첫 화 도입부 원칙 — ${isEp1Regen ? "alternate opening generation" : "first introduction"}]\n` +
       `장르·배경: ${[genre, bg].filter(Boolean).join(" / ") || "미지정"}\n` +
-      `핵심 framing: 독자는 이번 본문에서 세계·인물·핵심 갈등을 **처음** 만난다.\n` +
-      `- 어떤 사건도 "이전부터 진행 중"으로 전제하지 않는다 — 모든 사건은 이번 화에서 시작/발견되어야 한다.\n` +
-      `- 인물들이 "이미 같은 임무를 수행 중"이거나 "이미 알고 있는 사실을 다시 확인하는" 식의 도입 금지.\n` +
-      `- "그동안", "지금까지", "오랜 시간 동안", "수차례", "반복적으로" 같은 과거 누적 표현은 회상/꿈에서만 허용.\n` +
-      `- 인물 첫 등장 시 독자에게 자연스럽게 누구인지 알 수 있는 단서가 본문에 있어야 한다 (이름/역할/관계 등).\n` +
-      `- canonical 인물 관계가 "동료/가족"으로 정의됐어도, 독자에게는 처음 보여지는 장면이므로 그 관계의 단면을 행동/대화로 드러낸다.\n` +
+      `독자는 이번 본문에서 세계·인물·갈등을 처음 만난다 — 모든 사건은 이번 화에서 시작/발견된다 ("이전부터 진행 중" 전제 사용 안 함). 과거 누적 표현(그동안·지금까지·반복적으로)은 회상/꿈에서만 허용. 인물 첫 등장 시 이름/역할/관계 단서를 행동·대화로 드러낸다. ` +
       (isEp1Regen
-        ? `- 위 [재생성 분기 계약]의 signature는 회피 대상이지 이미 일어난 사건이 아니다. 이번 본문은 처음부터 설계한다.\n` +
-          `- 같은 세계관/인물/규칙에서 다른 도입 각도로 시작한다.\n`
+        ? `재생성: signature는 회피 대상일 뿐 일어난 사건이 아니다 — 같은 세계관/인물에서 다른 도입 각도로 처음부터 설계한다. `
         : "") +
-      `- 자연스러운 도입 방식을 자유롭게 선택하라 (행동/대화/관찰/독백 등).`
+      `도입 방식은 자유 (행동/대화/관찰/독백 등).`
     );
   }
 
@@ -750,24 +691,11 @@ function buildPlannerUserPrompt(
   }
 
   // ── 출력 형식 최종 확인 (스키마 준수 강제) ──────────────────────
-  // 긴 컨텍스트에서 LLM이 스키마를 이탈하지 않도록 user prompt 마지막에 명시
   sections.push(
-    `[출력 형식 최종 확인 — 반드시 아래 JSON 구조만 출력]\n` +
-    `{\n` +
-    `  "carryover_effects": [{...}],\n` +
-    `  "world_rule": {"rule_content": "...", "activation_type": "...", "scene_usage": "..."},\n` +
-    `  "scene_beats": [{"beat_number": 1, "summary": "...", "characters_involved": [...], "location": "..."}],\n` +
-    `  "hook_type": "반드시 허용 식별자 중 하나",\n` +
-    `  "hook_payload": "...",\n` +
-    `  "hook_concrete_event": "...",\n` +
-    `  "character_state_updates": [{"character_name": "...", "emotional_state": "...", "items": [], "recent_goal": "..."}]\n` +
-    `}\n` +
-    `hook_type 허용 식별자 (이 값만 사용, 번역·변형 금지):\n` +
-    `immediate_threat | unexpected_discovery | new_problem | unresolved_situation | revelation\n` +
-    `betrayal_hint | emotional_break | ironic_reversal | cliffhanger_choice | tender_moment\n` +
-    `ominous_calm | memory_trigger | last_moment_failure | sudden_loss | alliance_shift | time_pressure\n` +
-    `character_state_updates는 절대 생략 불가. scene에 등장한 핵심 인물 전원 포함.\n` +
-    `JSON 외 설명 텍스트, 주석, 추가 키 출력 금지.`
+    `[출력 — JSON만, 다른 텍스트 없음]\n` +
+    `{"carryover_effects":[...],"world_rule":{"rule_content":"...","activation_type":"...","scene_usage":"..."},"scene_beats":[{"beat_number":1,"summary":"...","characters_involved":[...],"location":"..."}],"hook_type":"...","hook_payload":"...","hook_concrete_event":"...","character_state_updates":[{"character_name":"...","emotional_state":"...","items":[],"recent_goal":"..."}]}\n` +
+    `hook_type 허용값 (이 식별자만 사용, 번역·변형 안 함): immediate_threat | unexpected_discovery | new_problem | unresolved_situation | revelation | betrayal_hint | emotional_break | ironic_reversal | cliffhanger_choice | tender_moment | ominous_calm | memory_trigger | last_moment_failure | sudden_loss | alliance_shift | time_pressure\n` +
+    `character_state_updates는 scene 등장 핵심 인물 전원 포함 (생략 안 함).`
   );
 
   sections.push("위 정보를 바탕으로 장면 계획 JSON을 출력해라.");
