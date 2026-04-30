@@ -787,6 +787,15 @@ function _physBadgesHtml(p) {
   }</div>`;
 }
 
+// Phase 4.20 R5A — 등장 인물 표시 정책. server appeared_in_episode 우선, fallback은 본문 substring + 명시 미등장 제외.
+function _isAppearedForDisplay(s, outputText) {
+  if (!s || !s.character_name) return false;
+  if (typeof s.appeared_in_episode === 'boolean') return s.appeared_in_episode;
+  if (s.visibility_state === 'absent') return false;
+  if (s.location === '미등장') return false;
+  return (outputText || '').includes(s.character_name);
+}
+
 function updateSceneCharPanel(charStates) {
   // 전역 상태 갱신
   _currentCharStates = charStates;
@@ -799,13 +808,14 @@ function updateSceneCharPanel(charStates) {
   const list  = document.getElementById('sceneCharList');
   if (!panel || !list) return;
 
-  // 본문에 이름이 나온 인물만 등장으로 판단, absent는 패널에서 완전히 제외
+  // Phase 4.20 R5A — appeared_in_episode 우선, 없으면 기존 fallback.
   const outputText = document.getElementById('output')?.textContent ?? '';
-  const visible = charStates.filter(s => {
-    if (s.visibility_state === 'absent') return outputText.includes(s.character_name);
-    return true;
-  });
-  if (!visible.length) { panel.hidden = true; return; }
+  const visible = charStates.filter(s => _isAppearedForDisplay(s, outputText));
+  if (!visible.length) {
+    panel.hidden = false;
+    list.innerHTML = '<div class="scene-char-empty" style="opacity:.55;font-size:.85em;padding:6px 4px;">이번 화에 표시할 인물 정보가 없습니다.</div>';
+    return;
+  }
 
   // Phase 4.19 — 사이드바는 이름 + 성별만 표시 (감정·신체·소지품·위치는 본문 하단 카드로 이동)
   // 독서 중 미래 시점 정보가 노출되어 발생하는 스포일러/몰입 저하를 방지한다.
@@ -834,11 +844,8 @@ function renderEpisodeEndCharCards(charStates) {
   if (_generating) { wrap.hidden = true; wrap.innerHTML = ''; return; }
 
   const outputText = document.getElementById('output')?.textContent ?? '';
-  const visible = (charStates || []).filter(s => {
-    if (!s || !s.character_name) return false;
-    if (s.visibility_state === 'absent') return outputText.includes(s.character_name);
-    return true;
-  });
+  // Phase 4.20 R5A — appeared_in_episode 우선. carry-forward는 미표시.
+  const visible = (charStates || []).filter(s => _isAppearedForDisplay(s, outputText));
   if (!visible.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
 
   wrap.innerHTML = `

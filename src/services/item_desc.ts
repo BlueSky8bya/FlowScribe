@@ -33,6 +33,40 @@ export interface ItemDescJobData {
   }>;
 }
 
+// Phase 4.20 R5A stabilization — 소지품 설명 sanitizer.
+// 정책: 1문장, 20~45자 권장, 최대 60자, 마침표로 종료.
+// 사용자 입력(user_desc)은 sanitize 대상 아님 — LLM 결과만 적용.
+const _ITEM_DESC_MAX_CHARS = 60;
+const _SENT_END_RE = /[\.\?!。…]+/g;
+export function sanitizeLLMItemDescription(raw: string | null | undefined): string {
+  if (!raw) return "";
+  let s = String(raw).trim();
+  if (!s) return "";
+  // 자주 나오는 prefix echo 제거 (예: "이 아이템은", "[설명]" 등)
+  s = s.replace(/^\s*\[?설명\]?[:：]?\s*/u, "");
+  // 첫 문장만 유지 — 마침표 등 종결부에서 cut.
+  const firstEnd = (() => {
+    _SENT_END_RE.lastIndex = 0;
+    const m = _SENT_END_RE.exec(s);
+    return m ? m.index + m[0].length : -1;
+  })();
+  if (firstEnd > 0 && firstEnd < s.length) {
+    s = s.slice(0, firstEnd).trim();
+  }
+  // 60자 초과면 마지막 어절 경계에서 cut + 마침표 보강
+  if (s.length > _ITEM_DESC_MAX_CHARS) {
+    const cut = s.slice(0, _ITEM_DESC_MAX_CHARS);
+    const lastSpace = cut.lastIndexOf(" ");
+    let trimmed = lastSpace > _ITEM_DESC_MAX_CHARS - 20 ? cut.slice(0, lastSpace) : cut;
+    trimmed = trimmed.replace(/[\s,，·]+$/u, "");
+    if (!/[\.\?!。…]$/u.test(trimmed)) trimmed += ".";
+    s = trimmed;
+  }
+  // 종결부가 없으면 마침표 보강
+  if (s && !/[\.\?!。…]$/u.test(s)) s += ".";
+  return s;
+}
+
 // 카테고리 → 배지 레이블 매핑
 const CATEGORY_BADGE: Record<string, string> = {
   무기:   "무기",
@@ -105,12 +139,15 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
     "",
     "위 인물의 소지품 각 항목에 대해 다음 두 가지를 작성하세요.",
     "",
-    "1. description (한국어, 60~90자, 한 문장):",
-    "   - 이 인물의 성격·시선·세계관 분위기가 묻어나는 짧은 묘사",
-    "   - 단순 사물 정의가 아니라 \"누구의 어떤 물건인지\"가 느껴지게",
-    "   - [사용자 입력 설명]이 있으면 사실은 유지하되 인물·세계관 톤으로 풀어쓰기",
-    "   - [사용자 입력 설명]이 없으면 인물 성격과 세계관에서 자연스럽게 추론",
-    "   - 설명충처럼 '~이다, ~할 수 있다' 나열 금지. 한 호흡의 묘사로.",
+    // Phase 4.20 R5A stabilization — 카드 안에서 한눈에 읽히도록 짧게.
+    "1. description (한국어, 한 문장, 20~45자 권장, 최대 60자):",
+    "   - 독서 보조용 짧은 한 문장 (설정집 문단 아님).",
+    "   - 마침표로 끝나는 완결된 문장.",
+    "   - 사물의 핵심 용도/특징 1개만. \"이 물건은 무엇이고 어떻게 쓰이는가\".",
+    "   - [사용자 입력 설명]이 있으면 핵심 사실만 한 문장으로 압축.",
+    "   - [사용자 입력 설명]이 없으면 인물·세계관에서 자연스럽게 한 줄로.",
+    "   - 예: \"어두운 곳을 비추는 휴대용 조명이다.\" / \"통신과 기록 확인에 쓰는 개인 스마트폰이다.\"",
+    "   - 60자 초과·복문·여러 문장 금지.",
     "",
     `2. category: ${categoryList} 중 하나 (해당 없으면 "기타")`,
     "",
@@ -140,9 +177,11 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
     const parsed: Array<{ name: string; description: string; category?: string }> = JSON.parse(jsonMatch[0]);
     for (const d of parsed) {
       if (d.name && d.description) {
+        // Phase 4.20 R5A stabilization — LLM 생성 description sanitize (60자 max, 1문장).
+        // user_desc는 sanitize 대상 아님 — 이미 prompt source로 사용되었고 응답에 반영되어도 짧게 정제됨.
         results.push({
           name:        d.name,
-          description: d.description.slice(0, 140), // Phase 4.19 — 60 → 140자 (몰입감)
+          description: sanitizeLLMItemDescription(d.description),
           category:    d.category && CATEGORY_BADGE[d.category] ? d.category : "기타",
         });
       }
@@ -170,9 +209,12 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
     // Phase 4.19 — LLM이 작성한 결과로 description 덮어쓴다.
     // 사용자가 입력한 user_desc는 LLM prompt의 source로 이미 사용됐으므로 결과에 반영됨.
     // LLM 결과가 없는 경우(매칭 실패)에만 기존 description 유지.
+    // Phase 4.20 R5A stabilization — LLM이 작성한 description에 description_source: "llm" 마킹.
+    // FE 또는 read-time defensive sanitizer가 source 기반으로 판단할 수 있게 한다.
+    // 사용자가 직접 입력한 description은 source 없거나 "user" 그대로 보존.
     const updated = current.map((it: any) => {
       if (descMap[it.name]) {
-        return { ...it, description: descMap[it.name] };
+        return { ...it, description: descMap[it.name], description_source: "llm" };
       }
       return it;
     });

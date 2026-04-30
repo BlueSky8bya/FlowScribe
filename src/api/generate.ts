@@ -7,6 +7,8 @@ import { getProfile, getProfileByUser } from "../services/profile.js";
 import { getOpenForeshadows, extractAndStoreForeshadow, checkAndResolveForeshadows } from "../services/foreshadow.js";
 import { getArcSummaries, getLatestCharacterArcs, generateAndSaveArcSummary, ARC_SIZE } from "../services/arc_memory.js";
 import { getLatestDynamicStates, commitDynamicState } from "../services/character_state.js";
+import { annotateCharStatesWithAppearance } from "../services/episode_appearance.js";
+import { sanitizeLLMItemDescription } from "../services/item_desc.js";
 import { buildEffectiveContext, saveEpisodeSnapshot } from "../services/effective_context.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
@@ -293,7 +295,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       const freshStates = (await getLatestDynamicStates(bookId!, episode).catch(() => []));
       _genMark("char_states_fetched", { state_fetch_ms: Date.now() - _stateT0, count: freshStates.length });
       const wbCtxDefs = ctx.characters ?? [];
-      const freshCharStates = freshStates.map(s => {
+      const freshCharStatesBase = freshStates.map(s => {
         const canon = wbCtxDefs.find(c => c.name === s.character_name);
         const dynItems: any[] = s.items ?? [];
         const fallbackItems: any[] = (canon as any)?.initial_items ?? [];
@@ -308,8 +310,15 @@ generateRouter.get("/", async (req: Request, res: Response) => {
           visibility_state: s.visibility_state     ?? "present",
           recent_goal:      s.recent_goal          ?? null,
           is_new_character: !canon,
+          alias_used:       (s as any).alias_used  ?? [],
         };
       });
+      // Phase 4.20 R5A — appeared_in_episode + appearance_evidence 첨부 (DB 변경 없음, 응답 페이로드 only).
+      // FE는 이 플래그로 reader UI 표시 여부 결정. carry-forward는 DB row 보존 + UI 미표시.
+      const freshCharStates = annotateCharStatesWithAppearance(
+        result.generated_text ?? "",
+        freshCharStatesBase,
+      );
 
       clearInterval(heartbeat);
       const _epNum = (ctx as any).episode_number ?? episode;
@@ -718,6 +727,7 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
         emotional_state: _normalizeEmotionalState(s.emotional_state),
         visibility_state: s.visibility_state ?? "present",
         recent_goal:     s.recent_goal     ?? null,
+        alias_used:      (s as any).alias_used ?? [],
       };
     });
 
@@ -748,6 +758,7 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
           items: canonicalMap[name]?.initial_items ?? [],
           emotional_state: null, visibility_state: "present" as const,
           recent_goal: null,
+          alias_used: [] as string[],
         };
       });
     }
@@ -845,8 +856,35 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       });
     }
 
-    logInfo("api:generate", "char-states 조회", { book_id: bookId, episode, count: charStates.length });
-    res.json({ char_states: charStates });
+    // Phase 4.20 R5A stabilization — LLM 출처 description에 한해 read-time defensive sanitize.
+    // description_source === "llm" 이고 60자 초과인 경우만 trim. 사용자가 직접 쓴 description은 보존.
+    for (const s of charStates) {
+      s.items = (s.items ?? []).map((it: any) => {
+        if (!it || typeof it !== "object") return it;
+        if (it.description_source === "llm" && typeof it.description === "string" && it.description.length > 60) {
+          return { ...it, description: sanitizeLLMItemDescription(it.description) };
+        }
+        return it;
+      });
+    }
+
+    // Phase 4.20 R5A — 등장 인물 표시 정책: 회차 본문을 가져와 appeared_in_episode 첨부.
+    // FE는 이 플래그로 reader UI 표시 여부 결정. carry-forward는 DB 그대로 보존, UI에서만 숨김.
+    let _episodeContentForAppearance = "";
+    try {
+      const epRow = await pool.query(
+        `SELECT content FROM episodes WHERE book_id=$1 AND episode_number=$2 LIMIT 1`,
+        [bookId, episode]
+      );
+      _episodeContentForAppearance = epRow.rows[0]?.content ?? "";
+    } catch { /* 본문 조회 실패 시 evidence 없는 fallback */ }
+    const annotated = annotateCharStatesWithAppearance(_episodeContentForAppearance, charStates as any);
+    logInfo("api:generate", "char-states 조회", {
+      book_id: bookId, episode,
+      count: annotated.length,
+      appeared_count: annotated.filter((s: any) => s.appeared_in_episode).length,
+    });
+    res.json({ char_states: annotated });
   } catch (err) {
     logError("api:generate", err, { context: "char-states", book_id: bookId });
     res.status(500).json({ error: String(err) });
