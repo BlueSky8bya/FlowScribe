@@ -650,6 +650,18 @@ function generate() {
           return;
         }
         rawText += json.token; _renderQueue = rawText; pacingAppend(json.token);
+        // Phase 4.19 — 본문 token이 도착하면 ep-end에 placeholder 표시.
+        // char-states가 done event에 함께 도착 시 renderEpisodeEndCharCards가 교체.
+        const _epEnd = document.getElementById('episodeEndCards');
+        if (_epEnd && _epEnd.hidden) {
+          _epEnd.innerHTML = `
+            <div class="ep-end-title">현재 인물 상태</div>
+            <div class="ep-end-pending">
+              <span class="ep-end-pending-spinner"></span>
+              이번 화의 인물 상태를 정리하고 있습니다…
+            </div>`;
+          _epEnd.hidden = false;
+        }
       }
     } catch (err) { console.error(err); }
   };

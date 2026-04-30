@@ -291,6 +291,19 @@
 @media (max-width:560px){
   .ep-end-grid{grid-template-columns:1fr;}
 }
+
+/* Phase 4.19 — 본문 도착 후 char-states 도착 전까지 잠시 보이는 placeholder */
+.ep-end-pending{
+  display:flex;align-items:center;gap:.6rem;
+  padding:18px 16px;color:var(--text3);font-size:.92em;font-style:italic;
+  background:var(--bg2);border:1px dashed var(--border2);border-radius:10px;
+}
+.ep-end-pending-spinner{
+  width:14px;height:14px;border-radius:50%;
+  border:2px solid var(--border);border-top-color:var(--text3);
+  animation:ep-end-spin .9s linear infinite;flex-shrink:0;
+}
+@keyframes ep-end-spin{to{transform:rotate(360deg);}}
 .scene-char-detail .char-detail-type{color:var(--text4);font-size:.95em;}
 
 /* ── Name reference spans in output ──────────────────────────

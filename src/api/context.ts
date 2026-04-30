@@ -256,31 +256,45 @@ contextRouter.post("/", async (req: Request, res: Response) => {
         names: entries.map(([n]) => n),
       });
 
-      // Phase 4.19 — 모든 아이템에 대해 LLM 설명 생성. 사용자가 직접 입력한 description은
-      // user_desc로 prompt에 source로 넘겨서 LLM이 인물·세계관 톤에 맞춰 풀어쓴다.
-      for (const [name, info] of entries) {
-        const rawItems: Array<any> = (typeof info === "object" && Array.isArray((info as any).initial_items))
-          ? (info as any).initial_items : [];
-        if (!rawItems.length) continue;
-        const desc       = typeof info === "string" ? info : ((info as any).personality ?? (info as any).description ?? "");
-        const type       = typeof info === "object" ? ((info as any).type ?? "") : "";
-        const gender     = typeof info === "object" ? ((info as any).gender ?? "") : "";
-        await generateAndSaveItemDescriptions({
-          book_id,
-          char_name: name,
-          char_personality: desc, // Phase 4.19 — slice 100 제거. 함수 안에서 250자 제한.
-          char_type: type,
-          char_gender: gender,
-          items_without_desc: rawItems.map((it: any) => {
-            const parsed = typeof it === "string" ? { name: it } : it;
-            return {
-              name: parsed.name,
-              grade: parsed.grade ?? null,
-              condition: parsed.condition ?? null,
-              user_desc: parsed.description ?? null, // 사용자가 입력한 설명을 source로 전달
-            };
-          }),
-        }).catch(() => {});
+      // Phase 4.19 — 모든 아이템에 대해 LLM 설명 생성을 백그라운드로 fire-and-forget.
+      // 5명 인물 직렬 await로 saveContext 응답이 30초~1분 늦던 문제 해결.
+      // 응답은 즉시 반환되고, description은 LLM이 끝나는 대로 DB에 채워짐.
+      // 첫 회차 생성 시 description이 아직 미완성일 수 있으나 personality + name만으로
+      // 본문 생성에는 영향 없음(description은 인물 카드 표시에만 사용).
+      const enrichJobs = entries
+        .map(([name, info]) => {
+          const rawItems: Array<any> = (typeof info === "object" && Array.isArray((info as any).initial_items))
+            ? (info as any).initial_items : [];
+          if (!rawItems.length) return null;
+          const desc   = typeof info === "string" ? info : ((info as any).personality ?? (info as any).description ?? "");
+          const type   = typeof info === "object" ? ((info as any).type ?? "") : "";
+          const gender = typeof info === "object" ? ((info as any).gender ?? "") : "";
+          return { name, desc, type, gender, rawItems };
+        })
+        .filter(Boolean) as Array<{ name: string; desc: string; type: string; gender: string; rawItems: any[] }>;
+
+      // setImmediate로 응답 사이클 후 실행 + 인물별 병렬 (Promise.all)
+      if (enrichJobs.length) {
+        setImmediate(() => {
+          Promise.all(enrichJobs.map(j =>
+            generateAndSaveItemDescriptions({
+              book_id,
+              char_name: j.name,
+              char_personality: j.desc,
+              char_type: j.type,
+              char_gender: j.gender,
+              items_without_desc: j.rawItems.map((it: any) => {
+                const parsed = typeof it === "string" ? { name: it } : it;
+                return {
+                  name: parsed.name,
+                  grade: parsed.grade ?? null,
+                  condition: parsed.condition ?? null,
+                  user_desc: parsed.description ?? null,
+                };
+              }),
+            }).catch((e) => logWarn("api:context:save", "item_desc 백그라운드 실패", { book_id, char: j.name, error: String(e?.message ?? e) }))
+          )).catch(() => {});
+        });
       }
     }
 
