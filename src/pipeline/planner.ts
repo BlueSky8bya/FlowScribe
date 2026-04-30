@@ -602,55 +602,76 @@ function buildPlannerUserPrompt(
   // ── 반복 방지 섹션 ──────────────────────────────────────────────
   const avoidLines: string[] = [];
 
-  // 재생성 시: 같은 회차의 이전 시도 beat를 다양성 참고용으로 주입.
-  // Phase 4.17 — 과도한 negative constraint 제거: "단 하나도 반복 금지" → "다른 각도 권장".
-  // 이전 시도와 다른 도입을 만드는 것이 목표이지, 모든 요소를 강제로 회피하는 것이 아님.
-  const regenPrev: string | undefined = (ctx as any).regen_prev_text;
-  if (regenPrev) {
-    sections.push(
-      `[이전 시도 beat 기록 — 다양성 참고용]\n${regenPrev}`
-    );
-    avoidLines.push(
-      "- 위 [이전 시도 beat 기록]과 동일한 도입 사건/장소/시점/hook을 그대로 반복하지 말 것.",
-      "- 같은 인물 조합이 같은 장소에서 같은 목적으로 또 시작되는 구성은 피한다.",
-      "- 단, 세계관/인물/초기 소지품/관계는 그대로 유지한다 (이건 다른 작품이 아님)."
-    );
-  }
+  // Phase 4.18 — 재생성 시 RegenerationDivergenceContract만 사용.
+  // 이전 시도 beat 전문을 prompt에 노출하지 않는다 (anchoring 방지).
+  const regenContract = (ctx as any).regen_divergence_contract as
+    | import("../types/canonical.js").RegenerationDivergenceContract
+    | undefined;
+  const isRegen = !!regenContract;
 
-  // 직전 화 / 스토리 흐름 기반 반복 방지 — 재생성(regen)이 아닌 경우 연속성 유지 원칙 적용
-  if (prevTailText || storyFlowText) {
-    if (regenPrev) {
-      // 재생성: 이전 시도와 다른 방향으로 설계
+  if (regenContract) {
+    const sig = regenContract.old_episode_signature;
+    const sigLines: string[] = [];
+    if (sig.opening_location)   sigLines.push(`- 직전 시도 도입 장소: ${sig.opening_location}`);
+    if (sig.opening_image)      sigLines.push(`- 직전 시도 도입 이미지: ${sig.opening_image}`);
+    if (sig.first_conflict)     sigLines.push(`- 직전 시도 첫 갈등: ${sig.first_conflict}`);
+    if (sig.ending_hook_type)   sigLines.push(`- 직전 시도 엔딩 훅 유형: ${sig.ending_hook_type}`);
+    if (sig.ending_hook_image)  sigLines.push(`- 직전 시도 엔딩 훅 이미지: ${sig.ending_hook_image}`);
+    if (sig.emotional_pattern)  sigLines.push(`- 직전 시도 감정 흐름: ${sig.emotional_pattern}`);
+    const recurringText = regenContract.recurring_patterns.length
+      ? `\n[반복된 패턴 (${regenContract.attempt_count}회 시도 누적)]\n` +
+        regenContract.recurring_patterns.map(p => `- ${p}`).join("\n")
+      : "";
+    const axesLabel: Record<string, string> = {
+      opening_location: "도입 장소",
+      opening_image: "첫 장면 이미지",
+      first_conflict: "첫 갈등",
+      main_event_path: "주요 사건 경로",
+      information_reveal_order: "정보 공개 순서",
+      character_choice: "인물 선택/결정",
+      relationship_interaction: "관계 상호작용",
+      item_usage: "소지품 활용",
+      threat_entry: "위협 등장 방식",
+      ending_hook: "엔딩 훅",
+      emotional_route: "감정 경로",
+    };
+    const axesText = regenContract.must_vary_axes.map(a => axesLabel[a] ?? a).join(", ");
+    sections.push(
+      `[재생성 분기 계약 — ${regenContract.mode}, attempt ${regenContract.attempt_count}]\n` +
+      `직전 시도(N_old) 골격 — 짧은 signature만 노출 (전문은 의도적으로 가려둠):\n` +
+      (sigLines.length ? sigLines.join("\n") : "(추출 불가 — 자유로운 분기)") +
+      recurringText +
+      `\n\n[유지 대상 — must_preserve]\n` +
+      regenContract.must_preserve.map(s => `- ${s}`).join("\n") +
+      `\n\n[분기 대상 — must_vary axes]\n가능한 분기 axes: ${axesText}\n` +
+      `이번 시도는 위 axes 가운데 **최소 ${regenContract.hint_min_divergent_axes}개 이상**에서 직전 시도와 다른 선택을 한다.\n` +
+      `axis 분기 예: 다른 도입 장소를 고르면서, 첫 갈등의 trigger를 다르게 설정하고, 정보 공개 순서를 바꾼다.\n` +
+      `다양성은 "아무거나"가 아니라 "같은 맥락에서 다른 선택"이다 — 세계관·인물 정체성은 그대로 유지.`
+    );
+
+    // 이전 시도 raw beat 텍스트는 prompt에 넣지 않는다.
+    // 시도 횟수가 4회 이상이면 패턴 누적 위험이 있으므로 강한 경고만 추가.
+    if (regenContract.attempt_count >= 4) {
       avoidLines.push(
-        "- [직전 화 말미] 또는 [스토리 흐름]에 이미 등장한 사건·장면 구조를 반복 금지.",
-        "- 동일 인물 조합이 동일 장소에서 동일 목적으로 재회하는 구성 금지."
-      );
-    } else {
-      // 다음화 생성: 직전 화 마지막 장면을 이어야 하므로 "감정적 출발점을 달리하라"는 지시 금지
-      // 같은 사건을 반복하는 것은 금지하되, 감정·장소·상황의 연속성은 유지한다
-      avoidLines.push(
-        "- 직전 화에서 이미 일어난 사건(만남·대화·발견·약속)을 처음 일어나는 것처럼 반복 금지.",
-        "- 동일 장소·동일 인물 조합·동일 목적으로 사건이 '원점으로 돌아간 것처럼' 구성하는 것 금지.",
-        "- 단, 직전 화 감정·장소·상황의 연속선 위에서 사건이 전진하는 것은 필수다. 연속성을 깨는 새 출발점 금지."
+        `- 같은 회차에서 이미 ${regenContract.attempt_count}회 시도되었다. 위 must_vary axes 가운데 ${regenContract.hint_min_divergent_axes}개 이상에서 분명한 분기가 보이지 않으면 의미 있는 재생성이 아니다.`
       );
     }
   }
 
-  // 1화 재생성 장소 명시 회피 목록
-  const avoidLocs: string[] = (ctx as any).regen_avoid_locations ?? [];
-  if (avoidLocs.length) {
+  // 직전 화 / 스토리 흐름 기반 반복 방지 — 재생성이 아닌 일반 다음화 생성에만 적용
+  if ((prevTailText || storyFlowText) && !isRegen) {
     avoidLines.push(
-      `- 이전 1화 시도에 등장한 장소를 반드시 피한다: ${avoidLocs.join(", ")} — 이 장소들을 beat에 쓰지 않는다.`
+      "- 직전 화에서 이미 일어난 사건(만남·대화·발견·약속)을 처음 일어나는 것처럼 반복 금지.",
+      "- 동일 장소·동일 인물 조합·동일 목적으로 사건이 '원점으로 돌아간 것처럼' 구성하는 것 금지.",
+      "- 단, 직전 화 감정·장소·상황의 연속선 위에서 사건이 전진하는 것은 필수다. 연속성을 깨는 새 출발점 금지."
     );
   }
 
-  // Phase 4.17 — 1화는 작품의 도입부. 재생성이어도 "alternate opening generation"이지
-  // "이전 회차 후속 장면"이 아니다. 하드코딩된 시나리오 회피 대신 universal 원칙만 명시.
+  // 1화 도입부 원칙 — 신규 ep1 또는 ep1 재생성. universal 원칙.
   if (ctx.episode_number === 1) {
     const genre = ctx.world_config?.genre ?? "";
     const bg    = ctx.world_config?.background ?? "";
-    const hasRegen = !!regenPrev;
-    const isEp1Regen = hasRegen; // alternate_opening_mode marker
+    const isEp1Regen = regenContract?.mode === "episode1_regeneration";
     sections.push(
       `[첫 화 도입부 원칙 — ${isEp1Regen ? "alternate opening generation" : "first introduction"}]\n` +
       `장르·배경: ${[genre, bg].filter(Boolean).join(" / ") || "미지정"}\n` +
@@ -661,7 +682,7 @@ function buildPlannerUserPrompt(
       `- 인물 첫 등장 시 독자에게 자연스럽게 누구인지 알 수 있는 단서가 본문에 있어야 한다 (이름/역할/관계 등).\n` +
       `- canonical 인물 관계가 "동료/가족"으로 정의됐어도, 독자에게는 처음 보여지는 장면이므로 그 관계의 단면을 행동/대화로 드러낸다.\n` +
       (isEp1Regen
-        ? `- [이전 시도 beat 기록]은 다양성 참고용일 뿐 — 그 사건들이 이미 일어난 것처럼 전제하지 마라. 새 도입을 처음부터 설계한다.\n` +
+        ? `- 위 [재생성 분기 계약]의 signature는 회피 대상이지 이미 일어난 사건이 아니다. 이번 본문은 처음부터 설계한다.\n` +
           `- 같은 세계관/인물/규칙에서 다른 도입 각도로 시작한다.\n`
         : "") +
       `- 자연스러운 도입 방식을 자유롭게 선택하라 (행동/대화/관찰/독백 등).`
@@ -963,6 +984,15 @@ export async function runCreativePlanner(
     route_set_override: routeSetOverride,
   });
 
+  // Phase 4.18 — 재생성 시 sampling 다양성 강화. 일반 next_episode_generation은 0.65 유지.
+  // attempt_count가 많을수록 더 강한 분기 권고 → temperature 상향 (cap 0.95).
+  const _regenContract = (ctx as any).regen_divergence_contract as
+    | import("../types/canonical.js").RegenerationDivergenceContract
+    | undefined;
+  const _temperaturePlanner = _regenContract
+    ? Math.min(0.95, 0.75 + Math.min(_regenContract.attempt_count, 4) * 0.05)
+    : 0.65;
+
   try {
     let raw: string;
     if (useRouter) {
@@ -972,7 +1002,7 @@ export async function runCreativePlanner(
           { role: "user",   content: userPrompt },
         ],
         route_set_override: routeSetOverride,
-        temperature: 0.65,
+        temperature: _temperaturePlanner,
         max_tokens: 3000,
       });
       raw = r.text;
@@ -984,7 +1014,7 @@ export async function runCreativePlanner(
           { role: "system", content: systemPrompt },
           { role: "user",   content: userPrompt },
         ],
-        temperature: 0.65,
+        temperature: _temperaturePlanner,
         max_tokens: 3000,
       });
       raw = res.choices?.[0]?.message?.content ?? "";

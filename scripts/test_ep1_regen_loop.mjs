@@ -13,12 +13,15 @@ require("dotenv").config();
 const args = process.argv.slice(2);
 const bookId = args[args.indexOf("--book-id") + 1];
 const regens = args.includes("--regens") ? parseInt(args[args.indexOf("--regens") + 1]) : 5;
-if (!bookId) { console.error("Usage: --book-id <uuid> [--regens 5]"); process.exit(1); }
+const route  = args.includes("--route")  ? args[args.indexOf("--route") + 1] : null;
+const episode = args.includes("--episode") ? parseInt(args[args.indexOf("--episode") + 1]) : 1;
+if (!bookId) { console.error("Usage: --book-id <uuid> [--regens 5] [--episode N] [--route <route_set>]"); process.exit(1); }
 
 const BASE_URL = process.env.APP_URL ?? "http://localhost:3000";
 
 async function generateEp1(attempt) {
-  const url = `${BASE_URL}/api/generate?episode=1&book_id=${bookId}&use_planner=true${attempt > 1 ? `&regen_nonce=${Date.now().toString(36)}` : ""}`;
+  const routeParam = route ? `&model_route=${encodeURIComponent(route)}` : "";
+  const url = `${BASE_URL}/api/generate?episode=${episode}&book_id=${bookId}&use_planner=true${attempt > 1 ? `&regen_nonce=${Date.now().toString(36)}` : ""}${routeParam}`;
   const res = await fetch(url, { method: "GET", headers: { "Accept": "text/event-stream" } });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   let text = "";
@@ -46,11 +49,11 @@ async function generateEp1(attempt) {
 
 async function main() {
   console.log(`\n${"═".repeat(75)}`);
-  console.log(` ep1 재생성 ${regens}회 테스트 (book ${bookId.slice(0, 8)}...)`);
+  console.log(` ep${episode} 재생성 ${regens}회 테스트 (book ${bookId.slice(0, 8)}..., route=${route ?? "default"})`);
   console.log("═".repeat(75));
   const openings = [];
   for (let i = 1; i <= regens; i++) {
-    process.stdout.write(`\n[ep1 #${i}] 생성 중... `);
+    process.stdout.write(`\n[ep${episode} #${i}] 생성 중... `);
     try {
       const t0 = Date.now();
       const text = await generateEp1(i);

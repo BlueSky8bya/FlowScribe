@@ -12,6 +12,7 @@ import { runPlannerPipeline } from "../pipeline/index.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { enterGeneration, exitGeneration } from "../lib/generation_guard.js";
 import { generateAndSaveItemDescriptions } from "../services/item_desc.js";
+import { buildRegenDivergenceContract, detectGenerationMode } from "../services/regen_divergence.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import jwt from "jsonwebtoken";
 
@@ -85,6 +86,8 @@ generateRouter.get("/", async (req: Request, res: Response) => {
   // renderer/planner 모델 오버라이드 (표적 재생성용 — 운영 환경에서는 사용 금지)
   const rendererModelOverride = req.query.renderer_model as string | undefined;
   const plannerModelOverride  = req.query.planner_model  as string | undefined;
+  // Phase 4.18B — config/model_routes.json 의 route_set 이름. per-request override.
+  const modelRoute            = req.query.model_route   as string | undefined;
   // 1화 재생성 다양성 유도용 nonce (클라이언트가 regenerate() 시 전달)
   const regenNonce = req.query.regen_nonce as string | undefined;
 
@@ -110,38 +113,23 @@ generateRouter.get("/", async (req: Request, res: Response) => {
       // 컨텍스트 스냅샷 저장 (fire-and-forget)
       saveEpisodeSnapshot({ ...ctx, book_id: bookId! } as any).catch(() => {});
 
-      // 재생성 감지 — 같은 회차의 모든 이전 시도 beat 목록을 누적 주입
+      // Phase 4.18 — 재생성 감지 + 분기 계약 빌드.
+      // 이전 시도 beat 텍스트를 그대로 노출하지 않고 (anchoring 방지),
+      // 짧은 signature와 must_vary axes만 prompt에 노출한다.
       try {
-        const prevTraces = await pool.query(
-          `SELECT planner_trace FROM run_traces
-           WHERE book_id=$1 AND episode_number=$2
-           ORDER BY created_at DESC LIMIT 6`,
-          [bookId!, episode]
-        );
-        type BeatRow = { beat_number: number; summary: string; location?: string };
-        const allBeatSets: string[] = [];
-        for (const row of prevTraces.rows) {
-          const pt = row.planner_trace as Record<string, any> | null;
-          const beats = pt?.parsed_plan?.scene_beats as BeatRow[] | null;
-          if (beats?.length) {
-            allBeatSets.push(
-              beats.map(b => `  Beat${b.beat_number}(${b.location ?? "?"}): ${b.summary}`).join("\n")
-            );
-          }
+        const mode = await detectGenerationMode(bookId!, episode);
+        (ctx as any).regen_mode = mode;
+        if (mode === "episode1_regeneration" || mode === "latest_episode_regeneration") {
+          const contract = await buildRegenDivergenceContract(bookId!, episode, mode);
+          if (contract) (ctx as any).regen_divergence_contract = contract;
+          logInfo("api:generate", "regen contract attached", {
+            book_id: bookId, episode, mode,
+            attempt_count: contract?.attempt_count ?? 0,
+          });
         }
-        if (allBeatSets.length) {
-          (ctx as any).regen_prev_text = allBeatSets
-            .map((set, i) => `[시도 ${allBeatSets.length - i}]\n${set}`)
-            .join("\n");
-        }
-        // 1화 재생성: regen_nonce가 있으면 이전 장소 avoid_list 추출하여 주입
-        if (regenNonce && episode === 1 && allBeatSets.length) {
-          const locRe = /Beat\d+\(([^)]+)\)/g;
-          const prevLocs = new Set<string>();
-          for (const s of allBeatSets) { let m; while ((m = locRe.exec(s)) !== null) if (m[1] !== "?") prevLocs.add(m[1]); }
-          if (prevLocs.size) (ctx as any).regen_avoid_locations = [...prevLocs];
-        }
-      } catch { /* 무시 */ }
+      } catch (e) {
+        logWarn("api:generate", "regen contract build failed (계속 진행)", { error: String(e) });
+      }
 
       // 직전 3화 hook_type 주입 (P1: hook 단일 고착 방지)
       try {
@@ -170,6 +158,7 @@ generateRouter.get("/", async (req: Request, res: Response) => {
         onStatus: (msg) => res.write(`data: ${JSON.stringify({ status: msg })}\n\n`),
         rendererModelOverride,
         plannerModelOverride,
+        routeSetOverride: modelRoute,
       });
 
       // 텍스트를 token SSE로 전송 (generate.js의 json.token 핸들러가 수신)

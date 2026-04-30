@@ -295,6 +295,14 @@ export async function renderFromPlanWithTrace(
     via: useRouter ? "router" : "legacy",
   });
 
+  // Phase 4.18 — 재생성 시 prose-level 다양성도 약하게 강화 (cap 0.95).
+  const _regenContract = (ctx as any).regen_divergence_contract as
+    | import("../types/canonical.js").RegenerationDivergenceContract
+    | undefined;
+  const _temperatureRenderer = _regenContract
+    ? Math.min(0.95, 0.85 + Math.min(_regenContract.attempt_count, 4) * 0.025)
+    : 0.85;
+
   let text: string;
   if (useRouter) {
     const r = await runLLMTask("renderer", {
@@ -303,7 +311,7 @@ export async function renderFromPlanWithTrace(
         { role: "user",   content: userPrompt },
       ],
       route_set_override: routeSetOverride,
-      temperature: 0.85,
+      temperature: _temperatureRenderer,
       max_tokens: maxTok,
     });
     text = r.text;
@@ -318,7 +326,7 @@ export async function renderFromPlanWithTrace(
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },
       ],
-      temperature: 0.85,
+      temperature: _temperatureRenderer,
       max_tokens: maxTok,
       stop: ["[END]"],
       ...extraOptions,

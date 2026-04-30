@@ -183,8 +183,40 @@ function _flashOutput(mode) {
   setTimeout(() => output.classList.remove("mode-flash"), 600);
 }
 
+// Phase 4.18 — 모드 전환 시 viewport 상단 paragraph anchor 캡처/복원.
+// 청독/묵독에서 낭독으로 전환할 때 _focusLineIndex(이전 클릭 위치)로 점프하던 문제 수정.
+// episode 이동(viewPrev/viewNext)은 별도로 _scrollToTopOnEpisodeChange가 처리.
+function _captureReadingAnchor() {
+  const scrollArea = document.querySelector(".output-scroll-area");
+  if (!scrollArea) return null;
+  const paras = Array.from(document.querySelectorAll("#output p"));
+  if (!paras.length) return null;
+  const areaTop = scrollArea.getBoundingClientRect().top;
+  for (let i = 0; i < paras.length; i++) {
+    const r = paras[i].getBoundingClientRect();
+    if (r.bottom > areaTop + 1) {
+      return { index: i, offsetWithin: areaTop - r.top };
+    }
+  }
+  return { index: paras.length - 1, offsetWithin: 0 };
+}
+
+function _restoreReadingAnchor(anchor) {
+  if (!anchor) return;
+  const scrollArea = document.querySelector(".output-scroll-area");
+  if (!scrollArea) return;
+  const paras = document.querySelectorAll("#output p");
+  const target = paras[Math.min(anchor.index, paras.length - 1)];
+  if (!target) return;
+  const areaTop = scrollArea.getBoundingClientRect().top;
+  const targetTop = target.getBoundingClientRect().top;
+  scrollArea.scrollBy({ top: targetTop - areaTop - anchor.offsetWithin, behavior: "auto" });
+}
+
 function setReadMode(mode) {
   const prev = readMode;
+  // 모드 전환일 때만 anchor 캡처 (초기 부팅 시 prev === mode → null)
+  const anchor = (prev !== mode) ? _captureReadingAnchor() : null;
   readMode = mode;
   localStorage.setItem("fs-readmode", mode);
   document.querySelectorAll(".read-mode-btn").forEach(b => b.classList.remove("active"));
@@ -198,7 +230,11 @@ function setReadMode(mode) {
 
   if (mode === "aloud") {
     document.body.classList.add("read-aloud", "mode-aloud");
-    if (!_generating) applyFocusLine();
+    if (!_generating) {
+      // anchor가 있으면 _focusLineIndex를 viewport 기준으로 동기화 후 복원 (스크롤 강제 이동 방지)
+      if (anchor) _focusLineIndex = anchor.index;
+      applyFocusLine(true);
+    }
   } else if (mode === "tts") {
     document.body.classList.add("mode-tts");
     document.querySelectorAll("#output p").forEach(p => {
@@ -215,6 +251,11 @@ function setReadMode(mode) {
     });
     // 모드 전환 시 대화체 스타일 재적용 (들여쓰기 분류 보장)
     if (typeof applyDialogueStyle === "function") applyDialogueStyle(document.getElementById("output"));
+  }
+
+  // DOM mutation 이후 anchor 복원 — 모든 모드에 공통 적용
+  if (anchor) {
+    requestAnimationFrame(() => _restoreReadingAnchor(anchor));
   }
 }
 

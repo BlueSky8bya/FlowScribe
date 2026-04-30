@@ -12,9 +12,10 @@ require("dotenv").config();
 const args = process.argv.slice(2);
 const bookId = args[args.indexOf("--book-id") + 1];
 const totalEpisodes = args.includes("--episodes") ? parseInt(args[args.indexOf("--episodes") + 1]) : 10;
+const startFrom = args.includes("--start-from") ? parseInt(args[args.indexOf("--start-from") + 1]) : 1;
 const modelRoute = args.includes("--route") ? args[args.indexOf("--route") + 1] : null;
 
-if (!bookId) { console.error("Usage: --book-id <uuid> [--episodes 10] [--route <route_set>]"); process.exit(1); }
+if (!bookId) { console.error("Usage: --book-id <uuid> [--episodes 10] [--start-from 1] [--route <route_set>]"); process.exit(1); }
 
 const BASE_URL = process.env.APP_URL ?? "http://localhost:3000";
 
@@ -84,10 +85,10 @@ async function generateEpisode(episodeNumber) {
 
 async function main() {
   console.log(`Book: ${bookId}`);
-  console.log(`생성 대상: 1~${totalEpisodes}화`);
+  console.log(`생성 대상: ${startFrom}~${totalEpisodes}화`);
   console.log(`Route: ${modelRoute ?? "active (config default)"}`);
 
-  for (let ep = 1; ep <= totalEpisodes; ep++) {
+  for (let ep = startFrom; ep <= totalEpisodes; ep++) {
     try {
       await generateEpisode(ep);
       // 연속 생성 시 서버 과부하 방지

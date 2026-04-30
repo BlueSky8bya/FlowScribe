@@ -44,11 +44,28 @@ check("ep1 진입점 다양성 블록 emit (episode_number === 1)", plannerSrc.i
 // Phase 4.17 — "첫 화 진입점 다양성" → "첫 화 도입부 원칙" 으로 변경됨
 check("ep1 도입부 원칙 텍스트 존재", plannerSrc.includes("첫 화 도입부 원칙"));
 
-// ── 4. 재생성 컨텍스트 ──
-console.log("\n── [4] 재생성 prev_text / avoid_locations 분리 ──");
-check("regen_prev_text 사용", plannerSrc.includes("regen_prev_text") || plannerSrc.includes("regenPrev"));
-check("regen_avoid_locations 사용", plannerSrc.includes("regen_avoid_locations") || plannerSrc.includes("avoidLocs"));
-check("재생성 시 [이전 시도 beat 기록] 블록", plannerSrc.includes("이전 시도 beat 기록"));
+// ── 4. 재생성 컨텍스트 — Phase 4.18에서 RegenerationDivergenceContract로 대체됨 ──
+console.log("\n── [4] 재생성 컨텍스트 (Phase 4.18로 대체된 항목) ──");
+// Phase 4.17의 regen_prev_text full-beat dump는 의도적으로 제거됨 (Phase 4.18: anchoring 방지)
+check(
+  "regen_prev_text full-beat dump 제거 (Phase 4.18 정책)",
+  !plannerSrc.includes("regen_prev_text") || !plannerSrc.match(/\[이전 시도 beat 기록 — 다양성 참고용\][\s\S]*\$\{regenPrev\}/)
+);
+// regen_avoid_locations도 제거됨 (axis-based divergence로 대체)
+check(
+  "regen_avoid_locations 명시 회피 제거 (Phase 4.18 정책)",
+  !plannerSrc.includes("regen_avoid_locations")
+);
+// [이전 시도 beat 기록] 전체 dump도 제거됨
+check(
+  "[이전 시도 beat 기록 — 다양성 참고용] 전체 dump 제거",
+  !plannerSrc.includes("[이전 시도 beat 기록 — 다양성 참고용]")
+);
+// 대신 RegenerationDivergenceContract로 대체된 것 확인
+check(
+  "[재생성 분기 계약] block (Phase 4.18 신규)",
+  plannerSrc.includes("[재생성 분기 계약")
+);
 
 // ── 5. ep1 regen 가드 — 2화+ 메모리가 새지 않는 사후 보강 ──
 console.log("\n── [5] ep1 regen 명시적 격리 (Phase 4.17) ──");

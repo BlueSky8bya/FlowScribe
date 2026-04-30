@@ -300,6 +300,82 @@ export interface ContinuityContract {
 }
 
 // ══════════════════════════════════════════════════════════════
+// E-2. Regeneration Divergence Contract (Phase 4.18)
+// ══════════════════════════════════════════════════════════════
+
+/**
+ * GenerationMode — context builder가 호출 의도를 명시.
+ *  - next_episode_generation: ep N 신규 생성 (직전 화에서 자연스럽게 이어짐)
+ *  - latest_episode_regeneration: 같은 화의 재생성. N-1까지 continuity 유지 + 기존 N화와 divergence
+ *  - episode1_regeneration: ep1 재생성 — multiverse alternate opening
+ *  - new_episode_generation: ep1 최초 생성
+ */
+export type GenerationMode =
+  | "new_episode_generation"
+  | "next_episode_generation"
+  | "latest_episode_regeneration"
+  | "episode1_regeneration";
+
+/**
+ * RegenerationDivergenceContract — Phase 4.18.
+ *
+ * 재생성 시 planner가 이전 시도(N_old)의 plot signature를 알고
+ * 의도적으로 다른 axis로 분기하도록 안내한다.
+ *
+ * 설계 원칙:
+ *   - N_old의 본문 전문이나 긴 beat 텍스트를 다시 주입하지 않는다 (anchoring 방지).
+ *   - 짧은 signature와 must_vary axes만 노출.
+ *   - 하드코딩된 금지문이 아니라 "다른 axis 선택" 형태의 구조적 가이드.
+ *   - N+1 이후 문맥은 절대 포함하지 않는다 (재생성은 최신화에 한해서만 가능하므로 존재할 수 없음).
+ */
+export interface RegenerationDivergenceContract {
+  mode: "episode1_regeneration" | "latest_episode_regeneration";
+  episode_number: number;
+  /**
+   * 이전 시도 횟수 (>=1). 1이면 1번 재생성 시도, 2면 2번째 재생성…
+   * 횟수가 많아질수록 더 강한 divergence 권고.
+   */
+  attempt_count: number;
+  /**
+   * 직전 시도(N_old)의 plot 골격. 짧게 압축. planner가 회피 대상으로만 사용.
+   * 모든 필드는 optional — 추출 실패 시 누락.
+   */
+  old_episode_signature: {
+    opening_location?: string;
+    opening_image?: string;       // beat1 첫 장면 묘사 50자 이내
+    first_conflict?: string;      // beat1~2의 갈등/사건 50자 이내
+    main_event_path?: string[];   // beat 요약 (각 50자 이내)
+    key_revelation?: string;      // 핵심 노출/발견 (있으면)
+    ending_hook_type?: string;    // hook_type 식별자
+    ending_hook_image?: string;   // hook_concrete_event 50자 이내
+    emotional_pattern?: string;   // 주요 인물 감정 흐름 한 줄
+  };
+  /**
+   * 이전 시도들에서 반복 등장한 plot pattern (>=2회).
+   * planner는 이 patterns 가운데 하나라도 그대로 재사용하면 안 된다.
+   */
+  recurring_patterns: string[];
+  /** 반드시 유지해야 하는 것 (N-1까지 continuity / world / characters) — 짧은 라벨 */
+  must_preserve: string[];
+  /** 반드시 달라져야 할 axes — planner는 이 가운데 최소 (hint_min_axes)개 이상에서 분기 */
+  must_vary_axes: Array<
+    | "opening_location"
+    | "opening_image"
+    | "first_conflict"
+    | "main_event_path"
+    | "information_reveal_order"
+    | "character_choice"
+    | "relationship_interaction"
+    | "item_usage"
+    | "threat_entry"
+    | "ending_hook"
+    | "emotional_route"
+  >;
+  /** must_vary_axes 가운데 최소 몇 개에서 분기해야 하는가 (기본 2~3) */
+  hint_min_divergent_axes: number;
+}
+
+// ══════════════════════════════════════════════════════════════
 // E. Effective Context — 생성 직전 조립 결과
 // ══════════════════════════════════════════════════════════════
 
@@ -321,8 +397,15 @@ export interface EffectiveContext {
   character_arcs: Record<string, { state: string; key_events: string[] }>;
   rolling_summary: string;
   prev_episode_tail?: string;
-  /** 재생성 시 직전 시도에서 생성된 텍스트 — planner 반복 방지용 */
+  /** 재생성 시 직전 시도에서 생성된 텍스트 — planner 반복 방지용 (legacy, Phase 4.18에서 contract로 대체 진행 중) */
   regen_prev_text?: string;
+  /** Phase 4.18 — 생성 모드 명시. 미지정 시 episode_number 기준으로 기본값 적용. */
+  regen_mode?: GenerationMode;
+  /**
+   * Phase 4.18 — 재생성 분기 계약. regen_mode가 *_regeneration일 때만 존재.
+   * planner는 이 contract를 보고 must_vary_axes에서 분기, must_preserve에서 유지.
+   */
+  regen_divergence_contract?: RegenerationDivergenceContract;
   /** ep >= 2 생성 시 자동 조립되는 연속성 계약 */
   continuity_contract?: ContinuityContract;
   /** ep >= 2 생성 시 조립되는 진전 강제 계약 */

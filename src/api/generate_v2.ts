@@ -38,8 +38,9 @@ import { getLatestDynamicStates } from "../services/character_state.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { extractAndStoreForeshadow, checkAndResolveForeshadows } from "../services/foreshadow.js";
 import { generateAndSaveArcSummary, ARC_SIZE } from "../services/arc_memory.js";
+import { buildRegenDivergenceContract, detectGenerationMode } from "../services/regen_divergence.js";
 import { pool } from "../lib/db.js";
-import { logInfo, logError } from "../lib/logger.js";
+import { logInfo, logError, logWarn } from "../lib/logger.js";
 import type { GenConfig, EpisodeTask, PrevEpisodeState } from "../types/canonical.js";
 
 export const generateV2Router = Router();
@@ -119,6 +120,22 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
       bookId, episodeNumber: episode,
       overrideGenConfig, overrideTask, overridePrevState,
     });
+
+    // Phase 4.18 — 재생성 감지 + divergence contract 주입 (generate.ts와 동기화)
+    try {
+      const mode = await detectGenerationMode(bookId, episode);
+      (ctx as any).regen_mode = mode;
+      if (mode === "episode1_regeneration" || mode === "latest_episode_regeneration") {
+        const contract = await buildRegenDivergenceContract(bookId, episode, mode);
+        if (contract) (ctx as any).regen_divergence_contract = contract;
+        logInfo("api:generate_v2", "regen contract attached", {
+          book_id: bookId, episode, mode,
+          attempt_count: contract?.attempt_count ?? 0,
+        });
+      }
+    } catch (e) {
+      logWarn("api:generate_v2", "regen contract build failed (계속 진행)", { error: String(e) });
+    }
 
     // 스냅샷 저장 (fire-and-forget)
     saveEpisodeSnapshot({ ...ctx, book_id: bookId } as any).catch(() => {});
