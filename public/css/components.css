@@ -254,8 +254,10 @@
   box-sizing:border-box;
 }
 .ep-end-title{
-  font-size:.95em;color:var(--text3);letter-spacing:.04em;
-  margin:0 0 14px;font-weight:600;
+  /* R5A-C v6: 가운데 정렬 + 글자 키움 (사용자 요청). */
+  font-size:1.2em;color:var(--text2);letter-spacing:.06em;
+  margin:0 0 18px;font-weight:700;
+  text-align:center;
 }
 .ep-end-grid{
   display:grid;

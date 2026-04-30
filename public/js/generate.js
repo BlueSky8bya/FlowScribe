@@ -2031,15 +2031,21 @@ ${resolveVars(wrap.innerHTML)}
     // TOP y도 후보로 추가해 카드/row를 통째로 다음 페이지로 보낼 수 있게 한다.
     const wrapTop = pngWrap.getBoundingClientRect().top;
     const ATOMIC_BLOCK = new Set(['cap-char-card', 'cap-item-row']);
-    const els = Array.from(pngWrap.querySelectorAll('p, .scene-para, .dialogue-line, .cap-char-card, .cap-item-row'));
+    // R5A-C v6 — 본문 단락 + 카드 + 카드 내부 모든 div/span 배지 — 상태/소지품 영역의
+    // 세부 div bottom도 split 후보로 등록해 "글자 기준 cut → 옆 배지 잘림" 방지.
+    const els = Array.from(pngWrap.querySelectorAll(
+      'p, .scene-para, .dialogue-line, .cap-char-card, .cap-item-row, ' +
+      '.cap-char-card > div, .cap-char-card > div > div, .cap-item-row > div'
+    ));
     const splitYs = [];
     for (const el of els) {
       const rect = el.getBoundingClientRect();
       const top    = Math.round((rect.top    - wrapTop) * scale);
       const bottom = Math.round((rect.bottom - wrapTop) * scale);
-      // bottom y는 항상 후보 (단락 끝)
+      // bottom y는 항상 후보 (단락/sub-row 끝). 배지가 있는 row의 경우 row 전체 bottom →
+      // 배지 + 텍스트 둘 다 위쪽에 안전하게 포함된 상태에서 cut.
       splitYs.push(bottom);
-      // atomic block은 TOP y도 후보 — 카드 시작 직전에 자르면 카드 통째로 다음 페이지
+      // atomic block (카드/소지품 row)은 TOP y도 후보 — 시작 직전에 자르면 통째로 다음 페이지.
       const isAtomic = [...el.classList].some(c => ATOMIC_BLOCK.has(c));
       if (isAtomic) splitYs.push(top);
     }
@@ -2053,6 +2059,8 @@ ${resolveVars(wrap.innerHTML)}
   // ── 페이지 분할 — 단락 경계 우선, fallback 고정 높이 ──────────
   // 이상적 분할선 근처의 마지막 단락 하단을 실제 분할점으로 사용해 글자 잘림 방지
   const PAGE_H = 5600;  // canvas 픽셀 기준 (logical 1400px × scale 4)
+  // R5A-C v6 — 마지막 빈 페이지 제거 임계: 페이지 높이가 이 값 미만이면 직전 페이지에 병합.
+  const MIN_TAIL_PAGE_H = 200;
   const sliceCanvas = (canvas, splitCandidates = []) => {
     const total = Math.ceil(canvas.height / PAGE_H);
     if (total === 1) return [canvas];
@@ -2076,13 +2084,30 @@ ${resolveVars(wrap.innerHTML)}
       yStart = yEnd;
       if (yStart >= canvas.height) break;
     }
+    // 마지막 페이지가 빈/얇은 배경(예: 100px 미만)이면 직전 페이지에 병합 (얇은 빈 장 제거)
+    if (pages.length >= 2) {
+      const last = pages[pages.length - 1];
+      if (last.height < MIN_TAIL_PAGE_H) {
+        const prev = pages[pages.length - 2];
+        const merged = document.createElement('canvas');
+        merged.width  = prev.width;
+        merged.height = prev.height + last.height;
+        const ctx = merged.getContext('2d');
+        ctx.drawImage(prev, 0, 0);
+        ctx.drawImage(last, 0, prev.height);
+        pages.splice(pages.length - 2, 2, merged);
+      }
+    }
     return pages;
   };
 
   // ── 다장 순차 복사 오버레이 ────────────────────────────────
-  // 1장씩 클립보드에 올리고 "다음" 클릭하면 다음 장 자동 복사
+  // R5A-C v6 — 매 장마다 "N번째 장 복사하기" 버튼 명시 (1번째도 자동 복사 안 함).
+  //   사용자가 무의식적으로 2번째 장부터 누르는 실수 방지.
+  //   indicator 글자 키움 + 색상 명도 ↑ (배경 #1c1a17 대비 가독성).
   const showPageCopyUI = (pages) => {
     let idx = 0;
+    let copied = false;  // 현재 idx 페이지 복사 완료 여부
 
     const toBlob = (pg) => new Promise(res => pg.toBlob(res, 'image/png'));
 
@@ -2094,30 +2119,38 @@ ${resolveVars(wrap.innerHTML)}
 
     const close = () => document.body.removeChild(overlay);
 
-    const render = (copied) => {
+    const render = () => {
       const isLast = idx === pages.length - 1;
       const thumbUrl = pages[idx].toDataURL('image/png');
+      // R5A-C v6 — indicator 가독성 보강: font 1.15rem + color #d4c0a8 (배경 대비 충분).
       panel.innerHTML = `
-        <div style="font-size:.95rem;color:#706050;letter-spacing:.06em;margin-bottom:.7rem;">순차 복사 · ${idx+1}번째 장 / 총 ${pages.length}장</div>
+        <div style="font-size:1.15rem;color:#d4c0a8;letter-spacing:.04em;margin-bottom:.9rem;font-weight:600;">순차 복사 · <span style="color:#f4e4c8;">${idx+1}</span>번째 장 / 총 ${pages.length}장</div>
         <img src="${thumbUrl}" style="width:100%;border-radius:6px;border:1px solid rgba(255,255,255,.08);margin-bottom:1.1rem;display:block;">
         <div style="font-size:1.05rem;color:${copied?'#22c55e':'#a09080'};margin-bottom:1.4rem;line-height:1.8;">
           ${copied
             ? `<b style="color:#e8e0d4;">${idx+1}번째 장</b> 클립보드 복사 완료<br><span style="padding-left:1em;">바로 <kbd style="background:#2a2a2a;padding:.15em .5em;border-radius:4px;font-size:1rem;">Ctrl+V</kbd> 붙여넣기</span>`
-            : `${idx+1}장 복사 중...`}
+            : `<span style="color:#c0a080;">${idx+1}번째 장 복사 대기 — 아래 버튼 클릭</span>`}
         </div>
         <div style="display:flex;gap:.6rem;">
-          ${isLast
-            ? `<button id="_cap_done" style="flex:1;background:#22c55e;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">전체 완료 ✓</button>`
-            : `<button id="_cap_next" style="flex:1;background:#c87840;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${idx+2}번째 장 복사하기</button>`
+          ${!copied
+            ? `<button id="_cap_copy_now" style="flex:1;background:#c87840;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${idx+1}번째 장 복사하기</button>`
+            : (isLast
+              ? `<button id="_cap_done" style="flex:1;background:#22c55e;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">전체 완료 ✓</button>`
+              : `<button id="_cap_next" style="flex:1;background:#c87840;border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${idx+2}번째 장 복사하기</button>`)
           }
-          <button id="_cap_close" style="background:#2a2a2a;border:none;border-radius:8px;padding:.7rem 1.1rem;color:#706050;font-size:1rem;cursor:pointer;">닫기</button>
+          <button id="_cap_close" style="background:#2a2a2a;border:none;border-radius:8px;padding:.7rem 1.1rem;color:#a89880;font-size:1rem;cursor:pointer;">닫기</button>
         </div>`;
 
+      panel.querySelector('#_cap_copy_now')?.addEventListener('click', async () => {
+        await navigator.clipboard.write([new ClipboardItem({ 'image/png': await toBlob(pages[idx]) })]);
+        copied = true;
+        render();
+      });
       panel.querySelector('#_cap_next')?.addEventListener('click', async () => {
         idx++;
-        render(false);
+        copied = true;  // 즉시 복사
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': await toBlob(pages[idx]) })]);
-        render(true);
+        render();
       });
       panel.querySelector('#_cap_done')?.addEventListener('click', close);
       panel.querySelector('#_cap_close')?.addEventListener('click', close);
@@ -2125,12 +2158,8 @@ ${resolveVars(wrap.innerHTML)}
 
     overlay.appendChild(panel);
     document.body.appendChild(overlay);
-
-    // 첫 장 즉시 복사 후 UI 렌더
-    toBlob(pages[0]).then(async blob => {
-      await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
-      render(true);
-    });
+    // 첫 장은 자동 복사 안 함 — 사용자가 "1번째 장 복사하기" 버튼 명시 클릭.
+    render();
   };
 
   // ── 클립보드 복사 우선순위 ──────────────────────────────────
