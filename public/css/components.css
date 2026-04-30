@@ -258,6 +258,10 @@
   display:grid;
   grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
   gap:14px;
+  /* grid default align-items:stretch이면 한 카드가 펼쳐질 때 같은 row의 다른
+   * 카드도 그 높이만큼 늘어나(빈 박스가 함께 커져) "같이 확장된 것처럼" 보인다.
+   * 카드는 자기 콘텐츠 높이만 차지하도록 start로 정렬. */
+  align-items:start;
 }
 /* 본문 하단 카드는 사이드바보다 한 단계 크게 보이도록 override */
 .ep-end-grid .scene-char-item{
