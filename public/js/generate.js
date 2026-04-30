@@ -854,18 +854,18 @@ function renderEpisodeEndCharCards(charStates) {
   const visible = (charStates || []).filter(s => _isAppearedForDisplay(s, outputText));
   if (!visible.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
 
-  // R5A-C v4 — 인물 수 기반 명시적 grid columns (CSS auto-fit이 viewport에 따라 fail하는 문제 회피).
-  //   1명  → 1 column max 350 (가운데)
-  //   2명  → 2 columns × 350 (가운데)
-  //   3+   → 3 columns × 1fr (본문 폭 균등 분할). 4명이면 3+1, 마지막 단독 카드는 가운데 정렬.
+  // R5A-C v5 — 인물 수 기반 명시적 grid columns. 모든 인원수에서 카드 350px 보장.
+  //   1명  → 1 column 350px (가운데)
+  //   2명  → 2 columns × 350px (가운데)
+  //   3+   → 3 columns × 350px (본문보다 넓지만 카드 가독성 우선). 4명이면 3+1.
   const n = visible.length;
   let gridStyle;
   if (n === 1) {
-    gridStyle = 'grid-template-columns:minmax(0,350px);';
+    gridStyle = 'grid-template-columns:350px;';
   } else if (n === 2) {
-    gridStyle = 'grid-template-columns:repeat(2,minmax(0,350px));';
+    gridStyle = 'grid-template-columns:repeat(2,350px);';
   } else {
-    gridStyle = 'grid-template-columns:repeat(3,minmax(0,1fr));';
+    gridStyle = 'grid-template-columns:repeat(3,350px);';
   }
 
   // 마지막 row에 단독 카드(예: 4명 시 4번째)는 가운데 column으로 보내 비대칭 방지.

@@ -246,10 +246,9 @@
  */
 .episode-end-cards{
   width:100%;
-  /* 본문 텍스트 박스(#output max-width:760px)와 동일한 너비 — 3열 시 본문 폭 일치. */
-  max-width:760px;
-  /* R5A-C 보강: 좌우 padding 14→4로 축소 — output-scroll-area의 32px 좌우 padding과
-   * 합쳐 grid 가용 폭이 너무 좁아져 3-col이 fail하는 케이스 방지. */
+  /* R5A-C v5: 3열일 때도 카드 350px 보장. 3 × 350 + 2 × gap(10) = 1070, padding 8.
+   * → max-width 1080px (본문 760보다 넓지만 카드 가독성 우선). */
+  max-width:1080px;
   margin:28px 0 16px;padding:18px 4px 22px;
   border-top:1px dashed var(--border2);
   box-sizing:border-box;
