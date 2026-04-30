@@ -852,6 +852,8 @@ function _buildSceneCharDetailedCardHtml(s) {
     if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
     if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
     if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
+    // Phase 4.19 — 스마트폰·태블릿·노트북 등 디지털 디바이스는 "기기"로 우선 분류
+    if (/스마트폰|휴대폰|핸드폰|태블릿|노트북|패드|아이폰|갤럭시|아이패드|랩탑|랩톱|폰\b/.test(t)) return { label:'기기', color:'#3a6a80' };
     if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크|안대|렌즈|고글|바이저/.test(t)) return { label:'장비', color:'#307080' };
     if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이|테더|케이블|와이어|줄|묶/.test(t)) return { label:'도구', color:'#607040' };
     if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
@@ -872,6 +874,7 @@ function _buildSceneCharDetailedCardHtml(s) {
     '기계':'기계식 보조 장치',
     '군용':'군사 목적의 장비',
     '장비':'전문 기술 장비',
+    '기기':'개인용 디지털 디바이스(스마트폰·태블릿·노트북 등)',
     '도구':'범용 작업 도구',
     '고급':'고급 또는 특수 제작 장비',
     '파손':'손상된 장비',
@@ -917,6 +920,7 @@ function _buildSceneCharDetailedCardHtml(s) {
         '문서':'기록이나 분석에 활용되는 정보 장치',
         '마법':'마력을 담거나 발현하는 도구',
         '통신':'전파나 신호를 통해 정보를 전달하는 장비',
+        '기기':'개인용 디지털 디바이스(스마트폰·태블릿·노트북 등)',
         '기타':'인물이 상황에 따라 활용하는 소지품',
       };
       const badgeDescFallback = (itemBadgeLabel && _BADGE_DESC[itemBadgeLabel])
@@ -928,6 +932,7 @@ function _buildSceneCharDetailedCardHtml(s) {
           const CAT_COLOR = {
             무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
             문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
+            기기:'#3a6a80',  // Phase 4.19 — 디지털 디바이스
             의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 기타:'#888',
           };
           return { label: itemBadgeLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
