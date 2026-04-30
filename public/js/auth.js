@@ -769,12 +769,30 @@ async function selectBook(book) {
     }
   }
 
+  // Phase 4.20 R5A — 활성 생성 책으로 복귀: DB의 stale 콘텐츠 대신 in-progress 상태 복원.
+  // 이전 텍스트(재생성 직전 본문)가 잠깐 보이고 done 도착 후 교체되는 깜빡임을 차단.
+  const _isReturnToActiveGen =
+    _ag && _ag.status === "generating" && _ag.bookId === book.id;
+
   _setActiveBook(book);
   _clearStorySurface();
   console.debug("[selectBook] clear story UI done");
 
   const episodes = await _loadEpisodes(book.id);
-  _renderLatestEpisode(episodes);
+  if (_isReturnToActiveGen) {
+    // episodeCache는 채워두되 (다른 회차 탐색 시 사용), 화면은 in-progress UI로.
+    for (const ep of (Array.isArray(episodes) ? episodes : [])) {
+      if (ep?.episode_number != null) episodeCache[ep.episode_number] = ep.content || "";
+    }
+    displayedEpisode = _ag.episode;
+    currentEpisode = _ag.episode;  // regenerate flow와 동기 — _finishGeneration이 +1 처리
+    try { window._fsRestoreActiveGenView?.(); } catch (e) { console.error("[selectBook] restore active gen view failed", e); }
+    updateEpisodeListUI?.();
+    updateEpisodeUI?.();
+    console.debug("[selectBook] returned to active-gen book — restored in-progress view", _ag);
+  } else {
+    _renderLatestEpisode(episodes);
+  }
 
   // 본문 렌더 완료 후 context/chars/sidebar 순차 실행 (실패 격리)
   await _restoreContextSafely(book.id);
@@ -787,8 +805,8 @@ async function selectBook(book) {
 
   const epCount = Object.keys(episodeCache).length;
   _traceOutput("selectBook done");
-  if (epCount > 0) showToast(`${book.title} — ${epCount}화 불러왔습니다.`, "info", 2000);
-  console.debug("[selectBook] done", { epCount, outputLen: document.getElementById("output")?.textContent?.length });
+  if (epCount > 0 && !_isReturnToActiveGen) showToast(`${book.title} — ${epCount}화 불러왔습니다.`, "info", 2000);
+  console.debug("[selectBook] done", { epCount, outputLen: document.getElementById("output")?.textContent?.length, returnedToActiveGen: _isReturnToActiveGen });
 }
 
 // ── 책 목록 접기/펼치기 ────────────────────────────────────

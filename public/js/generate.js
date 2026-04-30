@@ -536,6 +536,8 @@ function generate() {
 
   let rawText = "";
   _renderQueue = ""; _pacingUntil = 0; clearTimeout(_renderTimer);
+  // Phase 4.20 R5A — 진행 중 텍스트 전역 buffer 초기화 (이전 세션 잔재 방지).
+  window._fsActiveGenText = "";
   _ppReset();
   output.innerHTML = _makeLoadingHTML();
   _startLoadingAnim();
@@ -579,6 +581,7 @@ function generate() {
       return;
     }
     window._fsActiveGen = null; window._fsLastBgToastKey = null;
+    window._fsActiveGenText = "";
     renderProgressive(rawText, true);
     _renderPostprocStats();
     if (_pendingCharStates) { updateSceneCharPanel(_pendingCharStates); wrapCharNamesInOutput(_pendingCharStates); }
@@ -651,16 +654,19 @@ function generate() {
         // done JSON 수신 후 짧은 지연으로 스트림 종료 대기
         setTimeout(_finishGeneration, 300);
       } else if (json.token) {
-        // stale check — 책이 바뀌었으면 스트림 토큰을 화면에 반영하지 않음
+        // 항상 rawText에 누적 — 책 전환 후 복귀 시 정확한 본문 복원 + 정확한 saveEpisode 보장.
+        rawText += json.token;
+        // 전역 buffer — selectBook 복귀 시 stale DB 콘텐츠 대신 in-progress 텍스트 복원에 사용.
+        window._fsActiveGenText = rawText;
+        // stale check — 책이 바뀌었으면 화면에는 반영하지 않고 toast만.
         if (bookId !== _genSession.bookIdAtStart) {
-          console.debug("[generate] token discarded (stale session)", _genSession.id);
           if (!_staleMsgShown) {
             _staleMsgShown = true;
             showToast?.(`《${_genSession.titleAtStart}》 ${episodeNum}화 생성 중입니다. 다른 책으로 이동했습니다. 생성 결과는 원래 책에 저장됩니다.`, "info", 6000);
           }
           return;
         }
-        rawText += json.token; _renderQueue = rawText; pacingAppend(json.token);
+        _renderQueue = rawText; pacingAppend(json.token);
         // Phase 4.19 — 본문 token이 도착하면 ep-end에 placeholder 표시.
         // char-states가 done event에 함께 도착 시 renderEpisodeEndCharCards가 교체.
         const _epEnd = document.getElementById('episodeEndCards');
@@ -1689,6 +1695,34 @@ function _makeLoadingHTML() {
     <div class="gen-loading-msg" id="genLoadingMsg">${_LOADING_MSGS[0]}</div>
   </div>`;
 }
+
+// Phase 4.20 R5A — 활성 생성 책으로 복귀 시 stale DB 콘텐츠 대신 in-progress 상태 복원.
+// selectBook이 호출. 진행 중 누적된 토큰이 있으면 그대로 표시, 없으면 loading UI.
+window._fsRestoreActiveGenView = function() {
+  const ag = window._fsActiveGen;
+  const out = document.getElementById('output');
+  if (!out || !ag || ag.status !== 'generating') return false;
+  const accumulated = window._fsActiveGenText || "";
+  if (accumulated) {
+    // 이미 도착한 토큰이 있으면 즉시 렌더 (hybrid streaming 대응).
+    try {
+      _renderQueue = accumulated;
+      _pacingUntil = 0;
+      clearTimeout(_renderTimer);
+      renderProgressiveRaw(accumulated, false);
+    } catch (e) {
+      out.textContent = accumulated;
+    }
+  } else {
+    // 아직 토큰 없음 — loading UI 표시 + 메시지 애니메이션 재개.
+    out.innerHTML = _makeLoadingHTML();
+    try { _startLoadingAnim(); } catch (_) {}
+  }
+  // 본문 하단 ep-end card는 생성 중이므로 숨김 (이전 회차 카드 노출 차단).
+  const _epEnd = document.getElementById('episodeEndCards');
+  if (_epEnd) { _epEnd.hidden = true; _epEnd.innerHTML = ''; }
+  return true;
+};
 
 function _startLoadingAnim() {
   _loadingMsgIdx = 0;
