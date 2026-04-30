@@ -21,8 +21,21 @@ if (!bookId) { console.error("Usage: --book-id <uuid>"); process.exit(1); }
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
-const TRANSITION_RE = /(이동|향해|향하|걸어|들어가|나와서|나갔|나섰|복도|문을\s*열|계단|시간이\s*흘렀|얼마\s*후|잠시\s*후|마침내\s*도착|당도)/;
+// 범용 transition phrase: 이동/등장/시간 경과/하강/상승/끌림 등
+const TRANSITION_RE = /(이동|향해|향하|걸어|들어가|나와서|나갔|나섰|복도|문을\s*열|계단|시간이\s*흘렀|얼마\s*후|잠시\s*후|마침내\s*도착|당도|내려갔|내려섰|올라갔|올라섰|떨어졌|굴러|추락|끌려|잡혀|이끌려|기어|기다|뛰어|달려|이르렀|당도|진입)/;
 const ABSENT_VIS = new Set(["absent", "cannot_act"]);
+
+// 인물 이름 주변 transition 검사 — 본문에 인물 이름과 transition phrase가 함께 등장하는지
+function hasTransitionForCharacter(body, charName) {
+  // 인물 이름 등장 위치마다 ±200자 윈도우에서 transition phrase 검사
+  let idx = 0;
+  while ((idx = body.indexOf(charName, idx)) !== -1) {
+    const window = body.slice(Math.max(0, idx - 150), idx + 250);
+    if (TRANSITION_RE.test(window)) return true;
+    idx += charName.length;
+  }
+  return false;
+}
 
 async function main() {
   const epRes = await pool.query(
@@ -80,14 +93,14 @@ async function main() {
         const prevZone = prevLoc.split(/[\s\-,]/)[0];
         const currZone = currLoc.split(/[\s\-,]/)[0];
         if (prevZone !== currZone) {
-          // 본문에 transition phrase 있는지 확인
-          if (!TRANSITION_RE.test(currBody)) {
+          // 본문에 인물 이름 주변 transition phrase가 있는지 확인 (per-character check)
+          if (!hasTransitionForCharacter(currBody, charName)) {
             epIssues.push({
               type: "location_jump",
               char: charName,
               from: prevLoc,
               to: currLoc,
-              detail: `transition phrase 없음`,
+              detail: `${charName} 주변 transition phrase 없음`,
             });
             fatalLocationJump++;
           }

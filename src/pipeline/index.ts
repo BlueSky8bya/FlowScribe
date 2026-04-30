@@ -508,6 +508,14 @@ export async function runPlannerPipeline(
           });
         });
         if (allCanonicalOwners) continue;
+        // canonical 단일 인스턴스 (한 인물의 initial_items에만 있는 unique item) 추적
+        const canonicalOwners = owners.filter(o => {
+          const ci = canonicalItemMap.get(o) ?? [];
+          return ci.some((c: any) => {
+            const n: string = typeof c === "string" ? c : (c?.name ?? "");
+            return n.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase() === normKey;
+          });
+        });
         // Find who had it before
         const prevOwners = owners.filter(o => {
           const prevItems: any[] = prevMap.get(o)?.items ?? [];
@@ -517,8 +525,12 @@ export async function runPlannerPipeline(
           });
         });
         const newOwners = owners.filter(o => !prevOwners.includes(o));
-        // Keeper: prefer new acquirer; if ambiguous, keep first canonical owner
-        const keeper = newOwners[0] ?? prevOwners[0] ?? owners[0];
+        // Keeper 우선순위:
+        // 1. canonical owner (initial_items에 있음) — unique item은 본 주인이 우선
+        // 2. prev owner (이전 화 소지자) — 누적 상태 유지
+        // 3. newOwners — 신규 획득
+        // 이전 로직(newOwners 우선)이 unique item에서 canonical owner를 빼앗던 버그 수정
+        const keeper = canonicalOwners[0] ?? prevOwners[0] ?? newOwners[0] ?? owners[0];
         // Remove from non-keepers' stateUpdates
         for (const upd of stateUpdates) {
           const resolvedUpd = resolveCanonicalCharName(upd.character_name, canonicalNames).name;
