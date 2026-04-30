@@ -421,6 +421,16 @@ export async function runPlannerPipeline(
       // For items with multiple candidates, keep only the one who newly acquired it
       for (const [normKey, owners] of itemOwnerCandidates.entries()) {
         if (owners.length < 2) continue;
+        // canonical 다중 인스턴스 (각 인물이 자기 것을 갖고 있는 경우) 스킵
+        // — 모든 후보 owner의 initial_items에 해당 normKey가 있으면 정상
+        const allCanonicalOwners = owners.every(o => {
+          const ci = canonicalItemMap.get(o) ?? [];
+          return ci.some((c: any) => {
+            const n: string = typeof c === "string" ? c : (c?.name ?? "");
+            return n.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase() === normKey;
+          });
+        });
+        if (allCanonicalOwners) continue;
         // Find who had it before
         const prevOwners = owners.filter(o => {
           const prevItems: any[] = prevMap.get(o)?.items ?? [];

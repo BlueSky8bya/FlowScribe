@@ -193,6 +193,15 @@ async function main() {
     // 2명 이상이 같은 아이템 소지
     for (const [normName, owners] of Object.entries(itemOwnerMap)) {
       if (owners.length >= 2) {
+        // canonical 다중 인스턴스 스킵 (각 인물 initial_items에 모두 존재)
+        const allCanonical = owners.every(o => {
+          const ci = canonMap[o] ?? [];
+          return ci.some(c => {
+            const n = typeof c === "string" ? c : c?.name ?? "";
+            return n.replace(/[（(][^）)]+[）)]/g, "").trim().toLowerCase() === normName;
+          });
+        });
+        if (allCanonical) continue;
         totalDualOwnership++;
         const msg = `ep${ep}: 동시 소유 "${normName}" — [${owners.join(", ")}]`;
         dualOwnershipIssues.push(msg);
