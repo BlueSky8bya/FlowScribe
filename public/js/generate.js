@@ -854,9 +854,34 @@ function renderEpisodeEndCharCards(charStates) {
   const visible = (charStates || []).filter(s => _isAppearedForDisplay(s, outputText));
   if (!visible.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
 
+  // R5A-C v4 — 인물 수 기반 명시적 grid columns (CSS auto-fit이 viewport에 따라 fail하는 문제 회피).
+  //   1명  → 1 column max 350 (가운데)
+  //   2명  → 2 columns × 350 (가운데)
+  //   3+   → 3 columns × 1fr (본문 폭 균등 분할). 4명이면 3+1, 마지막 단독 카드는 가운데 정렬.
+  const n = visible.length;
+  let gridStyle;
+  if (n === 1) {
+    gridStyle = 'grid-template-columns:minmax(0,350px);';
+  } else if (n === 2) {
+    gridStyle = 'grid-template-columns:repeat(2,minmax(0,350px));';
+  } else {
+    gridStyle = 'grid-template-columns:repeat(3,minmax(0,1fr));';
+  }
+
+  // 마지막 row에 단독 카드(예: 4명 시 4번째)는 가운데 column으로 보내 비대칭 방지.
+  const cardsHtml = visible.map((s, idx) => {
+    const html = _buildSceneCharDetailedCardHtml(s);
+    // 3-col layout에서 마지막 카드가 row의 첫 cell에만 위치하면 빈 column이 우측에 보임 → 가운데로.
+    if (n >= 3 && (idx === n - 1) && (n % 3 === 1)) {
+      // 마지막 단독 카드 → 2번째 column에 배치
+      return html.replace('class="scene-char-item', 'style="grid-column:2;" class="scene-char-item');
+    }
+    return html;
+  }).join('');
+
   wrap.innerHTML = `
     <div class="ep-end-title">현재 인물 상태</div>
-    <div class="ep-end-grid">${visible.map(_buildSceneCharDetailedCardHtml).join('')}</div>
+    <div class="ep-end-grid" style="${gridStyle}">${cardsHtml}</div>
   `;
   wrap.hidden = false;
 }
