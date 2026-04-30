@@ -375,17 +375,28 @@ export async function runPlannerPipeline(
   const coherenceAllowRepair = process.env.COHERENCE_REPAIR !== "0"; // 기본 허용
 
   // hint 수집: continuity / delta 결과 중 fatal 후보가 될 만한 것
+  // Phase 4.20 R2: judge 발동 임계 상향 — 단일 신호로 5-15s judge 실행을 막는다.
+  //   - continuity issues (count)
+  //   - delta repeated patterns (count)
+  //   기준: 2개 이상 또는 (continuity 1+ AND delta 1+) 또는 force.
   const coherenceHints: string[] = [];
   const tracerAny = tracer as any;
-  if (tracerAny?.continuity_check?.issues?.length) {
-    for (const i of tracerAny.continuity_check.issues) coherenceHints.push(`continuity: ${i}`);
-  }
-  if (tracerAny?.episode_delta_check?.repeated_patterns?.length) {
-    for (const p of tracerAny.episode_delta_check.repeated_patterns.slice(0, 3))
-      coherenceHints.push(`delta_repeat: ${p}`);
-  }
+  const continuityIssues = (tracerAny?.continuity_check?.issues ?? []) as string[];
+  const deltaRepeats = (tracerAny?.episode_delta_check?.repeated_patterns ?? []) as string[];
+  for (const i of continuityIssues) coherenceHints.push(`continuity: ${i}`);
+  for (const p of deltaRepeats.slice(0, 3)) coherenceHints.push(`delta_repeat: ${p}`);
 
-  if (generatedText && (coherenceForce || coherenceHints.length > 0)) {
+  // 임계 정밀화:
+  //   threshold A: hints >= 2     (weak signal aggregated)
+  //   threshold B: continuity >=1 AND delta >=1     (cross-check 일치 — 강한 시그널)
+  //   threshold C: coherenceForce env var
+  // 모두 미충족이면 judge skip (audit log만 남고 본문 변경 없음).
+  const judgeThresholdMet =
+    coherenceForce ||
+    coherenceHints.length >= 2 ||
+    (continuityIssues.length >= 1 && deltaRepeats.length >= 1);
+
+  if (generatedText && judgeThresholdMet) {
     try {
       // 누적 요약: 직전 화 tail 정도만 (비용 제한)
       const prevSummary = ctx.prev_episode_tail
@@ -439,6 +450,21 @@ export async function runPlannerPipeline(
       }
     } catch (err) {
       logWarn("pipeline:coherence", "judge/repair 실행 실패 — skip", { error: String(err) });
+    }
+  } else if (coherenceHints.length > 0) {
+    // Phase 4.20 R2: 임계 미달로 judge skip — audit-only.
+    logInfo("pipeline:coherence", "judge skip (threshold below)", {
+      episode: ctx.episode_number,
+      continuity_issues: continuityIssues.length,
+      delta_repeats: deltaRepeats.length,
+      hints: coherenceHints.length,
+    });
+    if (tracer) {
+      (tracer as any).coherence_check = {
+        skipped_below_threshold: true,
+        continuity_issues: continuityIssues.length,
+        delta_repeats: deltaRepeats.length,
+      };
     }
   }
 

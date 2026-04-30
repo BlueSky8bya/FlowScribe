@@ -82,7 +82,13 @@ generateRouter.get("/", async (req: Request, res: Response) => {
   const bookId     = req.query.book_id as string | undefined;
   const userPrompt = req.query.prompt as string | undefined;
   const userId     = softGetUserId(req);
-  const usePlanner = req.query.use_planner === "true" && !!bookId;
+  // Phase 4.20 R2: legacy use_planner=false path 차단 — bookId가 있으면 항상 planner.
+  // 현재 모든 정상 caller(FE + scripts/dpo_collector)는 use_planner=true. legacy fallthrough는
+  // bookId 없는 prompt-only 모드(개발/실험)에만 의미. 명시적 false는 deprecated.
+  const usePlanner = !!bookId;
+  if (req.query.use_planner === "false" && bookId) {
+    logWarn("api:generate", "deprecated: use_planner=false with book_id ignored — planner 강제 활성", { book_id: bookId, episode });
+  }
   // renderer/planner 모델 오버라이드 (표적 재생성용 — 운영 환경에서는 사용 금지)
   const rendererModelOverride = req.query.renderer_model as string | undefined;
   const plannerModelOverride  = req.query.planner_model  as string | undefined;
