@@ -524,6 +524,15 @@ function buildPlannerUserPrompt(
         `visibility가 absent/cannot_act였던 인물은 이번 화에 등장 또는 행동시키려면 등장 계기를 명시해야 한다.`
       );
     }
+    // Phase 4.16: 감정/목표 progression requirements
+    if (cc.emotional_progression_requirements?.length) {
+      const reqLines = cc.emotional_progression_requirements.map(r => `- ${r.instruction}`);
+      ccLines.push(
+        `[감정·목표 진전 필수 — 정체 인물]\n${reqLines.join("\n")}\n` +
+        `유의: 감정 단어만 바꾸지 말 것. 같은 감정이 유지되더라도 ` +
+        `결정/행동/관계 변화/새 정보 노출/대가 지불/신념 변화/목표 구체화 중 하나가 본문에 실제로 발생해야 한다.`
+      );
+    }
     sections.push(`[연속성 계약 — 절대 준수]\n${ccLines.join("\n")}`);
   }
 

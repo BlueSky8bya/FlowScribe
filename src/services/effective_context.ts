@@ -82,6 +82,7 @@ export async function buildEffectiveContext(opts: {
     arcSummaries,
     rollingSummaryRows,
     prevTailRow,
+    recentDynStateHistory,
   ] = await Promise.allSettled([
     bookId ? redis.get(`context:${bookId}`) : Promise.resolve(null),
     bookId ? pool.query(`SELECT background,genre,mood,theme,common_tone FROM world_configs WHERE book_id=$1`, [bookId]).catch(() => ({ rows: [] })) : Promise.resolve({ rows: [] }),
@@ -98,6 +99,16 @@ export async function buildEffectiveContext(opts: {
       : Promise.resolve({ rows: [] }),
     bookId && episodeNumber > 1
       ? pool.query(`SELECT content FROM episodes WHERE book_id=$1 AND episode_number=$2`, [bookId, episodeNumber - 1])
+      : Promise.resolve({ rows: [] }),
+    // Phase 4.16 — emotional progression streak 감지를 위해 최근 8화 기록 조회
+    bookId && episodeNumber >= 4
+      ? pool.query(
+          `SELECT character_name, episode_number, emotional_state, recent_goal
+           FROM character_dynamic_states
+           WHERE book_id=$1 AND episode_number >= $2 AND episode_number < $3
+           ORDER BY character_name, episode_number`,
+          [bookId, Math.max(1, episodeNumber - 8), episodeNumber]
+        ).catch(() => ({ rows: [] }))
       : Promise.resolve({ rows: [] }),
   ]);
 
@@ -246,8 +257,12 @@ export async function buildEffectiveContext(opts: {
   const foreshadowList: Array<{ id: string; planted_episode: number; content: string; keywords: string[] }> =
     foreshadows.status === "fulfilled" ? (foreshadows.value as any[]).map(f => ({ id: f.id, planted_episode: f.planted_episode, content: f.content, keywords: f.keywords })) : [];
 
+  // Phase 4.16 — recent state history rows for streak 감지
+  const recentHistoryRows: Array<{ character_name: string; episode_number: number; emotional_state?: string | null; recent_goal?: string | null }> =
+    recentDynStateHistory.status === "fulfilled" ? ((recentDynStateHistory.value as any).rows ?? []) : [];
+
   const continuityContract: ContinuityContract | undefined = episodeNumber >= 2
-    ? buildContinuityContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail, rollingSummary)
+    ? buildContinuityContract(episodeNumber, dynStates, characterArcs, foreshadowList, prevEpisodeTail, rollingSummary, recentHistoryRows)
     : undefined;
 
   const episodeDeltaContract: EpisodeDeltaContract | undefined = episodeNumber >= 2
@@ -375,6 +390,7 @@ function buildContinuityContract(
   foreshadows: Array<{ content: string; keywords: string[] }>,
   prevTail?: string,
   rollingSummary?: string,
+  recentHistory?: Array<{ character_name: string; episode_number: number; emotional_state?: string | null; recent_goal?: string | null }>,
 ): ContinuityContract {
   // known_facts: 인물 아크 key_events + recent_goal
   const known_facts: string[] = [];
@@ -466,6 +482,69 @@ function buildContinuityContract(
       };
     });
 
+  // ── Phase 4.16: emotional_progression_requirements ─────────────
+  // 같은 emotional_state 또는 recent_goal로 4화 이상 정체된 인물에게 progression 요구.
+  // streak가 4 미만이면 emit하지 않음 — planner prompt 부담 최소화.
+  const STREAK_TRIGGER = 4;
+  const emotional_progression_requirements: NonNullable<ContinuityContract["emotional_progression_requirements"]> = [];
+  if (recentHistory && recentHistory.length > 0) {
+    // 인물별 그룹
+    const byChar: Record<string, typeof recentHistory> = {};
+    for (const r of recentHistory) {
+      if (!byChar[r.character_name]) byChar[r.character_name] = [];
+      byChar[r.character_name].push(r);
+    }
+    for (const [charName, rows] of Object.entries(byChar)) {
+      // 가장 최근 화부터 거꾸로 streak 계산 (마지막 row 기준)
+      if (rows.length < STREAK_TRIGGER) continue;
+      const last = rows[rows.length - 1];
+      const lastEmotion = last.emotional_state ?? "";
+      const lastGoal = last.recent_goal ?? "";
+      let emotionStreak = 1;
+      let goalStreak = 1;
+      let pairStreak = 1;
+      for (let i = rows.length - 2; i >= 0; i--) {
+        const r = rows[i];
+        if ((r.emotional_state ?? "") === lastEmotion) emotionStreak++;
+        else break;
+      }
+      for (let i = rows.length - 2; i >= 0; i--) {
+        const r = rows[i];
+        if ((r.recent_goal ?? "") === lastGoal) goalStreak++;
+        else break;
+      }
+      for (let i = rows.length - 2; i >= 0; i--) {
+        const r = rows[i];
+        if ((r.emotional_state ?? "") === lastEmotion && (r.recent_goal ?? "") === lastGoal) pairStreak++;
+        else break;
+      }
+      // 셋 중 가장 큰 streak가 4 이상이면 trigger
+      const maxStreak = Math.max(emotionStreak, goalStreak, pairStreak);
+      if (maxStreak < STREAK_TRIGGER) continue;
+      const streakType: "emotion" | "goal" | "emotion_goal_pair" =
+        pairStreak >= STREAK_TRIGGER ? "emotion_goal_pair"
+        : emotionStreak >= goalStreak ? "emotion" : "goal";
+      emotional_progression_requirements.push({
+        character_name: charName,
+        streak_type: streakType,
+        streak_length: maxStreak,
+        current_emotion: lastEmotion,
+        current_goal: lastGoal,
+        allowed_progression_types: [
+          "decision", "action", "relationship_shift",
+          "new_information", "cost_paid", "belief_change", "goal_refinement",
+        ],
+        instruction: `${charName}는 최근 ${maxStreak}화 동안 ` +
+          (streakType === "emotion_goal_pair"
+            ? `같은 감정("${lastEmotion}")과 같은 목표("${(lastGoal ?? "").slice(0, 30)}")로 정체됨. `
+            : streakType === "emotion"
+              ? `같은 감정("${lastEmotion}")으로 정체됨. `
+              : `같은 목표("${(lastGoal ?? "").slice(0, 30)}")로 정체됨. `) +
+          "이번 화에서는 감정 단어만 바꾸지 말고 결정/행동/관계 변화/새 정보/대가 중 하나를 반드시 발생시켜라.",
+      });
+    }
+  }
+
   return {
     mode: "next_episode",
     must_continue_from: {
@@ -477,6 +556,7 @@ function buildContinuityContract(
     open_threads,
     forbidden_regressions,
     character_position_state,
+    emotional_progression_requirements,
   };
 }
 

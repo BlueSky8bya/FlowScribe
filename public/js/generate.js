@@ -457,6 +457,20 @@ function _nextEpNum(from) {
     .map(Number).filter(n => n > from).sort((a, b) => a - b)[0] ?? null;
 }
 
+// Phase 4.16 — 회차 navigation 후 본문 상단으로 scroll. 1회 적용.
+function _scrollToTopOnEpisodeChange() {
+  try {
+    const out = document.getElementById("output");
+    if (out) out.scrollTop = 0;
+    const reader = document.querySelector(".reader") || document.querySelector("main");
+    if (reader) reader.scrollTop = 0;
+    // 페이지 자체도 상단으로 (모바일 등)
+    if (typeof window !== "undefined" && window.scrollTo) {
+      window.scrollTo({ top: 0, behavior: "auto" });
+    }
+  } catch {}
+}
+
 function viewPrev() {
   const prev = displayedEpisode !== null ? _prevEpNum(displayedEpisode) : _prevEpNum(currentEpisode);
   if (prev === null) return;
@@ -466,6 +480,7 @@ function viewPrev() {
   _renderPostprocStats();
   updateEpisodeUI();
   _loadAndApplyCharStates(displayedEpisode);
+  _scrollToTopOnEpisodeChange();
 }
 
 function viewNext() {
@@ -477,6 +492,7 @@ function viewNext() {
   _renderPostprocStats();
   updateEpisodeUI();
   _loadAndApplyCharStates(displayedEpisode);
+  _scrollToTopOnEpisodeChange();
 }
 
 function regenerate() {

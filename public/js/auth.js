@@ -1069,6 +1069,14 @@ function updateEpisodeListUI() {
       updateEpisodeListUI();
       updateOutputHeader();
       _loadAndApplyCharStates?.(n);
+      // Phase 4.16 — 회차 변경 시 본문 상단으로 스크롤
+      try {
+        const out = document.getElementById("output");
+        if (out) out.scrollTop = 0;
+        const reader = document.querySelector(".reader") || document.querySelector("main");
+        if (reader) reader.scrollTop = 0;
+        if (window.scrollTo) window.scrollTo({ top: 0, behavior: "auto" });
+      } catch {}
     };
     list.appendChild(btn);
   });

@@ -115,8 +115,57 @@ function _normalizeField(
   return trimmed;
 }
 
+/**
+ * Phase 4.16 — 감정 라벨 짧게 정규화.
+ * 문장형 emotional_state ("빅토리를 돕기 위해 노력하며 희망을 품음" 등)는 핵심 감정 단어로 압축.
+ * 본문 생성 정보는 emotion_cause / progression_delta 같은 보조 필드에 보존(선택적).
+ */
+const SENTENCE_HINT_RE = /(하기\s*위해|하려는|하려고|하며|하면서|하고자|품은|품음|느끼며|느끼는|되어|되면서|당하며|당하면서)/;
+
+// 흔한 감정 단어 우선순위 (먼저 매칭되는 것이 label로 채택)
+const EMOTION_KEYWORDS: Array<[RegExp, string]> = [
+  [/희망|기대감|기대/, "희망"],
+  [/절망|좌절/, "절망"],
+  [/공포/, "공포"],
+  [/두려움|두려/, "두려움"],
+  [/불안/, "불안"],
+  [/긴장/, "긴장"],
+  [/분노|격노|성내|화가/, "분노"],
+  [/슬픔|애도|비통/, "슬픔"],
+  [/혼란|당혹/, "혼란"],
+  [/경계심|경계/, "경계"],
+  [/결의|결단|결심|단호함|단호|확신/, "결의"],
+  [/의심|의구심|불신/, "의심"],
+  [/안도|안심|위안/, "안도"],
+  [/기쁨|즐거움|환희/, "기쁨"],
+  [/사랑|애정/, "애정"],
+  [/외로움|고독/, "고독"],
+  [/죄책감|후회/, "죄책감"],
+  [/연민|동정/, "연민"],
+  [/호기심/, "호기심"],
+  [/충격|놀람/, "충격"],
+  [/평온|차분|침착/, "평온"],
+];
+
+function shortenEmotionalLabel(s: string): string {
+  // 라벨 후보 매칭
+  for (const [re, label] of EMOTION_KEYWORDS) {
+    if (re.test(s)) return label;
+  }
+  // 키워드 매칭 실패 — 첫 어절만 사용
+  const firstToken = s.split(/[\s,，·]+/)[0]?.trim();
+  if (firstToken && firstToken.length >= 2 && firstToken.length <= 6) return firstToken;
+  return "복합감정";
+}
+
 export function normalizeEmotionalState(v: string | null | undefined): string | null {
-  return _normalizeField(v, EMOTION_MAP, "emotional_state");
+  const baseNormalized = _normalizeField(v, EMOTION_MAP, "emotional_state");
+  if (!baseNormalized) return baseNormalized;
+  const trimmed = baseNormalized.trim();
+  // 문장형/장문 감지 — 15자 초과 또는 sentence hint
+  const isSentence = trimmed.length > 15 || SENTENCE_HINT_RE.test(trimmed);
+  if (!isSentence) return trimmed;
+  return shortenEmotionalLabel(trimmed);
 }
 
 export function normalizePhysicalState(v: string | null | undefined): string | null {

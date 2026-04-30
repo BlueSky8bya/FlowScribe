@@ -156,9 +156,14 @@ const CONDITION_SUFFIX_PATTERNS: Array<{ re: RegExp; cond: string }> = [
   { re: /\s*\(소진\)$/, cond: "소진" },
 ];
 
-export function splitConditionFromName(rawName: string): { name: string; condition?: string } {
+// Phase 4.16 — 짧은 status 키워드 (condition으로 판정할 패턴)
+// 길거나 설명 형식이면 description으로 분리.
+const SHORT_CONDITION_RE = /^(방전|파손|손상|고장|분실|소진|낡음|녹슬음|혈흔|불완전|반파|충전\s*[0-9]+|[0-9]+%|미사용|새것|닳음|부서짐|젖음|건조|충전됨|수리됨)$/;
+
+export function splitConditionFromName(rawName: string): { name: string; condition?: string; description?: string } {
   let name = rawName.trim();
   let condition: string | undefined;
+  let description: string | undefined;
 
   // 접미 괄호 (방전) (파손) 등
   for (const p of CONDITION_SUFFIX_PATTERNS) {
@@ -169,15 +174,24 @@ export function splitConditionFromName(rawName: string): { name: string; conditi
     }
   }
 
-  // 일반 괄호 분리 — 괄호 안이 상태 키워드인 경우
+  // 일반 괄호 분리 — 괄호 안 내용을 condition vs description으로 의미 분류
   const parenMatch = CONDITION_PAREN_RE.exec(name);
   if (parenMatch) {
     const inner = parenMatch[1].trim();
-    // 숫자+단위는 수량이므로 condition 아님
-    if (!/^\d+/.test(inner)) {
+    // 숫자+단위는 수량이므로 정보용 (의미 보존)
+    if (/^\d+/.test(inner)) {
+      // 그대로 둠
+    } else if (SHORT_CONDITION_RE.test(inner)) {
+      // 짧은 status 키워드 → condition
       name = name.replace(CONDITION_PAREN_RE, "").trim();
       condition = inner;
       return { name, condition };
+    } else {
+      // 그 외(긴 설명, 권한, 제약, 사용처) → description으로 분리
+      // 예: "마스터 키 (C동 제외 전 구역)" → name="마스터 키", description="C동 제외 전 구역"
+      name = name.replace(CONDITION_PAREN_RE, "").trim();
+      description = inner;
+      return { name, description };
     }
   }
 
@@ -253,8 +267,8 @@ export function resolveItemName(
     };
   }
 
-  // 2. condition 분리
-  const { name: splitName, condition: splitCondition } = splitConditionFromName(rawItemName);
+  // 2. condition / description 분리 (Phase 4.16)
+  const { name: splitName, condition: splitCondition, description: splitDescription } = splitConditionFromName(rawItemName);
 
   // 3. 모든 canonical sources (initial + prev dynamic)
   const allCanonical = [...ownerCanonicalItems, ...prevItems];
@@ -276,10 +290,10 @@ export function resolveItemName(
       return {
         canonical_name: canon.name,
         condition: splitCondition ?? canon.condition,
-        description: canon.description,
+        description: splitDescription ?? canon.description,
         grade: canon.grade,
         resolution: "condition_split",
-        reason: `condition split: "${rawItemName}" → name="${splitName}" condition="${splitCondition}"`,
+        reason: `condition/desc split: "${rawItemName}" → name="${splitName}" condition="${splitCondition}" desc="${splitDescription ?? ""}"`,
       };
     }
   }
@@ -295,7 +309,7 @@ export function resolveItemName(
         return {
           canonical_name: canon.name,
           condition: splitCondition ?? canon.condition,
-          description: canon.description,
+          description: splitDescription ?? canon.description,
           grade: canon.grade,
           resolution: "known_alias",
           reason: `alias match: "${rawItemName}" → "${canon.name}"`,
@@ -308,6 +322,7 @@ export function resolveItemName(
   return {
     canonical_name: splitName || rawItemName,
     condition: splitCondition,
+    description: splitDescription,
     resolution: "new_item",
     reason: `new item: "${rawItemName}"`,
   };

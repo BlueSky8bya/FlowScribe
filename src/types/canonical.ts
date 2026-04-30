@@ -279,6 +279,24 @@ export interface ContinuityContract {
     visibility: string;     // present | absent | cannot_act
     items_summary: string;  // 짧은 string (3개 이하)
   }>;
+  /**
+   * Phase 4.16 — 감정/목표 progression contract.
+   * 같은 인물이 같은 emotional_state 또는 recent_goal로 N화 이상 정체된 경우
+   * planner에게 "이번 화는 단순 감정 반복이 아니라 결정/행동/관계/정보/대가 중
+   * 하나로 진전을 보이라"는 hard requirement를 emit.
+   * 루프가 감지되지 않은 인물에는 비어 있음.
+   */
+  emotional_progression_requirements?: Array<{
+    character_name: string;
+    streak_type: "emotion" | "goal" | "emotion_goal_pair";
+    streak_length: number;
+    current_emotion: string;
+    current_goal: string;
+    /** allowed progression types — planner는 이 중 하나를 선택 */
+    allowed_progression_types: string[];
+    /** human-readable 짧은 지시 (planner prompt에 그대로 삽입) */
+    instruction: string;
+  }>;
 }
 
 // ══════════════════════════════════════════════════════════════
