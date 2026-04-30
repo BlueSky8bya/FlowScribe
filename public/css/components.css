@@ -263,26 +263,31 @@
    * 카드는 자기 콘텐츠 높이만 차지하도록 start로 정렬. */
   align-items:start;
 }
-/* 본문 하단 카드는 사이드바보다 한 단계 크게 보이도록 override */
+/* 본문 하단 카드는 사이드바보다 두 단계 크게 보이도록 override */
 .ep-end-grid .scene-char-item{
-  padding:14px 16px 12px;
+  padding:16px 18px 14px;
   border-radius:12px;
   box-shadow:0 1px 6px rgba(0,0,0,.10);
+  font-size:1rem;
 }
 .ep-end-grid .scene-char-header{
-  padding-bottom:8px;margin-bottom:8px;gap:.5rem;
+  padding-bottom:10px;margin-bottom:10px;gap:.55rem;
 }
-.ep-end-grid .scene-char-name{font-size:1em;}
-.ep-end-grid .scene-char-gender{font-size:.78em!important;}
+.ep-end-grid .scene-char-name{font-size:1.1em;}
+.ep-end-grid .scene-char-gender{font-size:.86em!important;}
 .ep-end-grid .scene-char-detail{
-  font-size:.92em;line-height:1.55;padding:3px 0;
+  font-size:1em;line-height:1.6;padding:4px 0;
 }
 .ep-end-grid .scene-char-detail .detail-label{
-  font-size:.92em;min-width:34px;
+  font-size:.94em;min-width:38px;
 }
 .ep-end-grid .item-card{
-  font-size:.92em;
+  font-size:.95em;
 }
+.ep-end-grid .item-card-name{font-size:1em;}
+.ep-end-grid .item-card-row{font-size:.92em;}
+.ep-end-grid .emot-badge-wrap .state-badge,
+.ep-end-grid .state-badge{font-size:.92em;padding:.18em .55em;}
 @media (max-width:560px){
   .ep-end-grid{grid-template-columns:1fr;}
 }

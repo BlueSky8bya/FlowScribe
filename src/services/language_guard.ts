@@ -123,27 +123,27 @@ function _normalizeField(
 const SENTENCE_HINT_RE = /(하기\s*위해|하려는|하려고|하며|하면서|하고자|품은|품음|느끼며|느끼는|되어|되면서|당하며|당하면서)/;
 
 // 흔한 감정 단어 우선순위 (먼저 매칭되는 것이 label로 채택)
-// Phase 4.19 — multi-word 감정 (예: "긴장 유지", "집중과 긴장")까지 짧은 라벨로 정규화하기 위해 패턴 확장.
+// Phase 4.19 — multi-word 감정과 동사형 감정("조심하면서도", "두려워하며")도 짧은 라벨로 정규화.
 const EMOTION_KEYWORDS: Array<[RegExp, string]> = [
   [/희망|기대감|기대/, "희망"],
   [/절망|좌절|체념/, "절망"],
-  [/공포|두려움|두려/, "두려움"],
-  [/불안/, "불안"],
-  [/긴장|초조/, "긴장"],
-  [/분노|격노|성내|화가|짜증/, "분노"],
-  [/슬픔|애도|비통/, "슬픔"],
-  [/혼란|당혹|당황/, "혼란"],
-  [/경계심|경계|방어적/, "경계"],
+  [/공포|두려움|두려워|두려|무서워|무서움/, "두려움"],
+  [/불안|초조|걱정|염려/, "불안"],
+  [/긴장/, "긴장"],
+  [/분노|격노|성내|화가|짜증|분개/, "분노"],
+  [/슬픔|슬퍼|애도|비통|울적/, "슬픔"],
+  [/혼란|당혹|당황|혼돈/, "혼란"],
+  [/경계심|경계|방어적|조심|주의|경각/, "경계"],
   [/결의|결단|결심|단호함|단호|각오|다짐|확신/, "결의"],
   [/의심|의구심|불신/, "의심"],
   [/안도|안심|위안/, "안도"],
-  [/기쁨|즐거움|환희|명랑/, "기쁨"],
+  [/기쁨|기뻐|즐거움|즐거워|환희|명랑/, "기쁨"],
   [/사랑|애정/, "애정"],
-  [/외로움|고독/, "고독"],
+  [/외로움|고독|쓸쓸/, "고독"],
   [/죄책감|후회/, "죄책감"],
   [/연민|동정/, "연민"],
   [/호기심/, "호기심"],
-  [/충격|놀람/, "충격"],
+  [/충격|놀람|놀라/, "충격"],
   [/평온|차분|침착|고요/, "평온"],
   [/신중/, "신중"],
   [/주저|망설/, "주저"],
@@ -154,27 +154,48 @@ const EMOTION_KEYWORDS: Array<[RegExp, string]> = [
   [/무력감|무력|좌초/, "무력감"],
 ];
 
+// 한국어 동사·형용사 어미 — 앞부분에 감정 어근이 있을 때 떼어내기 위해 사용.
+// 예: "조심하면서도" → "조심", "두려워하며" → "두려워", "당황한 채" → "당황"
+const _VERB_TAIL_RE = /(하면서도|하면서|하며|하다가|하지만|하지|해도|하고도|하고|해서|하기에|하기|하던|한채|한 채|하니|하느라|되어|되면서|되며|되니|되었|었|던|는|은|을|를|이|가|와|과|에|의|로)$/;
+
 function shortenEmotionalLabel(s: string): string {
   // 라벨 후보 매칭 (가장 먼저 매칭되는 단어가 라벨이 됨)
   for (const [re, label] of EMOTION_KEYWORDS) {
     if (re.test(s)) return label;
   }
-  // 키워드 매칭 실패 — 첫 어절을 라벨로 사용 (2~6자 범위)
-  const firstToken = s.split(/[\s,，·]+/)[0]?.trim();
-  if (firstToken && firstToken.length >= 2 && firstToken.length <= 6) return firstToken;
-  // 끝까지 라벨화 실패 시 — 미파악 대신 알 수 없음으로 고정 (UI는 동치 처리)
+  // 첫 어절 단축 + 어미 반복 제거
+  let firstToken = (s.split(/[\s,，·]+/)[0] ?? "").trim();
+  for (let i = 0; i < 3 && firstToken.length > 1; i++) {
+    const stripped = firstToken.replace(_VERB_TAIL_RE, "");
+    if (stripped === firstToken) break;
+    firstToken = stripped;
+  }
+  // 어미 제거 후 다시 keyword 매칭 시도
+  for (const [re, label] of EMOTION_KEYWORDS) {
+    if (re.test(firstToken)) return label;
+  }
+  // 그래도 라벨화 안되면 stem 자체가 짧고 명사형이면 그대로 사용
+  if (firstToken && firstToken.length >= 2 && firstToken.length <= 5) return firstToken;
   return "알 수 없음";
 }
+
+// 동사·형용사 어미로 끝나면 단축 trigger (예: "기뻐하는", "조심하는", "두려워하며")
+const _VERB_END_TRIGGER_RE = /(하면서도|하면서|하며|하다가|하지|해도|하고|해서|하기|하던|한채|하는|하기에|되어|되면|되며|되니|었다|는다|던가|는다고|이며|되는)$/;
 
 export function normalizeEmotionalState(v: string | null | undefined): string | null {
   const baseNormalized = _normalizeField(v, EMOTION_MAP, "emotional_state");
   if (!baseNormalized) return baseNormalized;
   const trimmed = baseNormalized.trim();
   // Phase 4.19 — 단축 진입 조건:
-  //   공백 포함 + length >= 5 : "긴장 유지", "집중과 긴장" 같은 multi-word를 단일 라벨로
-  //   length > 15 또는 sentence hint : 문장형
+  //   length > 15  : 문장형
+  //   SENTENCE_HINT_RE / _VERB_END_TRIGGER_RE : 동사·형용사 어미
+  //   공백 포함 + length >= 5 : "긴장 유지" 같은 multi-word
   const hasSpace = /\s/.test(trimmed);
-  const isComplex = trimmed.length > 15 || SENTENCE_HINT_RE.test(trimmed) || (hasSpace && trimmed.length >= 5);
+  const isComplex =
+    trimmed.length > 15 ||
+    SENTENCE_HINT_RE.test(trimmed) ||
+    _VERB_END_TRIGGER_RE.test(trimmed) ||
+    (hasSpace && trimmed.length >= 5);
   if (!isComplex) return trimmed;
   return shortenEmotionalLabel(trimmed);
 }
