@@ -62,7 +62,10 @@ check("char-name-ref :hover 효과 제거", !/span\.char-name-ref:hover/.test(cs
 
 console.log("\n── [6] CSS 정의 (2열 grid) ──");
 check(".episode-end-cards 스타일 정의", /\.episode-end-cards\s*\{/.test(css));
-check(".ep-end-grid auto-fit grid (1~3열 자동)", /\.ep-end-grid\s*\{[\s\S]*?grid-template-columns:repeat\(auto-fit,minmax\(\d+px,1fr\)\)/.test(css));
+// Phase 4.20 R5A stabilization — 카드 너비를 3열 기준으로 cap (1~2개일 때 가운데 정렬).
+// 허용: minmax(<num>px, 1fr) (구버전) 또는 minmax(<num>px, <num>px) (신버전 cap).
+check(".ep-end-grid auto-fit grid (1~3열 자동, 너비 cap)", /\.ep-end-grid\s*\{[\s\S]*?grid-template-columns:repeat\(auto-fit,minmax\(\d+px,(?:1fr|\d+px)\)\)/.test(css));
+check(".ep-end-grid justify-content:center (1~2개일 때 중앙 정렬)", /\.ep-end-grid\s*\{[\s\S]*?justify-content:center/.test(css));
 check(".ep-end-grid 안 .scene-char-item override (사이드바보다 큼)", /\.ep-end-grid\s+\.scene-char-item\s*\{/.test(css));
 check(".episode-end-cards 명시 width + max-width (column flex 안에서 1열 쪼그라듦 방지)",
   /\.episode-end-cards\s*\{[\s\S]*?width:100%[\s\S]*?max-width:\d+px/.test(css));

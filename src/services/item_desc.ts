@@ -34,34 +34,52 @@ export interface ItemDescJobData {
 }
 
 // Phase 4.20 R5A stabilization — 소지품 설명 sanitizer.
-// 정책: 1문장, 20~45자 권장, 최대 60자, 마침표로 종료.
+// 정책 (사장 지시):
+//   "40자 제한, 40자에서 딱 끊지 말고 그 지점에 속한 문장까지, 간단하게만"
+//   → target 40자, sentence-aware cut.
+//   1) 종결부(.!?。…)가 있으면 ends 중 가장 적합한 cut 선택:
+//        - position 40을 처음으로 넘는 종결부가 있으면 그 위치
+//        - 그렇지 않으면 마지막 종결부
+//      단, 단일 문장이 너무 길면(>50자) 어절 경계에서 hard trim — "40 제한" 우선.
+//   2) 종결부가 없는 long string은 어절 경계 trim + 마침표.
 // 사용자 입력(user_desc)은 sanitize 대상 아님 — LLM 결과만 적용.
-const _ITEM_DESC_MAX_CHARS = 60;
+const _ITEM_DESC_TARGET_CHARS = 40;
+const _ITEM_DESC_SENT_HARD = 50; // 단일 문장 최대 — 이걸 넘으면 어절 trim
 const _SENT_END_RE = /[\.\?!。…]+/g;
+function _wordBoundaryTrim(s: string, maxLen: number): string {
+  const cut = s.slice(0, maxLen);
+  const lastSpace = cut.lastIndexOf(" ");
+  let trimmed = lastSpace > maxLen - 15 ? cut.slice(0, lastSpace) : cut;
+  trimmed = trimmed.replace(/[\s,，·\-]+$/u, "");
+  return trimmed;
+}
 export function sanitizeLLMItemDescription(raw: string | null | undefined): string {
   if (!raw) return "";
   let s = String(raw).trim();
   if (!s) return "";
   // 자주 나오는 prefix echo 제거 (예: "이 아이템은", "[설명]" 등)
   s = s.replace(/^\s*\[?설명\]?[:：]?\s*/u, "");
-  // 첫 문장만 유지 — 마침표 등 종결부에서 cut.
-  const firstEnd = (() => {
-    _SENT_END_RE.lastIndex = 0;
-    const m = _SENT_END_RE.exec(s);
-    return m ? m.index + m[0].length : -1;
-  })();
-  if (firstEnd > 0 && firstEnd < s.length) {
-    s = s.slice(0, firstEnd).trim();
+
+  // 모든 문장 종결부 위치 (cut point = 종결부 끝 인덱스)
+  const ends: number[] = [];
+  for (const m of s.matchAll(_SENT_END_RE)) ends.push(m.index! + m[0].length);
+
+  if (ends.length > 0) {
+    // position 40을 포함/넘는 첫 종결부, 없으면 마지막 종결부
+    const cutIdx = ends.find(e => e >= _ITEM_DESC_TARGET_CHARS) ?? ends[ends.length - 1];
+    s = s.slice(0, cutIdx).trim();
+    // "그 지점에 속한 문장까지" — 단, 단일 문장이 50자 초과면 너무 길다고 판단,
+    // 40자 어절 경계로 hard trim (사장 지시: "40자 제한" 우선).
+    if (s.length > _ITEM_DESC_SENT_HARD) {
+      s = _wordBoundaryTrim(s, _ITEM_DESC_TARGET_CHARS);
+    }
+  } else {
+    // 종결부 없는 단일 문장 — 40자 어절 경계 trim.
+    if (s.length > _ITEM_DESC_TARGET_CHARS) {
+      s = _wordBoundaryTrim(s, _ITEM_DESC_TARGET_CHARS);
+    }
   }
-  // 60자 초과면 마지막 어절 경계에서 cut + 마침표 보강
-  if (s.length > _ITEM_DESC_MAX_CHARS) {
-    const cut = s.slice(0, _ITEM_DESC_MAX_CHARS);
-    const lastSpace = cut.lastIndexOf(" ");
-    let trimmed = lastSpace > _ITEM_DESC_MAX_CHARS - 20 ? cut.slice(0, lastSpace) : cut;
-    trimmed = trimmed.replace(/[\s,，·]+$/u, "");
-    if (!/[\.\?!。…]$/u.test(trimmed)) trimmed += ".";
-    s = trimmed;
-  }
+
   // 종결부가 없으면 마침표 보강
   if (s && !/[\.\?!。…]$/u.test(s)) s += ".";
   return s;
@@ -139,15 +157,14 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
     "",
     "위 인물의 소지품 각 항목에 대해 다음 두 가지를 작성하세요.",
     "",
-    // Phase 4.20 R5A stabilization — 카드 안에서 한눈에 읽히도록 짧게.
-    "1. description (한국어, 한 문장, 20~45자 권장, 최대 60자):",
+    // Phase 4.20 R5A stabilization — 카드 안에서 한눈에 읽히도록 아주 짧게.
+    "1. description (한국어, 한 문장, 약 30~40자, 마침표로 종료):",
     "   - 독서 보조용 짧은 한 문장 (설정집 문단 아님).",
-    "   - 마침표로 끝나는 완결된 문장.",
     "   - 사물의 핵심 용도/특징 1개만. \"이 물건은 무엇이고 어떻게 쓰이는가\".",
     "   - [사용자 입력 설명]이 있으면 핵심 사실만 한 문장으로 압축.",
     "   - [사용자 입력 설명]이 없으면 인물·세계관에서 자연스럽게 한 줄로.",
     "   - 예: \"어두운 곳을 비추는 휴대용 조명이다.\" / \"통신과 기록 확인에 쓰는 개인 스마트폰이다.\"",
-    "   - 60자 초과·복문·여러 문장 금지.",
+    "   - 복문·여러 문장 금지. 40자를 넘기지 않도록.",
     "",
     `2. category: ${categoryList} 중 하나 (해당 없으면 "기타")`,
     "",

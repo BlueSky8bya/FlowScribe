@@ -256,7 +256,11 @@
 }
 .ep-end-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(260px,1fr));
+  /* Phase 4.20 R5A stabilization — 카드 너비를 3열 레이아웃 기준으로 고정.
+   * 1~2개일 때 카드가 화면 너비로 늘어지지 않게 max도 290px로 cap.
+   * (container max-width 900px / 3열 / gap 14px ≈ 285-290px). */
+  grid-template-columns:repeat(auto-fit,minmax(260px,290px));
+  justify-content:center;
   gap:14px;
   /* grid default align-items:stretch이면 한 카드가 펼쳐질 때 같은 row의 다른
    * 카드도 그 높이만큼 늘어나(빈 박스가 함께 커져) "같이 확장된 것처럼" 보인다.

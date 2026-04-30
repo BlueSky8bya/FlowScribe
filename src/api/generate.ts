@@ -857,11 +857,12 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
     }
 
     // Phase 4.20 R5A stabilization — LLM 출처 description에 한해 read-time defensive sanitize.
-    // description_source === "llm" 이고 60자 초과인 경우만 trim. 사용자가 직접 쓴 description은 보존.
+    // 정책 갱신: 약 40자 / 첫 문장 끝까지. description_source === "llm" 인 경우에 항상 sanitize.
+    // 사용자가 직접 쓴 description은 source 미지정/"user" → 그대로 보존.
     for (const s of charStates) {
       s.items = (s.items ?? []).map((it: any) => {
         if (!it || typeof it !== "object") return it;
-        if (it.description_source === "llm" && typeof it.description === "string" && it.description.length > 60) {
+        if (it.description_source === "llm" && typeof it.description === "string") {
           return { ...it, description: sanitizeLLMItemDescription(it.description) };
         }
         return it;
