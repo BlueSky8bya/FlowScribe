@@ -129,7 +129,18 @@ function _detectRecurringPatterns(plannerTraces: any[]): string[] {
  * trace shape: { final_verdict, final_score, planner_trace.fallback_used,
  *                renderer_trace.generated_text } — DB 컬럼 + JSONB 키.
  */
-const _NON_KO_SCRIPT_PROBE_RE = /[Ѐ-ӿ֐-׿؀-ۿ฀-๿ऀ-ॿ぀-ヿ一-鿿㐀-䶿豈-﫿ạ-ỹ]/;
+// Phase 4.20 R5A-C — Unicode escape로 명확히 정의 (literal char range는 인코딩에 따라 false positive 가능).
+//   Cyrillic       U+0400-04FF
+//   Hebrew         U+0590-05FF
+//   Arabic         U+0600-06FF
+//   Thai           U+0E00-0E7F
+//   Devanagari     U+0900-097F
+//   Hiragana+Kata  U+3040-30FF
+//   CJK Ext A      U+3400-4DBF
+//   CJK Unified    U+4E00-9FFF
+//   CJK Compat Ideo U+F900-FAFF
+//   Vietnamese     U+1EA0-1EF9 (Latin Extended Additional 발음구별기호)
+const _NON_KO_SCRIPT_PROBE_RE = /[Ѐ-ӿ֐-׿؀-ۿऀ-ॿ฀-๿Ạ-ỹ぀-ヿ㐀-䶿一-鿿豈-﫿]/;
 function _isUsableTrace(row: any): { usable: boolean; reason: string } {
   const verdict = row?.final_verdict;
   const score = row?.final_score ?? 0;
