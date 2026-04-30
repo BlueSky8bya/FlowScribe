@@ -248,7 +248,9 @@
   width:100%;
   /* 본문 텍스트 박스(#output max-width:760px)와 동일한 너비 — 3열 시 본문 폭 일치. */
   max-width:760px;
-  margin:28px 0 16px;padding:18px 14px 22px;
+  /* R5A-C 보강: 좌우 padding 14→4로 축소 — output-scroll-area의 32px 좌우 padding과
+   * 합쳐 grid 가용 폭이 너무 좁아져 3-col이 fail하는 케이스 방지. */
+  margin:28px 0 16px;padding:18px 4px 22px;
   border-top:1px dashed var(--border2);
   box-sizing:border-box;
 }
@@ -258,17 +260,18 @@
 }
 .ep-end-grid{
   display:grid;
-  /* R5A-C 보강 — 카드 너비 350px (1~2명 가운데 정렬), 3+ 명일 때 본문 너비 맞춰 3열.
-   *  container max-width 760, padding 14×2, gap 14 → inner content 732, 3-col 가용 704
-   *  → 3 cards fit하려면 min ≤ 234.7. minmax(230, 350) 채택.
-   *  1명  → 350 max, 가운데
-   *  2명  → 350 × 2 + 14 = 714 ≤ 732, 가운데
-   *  3명+ → auto-fit 3 cols, 234.7px each (3-per-row)
-   *  4명  → 3 + 1 (마지막 줄 1개 가운데)
-   *  5-6명 → 3-per-row × N */
-  grid-template-columns:repeat(auto-fit,minmax(230px,350px));
+  /* R5A-C 보강 v3 — 카드 350px (1~2명 가운데), 3+명일 때 본문 너비 3열.
+   * 좁은 viewport에서도 3-col이 강제되도록 min 200 + gap 10 채택.
+   * container .episode-end-cards padding 4×2 = 8 → inner = ep-cards-width - 8
+   * 3 cols × 200 + 2 gap × 10 = 620 — 약 630px container면 충분.
+   * - 1명  → 350 max, 가운데
+   * - 2명  → 350 × 2 + 10 = 710 ≤ 752 (760-8), 가운데
+   * - 3명+ → auto-fit 3 cols, ~244px each (max 350 cap, 본문 폭 일치)
+   * - 4명  → 3 + 1 (마지막 줄 1개 가운데)
+   * - 5-6명 → 3-per-row × N */
+  grid-template-columns:repeat(auto-fit,minmax(200px,350px));
   justify-content:center;
-  gap:14px;
+  gap:10px;
   /* grid default align-items:stretch이면 한 카드가 펼쳐질 때 같은 row의 다른
    * 카드도 그 높이만큼 늘어나(빈 박스가 함께 커져) "같이 확장된 것처럼" 보인다.
    * 카드는 자기 콘텐츠 높이만 차지하도록 start로 정렬. */
