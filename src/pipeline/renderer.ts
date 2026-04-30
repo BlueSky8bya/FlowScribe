@@ -101,6 +101,19 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
     ? `  규칙: "${plan.world_rule.rule_content}"\n  작동 방식: ${plan.world_rule.scene_usage}`
     : "  없음";
 
+  // ── 절대 규칙 (Phase 4.19) ─────────────────────────────────────
+  // 사용자가 "절대"로 마킹한 항목 — 부정형/긍정형 모두 본문 서술에서 그대로 준수.
+  // planner system prompt에도 들어가지만, renderer가 본문을 직접 쓰므로 여기서도 노출한다.
+  const absoluteRulesSection = (ctx.absolute_forbidden && ctx.absolute_forbidden.length > 0)
+    ? `\n[★ 절대 규칙 — 본문 서술에서 반드시 준수]\n` +
+      `※ 각 항목의 자연어 의미를 그대로 따른다:\n` +
+      `   • 부정형(금지·하지 마라·없다·등장하지 않는다)이면 그 사건/요소가 본문에서 일어나지 않게 하라.\n` +
+      `   • 긍정형/전제(있다·일어난다·전개된다·존재한다)이면 본문이 그 전제를 부정하지 않도록 하라.\n` +
+      `   • 도입(전이·각성·만남)을 묘사하는 전제가 있다면 ${ctx.episode_number === 1 ? "이번 1화 본문 안에서 그 도입 상황을 명시적으로 그릴 것" : "이미 1화에서 일어난 사건으로 자연스럽게 전제할 것"}.\n` +
+      `   • 규칙 문장을 본문에 그대로 옮기지 말고, 행동·묘사·대사로 자연스럽게 반영하라.\n` +
+      ctx.absolute_forbidden.map((r, i) => `${i + 1}. ${r}`).join("\n") + "\n"
+    : "";
+
   // 직전 화 연속성 (ep >= 2)
   const prevTailSection = (ctx.episode_number >= 2 && ctx.prev_episode_tail)
     ? `\n[직전 화 말미 — 이 장면 직후부터 이번 화가 이어진다]\n${ctx.prev_episode_tail.slice(-500)}\n` +
@@ -192,7 +205,7 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
 영어는 고유명사·브랜드명에 한해서만 허용되며, 일반 서술에 영어를 사용해서는 안 된다.
 
 당신은 한국 소설 생성 AI다.
-${protagonistDecl ? "\n" + protagonistDecl + "\n" : ""}${prevTailSection}${continuitySection}${deltaSection}
+${protagonistDecl ? "\n" + protagonistDecl + "\n" : ""}${absoluteRulesSection}${prevTailSection}${continuitySection}${deltaSection}
 [시점 — 최우선 규칙]
 ${plan.pov_contract}
 

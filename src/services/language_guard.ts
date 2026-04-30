@@ -123,48 +123,59 @@ function _normalizeField(
 const SENTENCE_HINT_RE = /(하기\s*위해|하려는|하려고|하며|하면서|하고자|품은|품음|느끼며|느끼는|되어|되면서|당하며|당하면서)/;
 
 // 흔한 감정 단어 우선순위 (먼저 매칭되는 것이 label로 채택)
+// Phase 4.19 — multi-word 감정 (예: "긴장 유지", "집중과 긴장")까지 짧은 라벨로 정규화하기 위해 패턴 확장.
 const EMOTION_KEYWORDS: Array<[RegExp, string]> = [
   [/희망|기대감|기대/, "희망"],
-  [/절망|좌절/, "절망"],
-  [/공포/, "공포"],
-  [/두려움|두려/, "두려움"],
+  [/절망|좌절|체념/, "절망"],
+  [/공포|두려움|두려/, "두려움"],
   [/불안/, "불안"],
-  [/긴장/, "긴장"],
-  [/분노|격노|성내|화가/, "분노"],
+  [/긴장|초조/, "긴장"],
+  [/분노|격노|성내|화가|짜증/, "분노"],
   [/슬픔|애도|비통/, "슬픔"],
-  [/혼란|당혹/, "혼란"],
-  [/경계심|경계/, "경계"],
-  [/결의|결단|결심|단호함|단호|확신/, "결의"],
+  [/혼란|당혹|당황/, "혼란"],
+  [/경계심|경계|방어적/, "경계"],
+  [/결의|결단|결심|단호함|단호|각오|다짐|확신/, "결의"],
   [/의심|의구심|불신/, "의심"],
   [/안도|안심|위안/, "안도"],
-  [/기쁨|즐거움|환희/, "기쁨"],
+  [/기쁨|즐거움|환희|명랑/, "기쁨"],
   [/사랑|애정/, "애정"],
   [/외로움|고독/, "고독"],
   [/죄책감|후회/, "죄책감"],
   [/연민|동정/, "연민"],
   [/호기심/, "호기심"],
   [/충격|놀람/, "충격"],
-  [/평온|차분|침착/, "평온"],
+  [/평온|차분|침착|고요/, "평온"],
+  [/신중/, "신중"],
+  [/주저|망설/, "주저"],
+  [/집중/, "집중"],
+  [/동요|흔들림/, "동요"],
+  [/압도|압박/, "압박"],
+  [/갈등/, "갈등"],
+  [/무력감|무력|좌초/, "무력감"],
 ];
 
 function shortenEmotionalLabel(s: string): string {
-  // 라벨 후보 매칭
+  // 라벨 후보 매칭 (가장 먼저 매칭되는 단어가 라벨이 됨)
   for (const [re, label] of EMOTION_KEYWORDS) {
     if (re.test(s)) return label;
   }
-  // 키워드 매칭 실패 — 첫 어절만 사용
+  // 키워드 매칭 실패 — 첫 어절을 라벨로 사용 (2~6자 범위)
   const firstToken = s.split(/[\s,，·]+/)[0]?.trim();
   if (firstToken && firstToken.length >= 2 && firstToken.length <= 6) return firstToken;
-  return "복합감정";
+  // 끝까지 라벨화 실패 시 — 미파악 대신 알 수 없음으로 고정 (UI는 동치 처리)
+  return "알 수 없음";
 }
 
 export function normalizeEmotionalState(v: string | null | undefined): string | null {
   const baseNormalized = _normalizeField(v, EMOTION_MAP, "emotional_state");
   if (!baseNormalized) return baseNormalized;
   const trimmed = baseNormalized.trim();
-  // 문장형/장문 감지 — 15자 초과 또는 sentence hint
-  const isSentence = trimmed.length > 15 || SENTENCE_HINT_RE.test(trimmed);
-  if (!isSentence) return trimmed;
+  // Phase 4.19 — 단축 진입 조건:
+  //   공백 포함 + length >= 5 : "긴장 유지", "집중과 긴장" 같은 multi-word를 단일 라벨로
+  //   length > 15 또는 sentence hint : 문장형
+  const hasSpace = /\s/.test(trimmed);
+  const isComplex = trimmed.length > 15 || SENTENCE_HINT_RE.test(trimmed) || (hasSpace && trimmed.length >= 5);
+  if (!isComplex) return trimmed;
   return shortenEmotionalLabel(trimmed);
 }
 

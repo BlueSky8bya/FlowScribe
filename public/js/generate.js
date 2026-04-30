@@ -769,6 +769,9 @@ function updateSceneCharPanel(charStates) {
   _currentCharStates = charStates;
   _charStateMap = Object.fromEntries(charStates.map(s => [s.character_name, s]));
 
+  // Phase 4.19 — 본문 하단 회차 종료 카드도 함께 갱신
+  try { renderEpisodeEndCharCards(charStates); } catch (e) { console.debug('[ep-end-cards] render error', e); }
+
   const panel = document.getElementById('sceneCharPanel');
   const list  = document.getElementById('sceneCharList');
   if (!panel || !list) return;
@@ -781,10 +784,82 @@ function updateSceneCharPanel(charStates) {
   });
   if (!visible.length) { panel.hidden = true; return; }
 
+  // Phase 4.19 — 사이드바는 이름 + 성별만 표시 (감정·신체·소지품·위치는 본문 하단 카드로 이동)
+  // 독서 중 미래 시점 정보가 노출되어 발생하는 스포일러/몰입 저하를 방지한다.
   list.innerHTML = visible.map(s => {
     const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
     const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
-    // [7] 신규 미등록 인물: is_new_character=true → 이름 뒤 ??? 표시
+    const nameDisplay = s.is_new_character
+      ? `${s.character_name} <span class="scene-char-new-tag">???</span>`
+      : s.character_name;
+    return `<div class="scene-char-min" data-char="${s.character_name}">
+      <span class="scene-char-dot" style="background:${gColor}"></span>
+      <span class="scene-char-name" style="color:${gColor}">${nameDisplay}</span>
+      ${gLabel ? `<span class="scene-char-gender" style="color:${gColor};opacity:.65">${gLabel}</span>` : ''}
+    </div>`;
+  }).join('');
+  panel.hidden = false;
+}
+
+// Phase 4.19 — 본문 하단 회차 종료 인물 카드 렌더 (감정·신체·소지품·위치 상세)
+function renderEpisodeEndCharCards(charStates) {
+  const wrap = document.getElementById('episodeEndCards');
+  if (!wrap) return;
+  const visible = (charStates || []).filter(s => s && s.character_name);
+  if (!visible.length) { wrap.hidden = true; wrap.innerHTML = ''; return; }
+
+  wrap.innerHTML = `
+    <div class="ep-end-title">이번 화 종료 시점 인물 상태</div>
+    <div class="ep-end-grid">
+      ${visible.map(s => {
+        const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
+        const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
+        const items = Array.isArray(s.items) ? s.items : [];
+        const itemHtml = items.length
+          ? items.map(it => {
+              const nm = typeof it === 'string' ? it : (it?.name ?? '');
+              const cond = typeof it === 'object' ? (it?.condition ?? '') : '';
+              return `<span class="ep-end-item">${nm}${cond ? `<em class="ep-end-item-cond">(${cond})</em>` : ''}</span>`;
+            }).join('')
+          : `<span class="ep-end-empty">빈손</span>`;
+        const emot = (s.emotional_state && String(s.emotional_state).trim()) || '미파악';
+        const phys = (s.physical_state && String(s.physical_state).trim()) || '정상';
+        const loc  = (s.location && String(s.location).trim()) || '미상';
+        const goal = (s.recent_goal && String(s.recent_goal).trim()) || '';
+        return `
+          <div class="ep-end-card" data-char="${s.character_name}">
+            <div class="ep-end-card-head" style="border-color:${gColor}33">
+              <span class="ep-end-name" style="color:${gColor}">${s.character_name}</span>
+              ${gLabel ? `<span class="ep-end-gender" style="color:${gColor};opacity:.7">${gLabel}</span>` : ''}
+            </div>
+            <div class="ep-end-row"><span class="ep-end-lbl">위치</span><span class="ep-end-val">${loc}</span></div>
+            <div class="ep-end-row"><span class="ep-end-lbl">감정</span><span class="ep-end-val">${emot}</span></div>
+            <div class="ep-end-row"><span class="ep-end-lbl">신체</span><span class="ep-end-val">${phys}</span></div>
+            ${goal ? `<div class="ep-end-row"><span class="ep-end-lbl">변화</span><span class="ep-end-val">${goal}</span></div>` : ''}
+            <div class="ep-end-row ep-end-items"><span class="ep-end-lbl">소지</span><div class="ep-end-items-wrap">${itemHtml}</div></div>
+          </div>`;
+      }).join('')}
+    </div>
+  `;
+  wrap.hidden = false;
+}
+
+// Phase 4.19 — legacy 확장형 사이드바 본문은 보존하되 비활성. 이후 다른 흐름이 필요할 때 복구 가능.
+function _legacyUpdateSceneCharPanelDetailed(charStates) {
+  _currentCharStates = charStates;
+  _charStateMap = Object.fromEntries(charStates.map(s => [s.character_name, s]));
+  const panel = document.getElementById('sceneCharPanel');
+  const list  = document.getElementById('sceneCharList');
+  if (!panel || !list) return;
+  const outputText = document.getElementById('output')?.textContent ?? '';
+  const visible = charStates.filter(s => {
+    if (s.visibility_state === 'absent') return outputText.includes(s.character_name);
+    return true;
+  });
+  if (!visible.length) { panel.hidden = true; return; }
+  list.innerHTML = visible.map(s => {
+    const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
+    const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
     const nameDisplay = s.is_new_character
       ? `${s.character_name} <span class="scene-char-new-tag">???</span>`
       : s.character_name;
@@ -991,11 +1066,13 @@ function _ensureHoverListener() {
   const card = document.getElementById('charHoverCard');
   if (!card) return;
 
+  // Phase 4.19 — hover에서 감정/신체 정보 제거. 이름 + 성별만 표시.
+  // 본문 중간 시점에 미래 회차의 감정/상태가 노출되어 발생하던 몰입 저하 방지.
+  // 인물 상세는 본문 하단의 Episode End Character Cards에서 확인한다.
   function showCard(el, name) {
     const s = _charStateMap[name]; if (!s) return;
     const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
 
-    // [9] 간결 모드: 이름 + 성별 + 현재 상태 (부상 우선, 없으면 감정)
     const nameEl = card.querySelector('.char-hover-name');
     nameEl.textContent = name;
     nameEl.style.color = gColor;
@@ -1004,17 +1081,10 @@ function _ensureHoverListener() {
     const subtitleEl  = card.querySelector('.char-hover-subtitle');
     const sepEl       = document.getElementById('hoverSep');
     if (subtitleEl) subtitleEl.textContent = genderLabel;
-    if (sepEl) sepEl.textContent = genderLabel ? '|' : '';
+    if (sepEl) sepEl.textContent = '';
 
     const statusEl = document.getElementById('hoverRowStatus');
-    if (statusEl) {
-      const hasPhys = s.physical_state && !_PHYS_HIDDEN.includes(s.physical_state);
-      if (hasPhys) {
-        statusEl.innerHTML = _physBadgesHtml(s.physical_state);
-      } else {
-        statusEl.innerHTML = `<span style="display:inline-flex;flex-wrap:wrap;gap:3px 4px;">${_emotBadgesHtml(s.emotional_state)}</span>`;
-      }
-    }
+    if (statusEl) statusEl.innerHTML = '';
 
     // 화면 경계 처리
     const rect = el.getBoundingClientRect();

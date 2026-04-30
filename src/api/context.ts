@@ -139,6 +139,75 @@ contextRouter.post("/", async (req: Request, res: Response) => {
       [JSON.stringify(payload), book_id]
     ).catch(() => {}); // books 테이블 없는 book_id면 무시
 
+    // Phase 4.19 — world_rules / world_configs 테이블 동기화
+    // worldBible의 일반 규칙과 forbidden_settings를 정규화된 테이블에도 저장한다.
+    // "장르: ..." prefix가 붙은 첫 줄은 world_configs.genre로 추출한다.
+    try {
+      const inputRules: string[] = Array.isArray(worldBible.world_rules) ? worldBible.world_rules.map(String) : [];
+      const inputForbidden: string[] = Array.isArray(worldBible.forbidden_settings) ? worldBible.forbidden_settings.map(String) : [];
+
+      let extractedGenre: string | null = null;
+      const generalRules: string[] = [];
+      for (const r of inputRules) {
+        const trimmed = r.trim();
+        if (!trimmed) continue;
+        const m = trimmed.match(/^장르\s*[:：]\s*(.+)$/);
+        if (m && !extractedGenre) extractedGenre = m[1].trim();
+        else generalRules.push(trimmed);
+      }
+
+      const sc = (payload.story_config ?? {}) as Record<string, any>;
+      const genreFinal = (sc.genre as string | undefined) ?? extractedGenre ?? "";
+      const backgroundFinal = (sc.background as string | undefined) ?? "";
+      const moodFinal = (sc.mood as string | undefined) ?? "";
+      const themeFinal = (sc.theme as string | undefined) ?? null;
+      const commonToneFinal = (sc.common_tone as string | undefined) ?? null;
+
+      // world_configs upsert
+      await pool.query(
+        `INSERT INTO world_configs (book_id, background, genre, mood, theme, common_tone)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (book_id) DO UPDATE
+           SET background = EXCLUDED.background,
+               genre      = EXCLUDED.genre,
+               mood       = EXCLUDED.mood,
+               theme      = EXCLUDED.theme,
+               common_tone= EXCLUDED.common_tone,
+               updated_at = NOW()`,
+        [book_id, backgroundFinal, genreFinal, moodFinal, themeFinal, commonToneFinal]
+      ).catch((e) => logWarn("api:context:save", "world_configs upsert 실패", { book_id, error: String(e?.message ?? e) }));
+
+      // world_rules — 기존 row를 모두 비활성화 후 재등록 (idempotent)
+      await pool.query(`UPDATE world_rules SET is_active = false WHERE book_id = $1`, [book_id]).catch(() => {});
+      const seen = new Set<string>();
+      for (const content of generalRules) {
+        const key = `general::${content}`;
+        if (seen.has(key)) continue; seen.add(key);
+        await pool.query(
+          `INSERT INTO world_rules (book_id, rule_type, content, is_active) VALUES ($1, 'general', $2, true)`,
+          [book_id, content]
+        ).catch(() => {});
+      }
+      for (const content of inputForbidden) {
+        const trimmed = String(content).trim();
+        if (!trimmed) continue;
+        const key = `absolute_forbidden::${trimmed}`;
+        if (seen.has(key)) continue; seen.add(key);
+        await pool.query(
+          `INSERT INTO world_rules (book_id, rule_type, content, is_active) VALUES ($1, 'absolute_forbidden', $2, true)`,
+          [book_id, trimmed]
+        ).catch(() => {});
+      }
+
+      logInfo("api:context:save", "world_configs/world_rules 동기화 완료", {
+        book_id, genre: genreFinal, generalCount: generalRules.length, forbiddenCount: inputForbidden.length,
+      });
+    } catch (syncErr) {
+      logWarn("api:context:save", "정규화 테이블 동기화 실패 (Redis는 정상 저장됨)", {
+        book_id, error: String((syncErr as any)?.message ?? syncErr),
+      });
+    }
+
     // World Bible의 character_defaults를 characters + canonical_characters 테이블에 자동 등록
     const charDefs: Record<string, string | { type?: string; gender?: string; description?: string; personality?: string; initial_items?: Array<{name: string; condition?: string}> }> =
       worldBible.character_defaults ?? {};

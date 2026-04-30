@@ -125,13 +125,16 @@ export async function buildEffectiveContext(opts: {
   }
 
   // ── World Config ──────────────────────────────────────────────
+  // Phase 4.19 — story_config의 background/mood/theme도 fallback으로 흡수.
+  // /api/context POST가 world_configs 테이블을 동기화하지만 legacy 데이터를 위해 유지.
   const wConfigRow = worldConfigRow.status === "fulfilled" ? (worldConfigRow.value as any).rows[0] : null;
+  const _sc = legacyWorldBible.story_config as Record<string, any> | undefined;
   const worldConfig: WorldConfig = {
-    background: wConfigRow?.background ?? "",
-    genre: wConfigRow?.genre ?? legacyWorldBible.story_config?.genre ?? "",
-    mood: wConfigRow?.mood ?? "",
-    theme: wConfigRow?.theme ?? undefined,
-    common_tone: wConfigRow?.common_tone ?? undefined,
+    background: wConfigRow?.background || _sc?.background || "",
+    genre: wConfigRow?.genre || _sc?.genre || "",
+    mood: wConfigRow?.mood || _sc?.mood || "",
+    theme: wConfigRow?.theme ?? _sc?.theme ?? undefined,
+    common_tone: wConfigRow?.common_tone ?? _sc?.common_tone ?? undefined,
   };
 
   // ── Gen Config 조립 (우선순위: override > world_bible.story_config > default) ──

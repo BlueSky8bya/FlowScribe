@@ -391,7 +391,12 @@ function buildPlannerUserPrompt(
     ? sc.active_intervention_instructions.map((ins, i) => `${i + 1}. ${ins}`).join("\n")
     : null;
 
-  // ── 절대 금지 ──────────────────────────────────────────────────
+  // ── 절대 규칙 (Phase 4.19) ──────────────────────────────────────
+  // 사용자가 "절대"로 마킹한 항목은 의미상 두 종류가 섞여 있다.
+  //   (a) 부정형 / 금지: "X를 하지 마라", "Y는 등장하지 않는다"
+  //   (b) 긍정형 / 전제: "X가 일어난다", "Y가 존재한다"
+  // 이전에는 모두 [절대 금지]로 출력해 (b)의 의미가 뒤집히는 문제가 있었다.
+  // 이제는 [절대 규칙]로 통합 노출하고, 각 항목의 어미/표현으로 의미를 LLM이 그대로 따르게 한다.
   const absoluteText = sc.absolute_forbidden.length > 0
     ? sc.absolute_forbidden.map((r, i) => `${i + 1}. ${r}`).join("\n")
     : null;
@@ -481,8 +486,17 @@ function buildPlannerUserPrompt(
   if (interventionText)
     sections.push(`[작가 개입]\n${interventionText}`);
 
-  if (absoluteText)
-    sections.push(`[절대 금지]\n${absoluteText}`);
+  if (absoluteText) {
+    const absoluteHeader =
+      `[절대 규칙 — 본문에서 반드시 준수]\n` +
+      `※ 각 항목의 자연어 의미를 그대로 따르라:\n` +
+      `   • 부정형(금지·하지 마라·없다)이면 그 사건/요소가 본문에서 일어나지 않게 하라.\n` +
+      `   • 긍정형/전제(있다·일어난다·전개된다)이면 본문이 그 전제를 부정하지 않도록 하고,\n` +
+      `     도입(전이·각성·만남 등)을 묘사하는 전제는 ${ctx.episode_number === 1 ? "이번 1화 본문 안에서 그 도입 상황이 명시적으로 그려지게" : "이미 1화에서 일어난 사건으로 전제하고"} 하라.\n` +
+      `   • 설명충처럼 규칙 문장을 그대로 본문에 옮겨 적지 말고, 행동·묘사·대사로 자연스럽게 반영하라.\n` +
+      absoluteText;
+    sections.push(absoluteHeader);
+  }
 
   if (episodeConstraintText)
     sections.push(`[이번 화 제약]\n${episodeConstraintText}`);
