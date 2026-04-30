@@ -291,7 +291,7 @@ export async function runPlannerPipeline(
       });
     }
     // ── Body Sanitizer: special token / foreign fragment 제거 ──────
-    const sanitized = sanitizeGeneratedBody(rawRenderedText);
+    let sanitized = sanitizeGeneratedBody(rawRenderedText);
     if (sanitized.warnings.length > 0) {
       logWarn("pipeline:sanitizer", "body sanitization applied", {
         episode: ctx.episode_number,
@@ -300,14 +300,62 @@ export async function runPlannerPipeline(
         warnings: sanitized.warnings.slice(0, 10),
       });
     }
+
+    // Phase 4.20 R5A-C — Fix F: foreign/OOD contamination 임계 시 lower-temp retry 1회.
+    // 임계: removed_foreign_fragments + removed_special_tokens >= 3 (1회 정도는 자연스러운 alphabet).
+    // hybrid streaming 중에는 chunks가 이미 client에 전송됐으므로 retry 안 함 (UX 안전).
+    // batch 모드에서만 retry 시도. retry는 1회만.
+    const _foreignContamCount = sanitized.removed_foreign_fragments + sanitized.removed_special_tokens;
+    const _foreignContamThreshold = 3;
+    let _retryAttempted = false;
+    let _retrySucceeded = false;
+    if (_foreignContamCount >= _foreignContamThreshold && !onRendererChunk) {
+      _retryAttempted = true;
+      logWarn("pipeline:sanitizer", "foreign contamination 검출 — lower-temp retry 시도", {
+        episode: ctx.episode_number,
+        foreign_count: _foreignContamCount,
+      });
+      try {
+        const retryResult = await renderFromPlanWithTrace(
+          scenePlan, ctx, rendererModelOverride, routeSetOverride, undefined, /*temperatureOverride*/ 0.7,
+        );
+        const retrySanitized = sanitizeGeneratedBody(retryResult.text);
+        const retryContam = retrySanitized.removed_foreign_fragments + retrySanitized.removed_special_tokens;
+        if (retryContam < _foreignContamThreshold) {
+          _retrySucceeded = true;
+          rawRenderedText = retryResult.text;
+          sanitized = retrySanitized;
+          logInfo("pipeline:sanitizer", "lower-temp retry 성공 — clean output 사용", {
+            episode: ctx.episode_number,
+            retry_foreign_count: retryContam,
+          });
+        } else {
+          logWarn("pipeline:sanitizer", "lower-temp retry도 contamination — 첫 결과 그대로 사용", {
+            episode: ctx.episode_number,
+            retry_foreign_count: retryContam,
+          });
+        }
+      } catch (retryErr) {
+        logWarn("pipeline:sanitizer", "retry 실행 실패 — 첫 결과 사용", { error: String(retryErr) });
+      }
+    }
+
     generatedText = sanitized.text;
     tracer?.setRendererTrace({
       system_prompt:  renderResult.system_prompt,
       user_prompt:    renderResult.user_prompt,
-      generated_text: renderResult.text,
+      generated_text: rawRenderedText,
       elapsed_ms:     renderResult.elapsed_ms,
       model_used:     renderResult.model_used,
     });
+    // Phase 4.20 R5A-C — Fix F: trace에 contamination 메타 기록 (regen contract usable filter용).
+    if (_foreignContamCount > 0 || _retryAttempted) {
+      (tracer as any)?.setSanitizationMeta?.({
+        foreign_contam_count: _foreignContamCount,
+        retry_attempted: _retryAttempted,
+        retry_succeeded: _retrySucceeded,
+      });
+    }
   } catch (err) {
     logWarn("pipeline", "렌더링 오류", { error: String(err) });
   }

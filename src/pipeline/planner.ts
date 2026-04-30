@@ -581,8 +581,16 @@ function buildPlannerUserPrompt(
     if (sig.ending_hook_type)   sigLines.push(`- 직전 시도 엔딩 훅 유형: ${sig.ending_hook_type}`);
     if (sig.ending_hook_image)  sigLines.push(`- 직전 시도 엔딩 훅 이미지: ${sig.ending_hook_image}`);
     if (sig.emotional_pattern)  sigLines.push(`- 직전 시도 감정 흐름: ${sig.emotional_pattern}`);
+    // Phase 4.20 R5A-C — Fix E: attempt_count 정확 숫자 노출 안 함.
+    // 누적 시도 횟수를 LLM에 직접 보여주면 "더 다르게 만들어야" 압박이 커져 OOD sampling 위험 ↑.
+    // attempt_count 1: "이번 재생성", 2-3: "두세 번째 재생성", 4+: "여러 번의 이전 시도" 로 압축.
+    const _attempt = regenContract.attempt_count;
+    const _attemptLabel = _attempt >= 4 ? "여러 번의 이전 시도"
+                       : _attempt >= 2 ? `${_attempt}번째 재생성`
+                       : "이번 재생성";
+
     const recurringText = regenContract.recurring_patterns.length
-      ? `\n[반복된 패턴 (${regenContract.attempt_count}회 시도 누적)]\n` +
+      ? `\n[반복 회피 — 자주 등장한 패턴은 변주]\n` +
         regenContract.recurring_patterns.map(p => `- ${p}`).join("\n")
       : "";
     const axesLabel: Record<string, string> = {
@@ -599,9 +607,8 @@ function buildPlannerUserPrompt(
       emotional_route: "감정 경로",
     };
     const axesText = regenContract.must_vary_axes.map(a => axesLabel[a] ?? a).join(", ");
-    // Phase 4.20 R2: must_preserve는 [절대 규칙]/[연속성 계약]과 중복 → 제거. axes 예시 라인 제거.
     sections.push(
-      `[재생성 분기 계약 — ${regenContract.mode}, attempt ${regenContract.attempt_count}]\n` +
+      `[재생성 분기 계약 — ${regenContract.mode}, ${_attemptLabel}]\n` +
       `직전 시도(N_old) signature (전문은 노출 안 함):\n` +
       (sigLines.length ? sigLines.join("\n") : "(추출 불가 — 자유 분기)") +
       recurringText +
@@ -609,14 +616,9 @@ function buildPlannerUserPrompt(
       `이번 시도는 위 axes 중 **최소 ${regenContract.hint_min_divergent_axes}개**에서 직전 시도와 다른 선택을 한다. ` +
       `세계관·인물 정체성은 유지 — "같은 맥락에서 다른 선택"이다.`
     );
-
-    // 이전 시도 raw beat 텍스트는 prompt에 넣지 않는다.
-    // 시도 횟수가 4회 이상이면 패턴 누적 위험이 있으므로 강한 경고만 추가.
-    if (regenContract.attempt_count >= 4) {
-      avoidLines.push(
-        `- 같은 회차에서 이미 ${regenContract.attempt_count}회 시도되었다. 위 must_vary axes 가운데 ${regenContract.hint_min_divergent_axes}개 이상에서 분명한 분기가 보이지 않으면 의미 있는 재생성이 아니다.`
-      );
-    }
+    // Phase 4.20 R5A-C — Fix E 보강: "여러 번 시도되었다" 강한 경고문 제거.
+    // R5A-C 분석에서 "39회 시도" 노출 자체가 LLM 인지적 압박을 가중시킴을 확인.
+    // 분기 안내는 위 axes section에 충분 — 추가 압박 안내문은 제거.
   }
 
   // 직전 화 / 스토리 흐름 기반 진전 방향 — 재생성이 아닌 일반 다음화 생성에만 적용
@@ -927,12 +929,16 @@ export async function runCreativePlanner(
   });
 
   // Phase 4.18 — 재생성 시 sampling 다양성 강화. 일반 next_episode_generation은 0.65 유지.
-  // attempt_count가 많을수록 더 강한 분기 권고 → temperature 상향 (cap 0.95).
+  // Phase 4.20 R5A-C — Fix D: temperature cap 0.95 → 0.88. 0.95는 OOD sampling이 잦아
+  // 한국어 본문이 외국어/CJK fragment로 빠지는 임계점.
+  // 변경:
+  //   기존: min(0.95, 0.75 + attempt*0.05) → attempt 4+ = 0.95
+  //   신규: min(0.88, 0.75 + min(attempt,3)*0.043) → attempt 3+ = 0.88
   const _regenContract = (ctx as any).regen_divergence_contract as
     | import("../types/canonical.js").RegenerationDivergenceContract
     | undefined;
   const _temperaturePlanner = _regenContract
-    ? Math.min(0.95, 0.75 + Math.min(_regenContract.attempt_count, 4) * 0.05)
+    ? Math.min(0.88, 0.75 + Math.min(_regenContract.attempt_count, 3) * 0.043)
     : 0.65;
 
   try {

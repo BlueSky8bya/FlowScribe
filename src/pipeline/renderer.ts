@@ -261,6 +261,7 @@ export async function renderFromPlanWithTrace(
   modelOverride?: string,
   routeSetOverride?: string,
   onChunk?: (delta: string) => void,
+  temperatureOverride?: number,  // Phase 4.20 R5A-C — Fix F: foreign retry용 강제 temp
 ): Promise<RenderResult> {
   const maxTok = Math.max(2048, Math.ceil(plan.target_length * 0.65 * 1.8) + 500);
   const systemPrompt = buildRendererSystemPrompt(plan, ctx);
@@ -285,13 +286,20 @@ export async function renderFromPlanWithTrace(
     streaming: !!onChunk,
   });
 
-  // Phase 4.18 — 재생성 시 prose-level 다양성도 약하게 강화 (cap 0.95).
+  // Phase 4.18 — 재생성 시 prose-level 다양성도 약하게 강화.
+  // Phase 4.20 R5A-C — Fix D: cap 0.95 → 0.90. 한국어 본문이 OOD 영역에 빠지지 않도록.
+  //   기존: min(0.95, 0.85 + attempt*0.025) → attempt 4+ = 0.95
+  //   신규: min(0.90, 0.85 + min(attempt,3)*0.017) → attempt 3+ = 0.90
   const _regenContract = (ctx as any).regen_divergence_contract as
     | import("../types/canonical.js").RegenerationDivergenceContract
     | undefined;
-  const _temperatureRenderer = _regenContract
-    ? Math.min(0.95, 0.85 + Math.min(_regenContract.attempt_count, 4) * 0.025)
+  const _temperatureRendererBase = _regenContract
+    ? Math.min(0.90, 0.85 + Math.min(_regenContract.attempt_count, 3) * 0.017)
     : 0.85;
+  // temperatureOverride가 지정되면 base 무시 (Fix F retry 경로)
+  const _temperatureRenderer = typeof temperatureOverride === "number"
+    ? temperatureOverride
+    : _temperatureRendererBase;
 
   let text: string;
   if (useRouter) {

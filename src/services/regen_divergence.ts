@@ -68,11 +68,16 @@ function _signatureFromPlannerTrace(plannerTrace: any): RegenerationDivergenceCo
 }
 
 /**
- * 여러 시도(>=2)에서 반복 등장한 plot pattern을 검출.
- * 단순한 토큰 기반 — 같은 비트 요약 키워드가 N회 이상 등장하면 패턴으로 등록.
+ * 여러 시도(>=3)에서 반복 등장한 plot pattern을 검출.
+ *
+ * Phase 4.20 R5A-C — Fix A:
+ *   threshold 2 → 3 으로 상향. ep1 도입부의 자연스러운 hook이 우연히 2회 등장하는 것을
+ *   바로 hard 금지 패턴으로 등록하지 않는다.
+ *
+ *   호출 측에서 usable trace만 필터링한 뒤 전달하는 것을 권장 (PASS 또는 score>=60 WARN).
  */
 function _detectRecurringPatterns(plannerTraces: any[]): string[] {
-  if (plannerTraces.length < 2) return [];
+  if (plannerTraces.length < 3) return [];
 
   const patterns: string[] = [];
 
@@ -101,22 +106,50 @@ function _detectRecurringPatterns(plannerTraces: any[]): string[] {
     if (beat1Chars) charComboCount.set(beat1Chars, (charComboCount.get(beat1Chars) ?? 0) + 1);
   }
 
+  // Phase 4.20 R5A-C — Fix A: threshold 3 (이전 2). Fix E: 정확한 횟수 노출 안 함.
   for (const [loc, n] of locCount) {
-    if (n >= 2) patterns.push(`첫 beat가 "${loc}"에서 시작되는 구성 (${n}회 반복)`);
+    if (n >= 3) patterns.push(`첫 beat 시작 위치 "${loc}" 패턴이 자주 반복됨`);
   }
   for (const [hook, n] of hookCount) {
-    if (n >= 2) patterns.push(`엔딩 훅이 "${hook}" 유형 (${n}회 반복)`);
+    if (n >= 3) patterns.push(`엔딩 훅 "${hook}" 유형이 자주 반복됨`);
   }
   for (const [combo, n] of charComboCount) {
-    if (n >= 2) patterns.push(`첫 beat 인물 조합 "${combo}" (${n}회 반복)`);
+    if (n >= 3) patterns.push(`첫 beat 인물 조합 "${combo}" 패턴이 자주 반복됨`);
   }
 
   return patterns;
 }
 
 /**
+ * Phase 4.20 R5A-C — usable trace만 골라낸다.
+ * - PASS verdict: 항상 포함
+ * - WARN verdict + final_score >= 60: 포함
+ * - FAIL / score < 60 / fallback_used / foreign contamination: 제외
+ *
+ * trace shape: { final_verdict, final_score, planner_trace.fallback_used,
+ *                renderer_trace.generated_text } — DB 컬럼 + JSONB 키.
+ */
+const _NON_KO_SCRIPT_PROBE_RE = /[Ѐ-ӿ֐-׿؀-ۿ฀-๿ऀ-ॿ぀-ヿ一-鿿㐀-䶿豈-﫿ạ-ỹ]/;
+function _isUsableTrace(row: any): { usable: boolean; reason: string } {
+  const verdict = row?.final_verdict;
+  const score = row?.final_score ?? 0;
+  if (verdict === "FAIL") return { usable: false, reason: "FAIL" };
+  if (verdict === "WARN" && score < 60) return { usable: false, reason: "WARN_low_score" };
+  if (row?.planner_trace?.fallback_used === true) return { usable: false, reason: "fallback" };
+  // foreign contamination 빠른 검출 — generated_text 첫 1.5K char 안에 비한글 비라틴 스크립트 또는
+  // 베트남 발음구별기호 (ạ-ỹ)가 나타나면 OOD로 간주.
+  const sampleText = String(row?.renderer_trace?.generated_text ?? "").slice(0, 1500);
+  if (sampleText && _NON_KO_SCRIPT_PROBE_RE.test(sampleText)) {
+    return { usable: false, reason: "foreign_contamination" };
+  }
+  return { usable: true, reason: "ok" };
+}
+
+/**
  * episode_number와 attempt_count 기반 must_vary_axes 자동 선택.
- * 더 많이 시도했을수록 더 많은 axis에서 분기 권고.
+ *
+ * Phase 4.20 R5A-C — Fix C: minDivergent cap 4 → 3.
+ * 4 axes hard constraint는 coherent space를 과도하게 좁힘. 3 axes를 cap으로 한다.
  */
 function _pickAxes(attemptCount: number): {
   axes: RegenerationDivergenceContract["must_vary_axes"];
@@ -137,9 +170,8 @@ function _pickAxes(attemptCount: number): {
   ];
 
   // attempt 1 (최초 재생성): 2 axes 권고
-  // attempt 2-3: 3 axes
-  // attempt 4+: 4 axes
-  const minDivergent = attemptCount >= 4 ? 4 : attemptCount >= 2 ? 3 : 2;
+  // attempt 2+: 3 axes (cap)
+  const minDivergent = attemptCount >= 2 ? 3 : 2;
 
   return { axes: baseAxes, minDivergent };
 }
@@ -156,21 +188,65 @@ export async function buildRegenDivergenceContract(
   episodeNumber: number,
   mode: "episode1_regeneration" | "latest_episode_regeneration"
 ): Promise<RegenerationDivergenceContract | null> {
-  // 같은 회차의 모든 이전 시도 trace 조회 (최근 6건까지)
+  // 같은 회차의 모든 이전 시도 trace 조회 (최근 12건 — usable filter 후 6건 cap).
+  // Phase 4.20 R5A-C — Fix B: usable trace만 contract 입력에 사용.
+  // SELECT 시 verdict + score + planner_trace.fallback_used + renderer_trace.generated_text 검증 데이터 포함.
   const r = await pool.query(
-    `SELECT planner_trace FROM run_traces
+    `SELECT final_verdict, final_score, planner_trace, renderer_trace
+     FROM run_traces
      WHERE book_id=$1 AND episode_number=$2 AND planner_trace IS NOT NULL
-     ORDER BY created_at DESC LIMIT 6`,
+     ORDER BY created_at DESC LIMIT 12`,
     [bookId, episodeNumber]
   ).catch(() => ({ rows: [] as any[] }));
 
-  const traces = (r.rows ?? []).map(row => row.planner_trace);
-  if (!traces.length) {
+  const allRows = (r.rows ?? []) as any[];
+  if (!allRows.length) {
     logInfo("regen_divergence", "이전 시도 없음 — contract 미생성", { book_id: bookId, episode: episodeNumber });
     return null;
   }
 
-  // 가장 최근 trace에서 signature 추출
+  // usable filter — FAIL/score<60/fallback/foreign contamination 제외.
+  const filterStats = { FAIL: 0, WARN_low_score: 0, fallback: 0, foreign_contamination: 0, ok: 0 };
+  const usableRows = allRows.filter(row => {
+    const { usable, reason } = _isUsableTrace(row);
+    filterStats[reason as keyof typeof filterStats] = (filterStats[reason as keyof typeof filterStats] ?? 0) + 1;
+    return usable;
+  });
+  // 최근 6 usable trace만 사용 (window cap).
+  const cappedRows = usableRows.slice(0, 6);
+  const traces = cappedRows.map(row => row.planner_trace);
+
+  // usable이 아예 없는 경우: 첫 재생성처럼 최소 contract만 출력 (이전 signature 없음, recurring 없음, axes 2 권고).
+  if (!traces.length) {
+    logInfo("regen_divergence", "usable trace 없음 — soft contract", {
+      book_id: bookId, episode: episodeNumber, total: allRows.length, filter_stats: filterStats,
+    });
+    const { axes, minDivergent } = _pickAxes(1);
+    const mustPreserve: string[] = [
+      "세계관 규칙",
+      "canonical 인물 정체성",
+      "초기 핵심 소지품 정체성",
+    ];
+    if (mode === "latest_episode_regeneration" && episodeNumber > 1) {
+      mustPreserve.push(
+        `${episodeNumber - 1}화까지 확정된 사건/관계/감정`,
+        "열린 복선과 장기 아크 방향",
+        "직전 화 종료 시점 인물 위치/소지품",
+      );
+    }
+    return {
+      mode,
+      episode_number: episodeNumber,
+      attempt_count: 1,
+      old_episode_signature: {},
+      recurring_patterns: [],
+      must_preserve: mustPreserve,
+      must_vary_axes: axes,
+      hint_min_divergent_axes: minDivergent,
+    };
+  }
+
+  // 가장 최근 usable trace에서 signature 추출
   const latestSig = _signatureFromPlannerTrace(traces[0]);
   const recurring = _detectRecurringPatterns(traces);
   const { axes, minDivergent } = _pickAxes(traces.length);
@@ -203,7 +279,10 @@ export async function buildRegenDivergenceContract(
     book_id: bookId,
     episode: episodeNumber,
     mode,
-    attempt_count: traces.length,
+    total_traces: allRows.length,
+    usable_traces: usableRows.length,
+    used_in_contract: traces.length,
+    filter_stats: filterStats,
     recurring_patterns: recurring.length,
     min_divergent: minDivergent,
   });
