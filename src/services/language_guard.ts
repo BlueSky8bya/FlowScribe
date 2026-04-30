@@ -158,7 +158,38 @@ const EMOTION_KEYWORDS: Array<[RegExp, string]> = [
 // 예: "조심하면서도" → "조심", "두려워하며" → "두려워", "당황한 채" → "당황"
 const _VERB_TAIL_RE = /(하면서도|하면서|하며|하다가|하지만|하지|해도|하고도|하고|해서|하기에|하기|하던|한채|한 채|하니|하느라|되어|되면서|되며|되니|되었|었|던|는|은|을|를|이|가|와|과|에|의|로)$/;
 
+// Phase 4.20 R3 — emotional_state 분류기.
+// emotion이 아닌 카테고리(성격·역할·관계·목표)에 속하는 단어/어근을 분리한다.
+// 입력이 이런 비-감정 어근만 담고 있으면 emotional_state 칸에서 제거하고 "알 수 없음" 반환.
+//
+// 원칙:
+//   - 특정 단어만 막지 않음 (taxonomy 분리 구조)
+//   - 입력이 "친절한 신입" 같이 non-emotion 다중일 때만 reject
+//   - 입력에 emotion 어근(공포/결의/불안 등)이 동시에 있으면 emotion 우선 추출
+//
+// 카테고리 어근 (어미가 붙어도 매칭되도록 부분 일치):
+const PERSONALITY_STEMS: RegExp = /^(친절|상냥|온화|차가운|냉정함|냉정|분석적|분석|내성적|내성|외향적|외향|책임감|고집|성실|근면|게으|낙관|비관|유머|쾌활|침울하|진지|솔직|소심|대담|용감)/;
+const ROLE_STEMS: RegExp = /^(신입|초보|선배|후배|리더|보호자|대장|보스|주인공|조연|주역|부하|상관|장교|병사|간부|관리자|교사|학생|전문가|초심자|숙련자|베테랑|견습)/;
+const RELATIONSHIP_STEMS: RegExp = /^(팀워크|협력|동맹|적대|친구|가족|동료|라이벌|경쟁자|동지|연인|파트너|상하|상호|소속)/;
+const GOAL_STEMS: RegExp = /^(목표|계획|준비|시도|진행|완수|성취|달성|수행|관찰)/;
+
+const NON_EMOTION_RES: RegExp[] = [PERSONALITY_STEMS, ROLE_STEMS, RELATIONSHIP_STEMS, GOAL_STEMS];
+
+function isNonEmotionLabel(s: string): boolean {
+  if (!s) return false;
+  const trimmed = s.trim();
+  // 어미 stripping 후 비교
+  let stem = trimmed;
+  for (let i = 0; i < 3 && stem.length > 1; i++) {
+    const stripped = stem.replace(_VERB_TAIL_RE, "");
+    if (stripped === stem) break;
+    stem = stripped;
+  }
+  return NON_EMOTION_RES.some(re => re.test(stem) || re.test(trimmed));
+}
+
 function shortenEmotionalLabel(s: string): string {
+  // Phase 4.20 R3 — emotion 어근이 있으면 우선 추출. ("친절한 결의" → "결의")
   // 라벨 후보 매칭 (가장 먼저 매칭되는 단어가 라벨이 됨)
   for (const [re, label] of EMOTION_KEYWORDS) {
     if (re.test(s)) return label;
@@ -174,6 +205,9 @@ function shortenEmotionalLabel(s: string): string {
   for (const [re, label] of EMOTION_KEYWORDS) {
     if (re.test(firstToken)) return label;
   }
+  // Phase 4.20 R3 — emotion 어근이 전혀 없는데 non-emotion 카테고리(성격/역할/관계/목표)면 reject.
+  if (firstToken && isNonEmotionLabel(firstToken)) return "알 수 없음";
+  if (s && isNonEmotionLabel(s)) return "알 수 없음";
   // 그래도 라벨화 안되면 stem 자체가 짧고 명사형이면 그대로 사용
   if (firstToken && firstToken.length >= 2 && firstToken.length <= 5) return firstToken;
   return "알 수 없음";
@@ -196,7 +230,12 @@ export function normalizeEmotionalState(v: string | null | undefined): string | 
     SENTENCE_HINT_RE.test(trimmed) ||
     _VERB_END_TRIGGER_RE.test(trimmed) ||
     (hasSpace && trimmed.length >= 5);
-  if (!isComplex) return trimmed;
+  if (!isComplex) {
+    // Phase 4.20 R3 — 짧은 단일어가 emotion이 아닌 카테고리(성격/역할/관계/목표)면 reject.
+    // 이 path가 "친절한", "신입", "팀워크" 등을 차단한다.
+    if (isNonEmotionLabel(trimmed)) return "알 수 없음";
+    return trimmed;
+  }
   return shortenEmotionalLabel(trimmed);
 }
 

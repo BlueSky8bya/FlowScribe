@@ -293,7 +293,7 @@ JSON만 출력 (다른 텍스트 없이):
   "hook_concrete_event": "마지막 2~4문장의 실제 인물 행동·사건",
   "character_state_updates": [{
     "character_name":"...",
-    "emotional_state":"종료 시점 감정 (짧은 상태어 — 불안/결의/공포 등, 이전 화와 다르게)",
+    "emotional_state":"종료 시점 감정 (짧은 상태어 — 불안/결의/공포/희망/혼란/안도 등. 성격(친절·내성적)/역할(신입·리더)/관계(팀워크·동료)/목표 단어는 사용 안 함. 이전 화와 다르게)",
     "physical_state":"부상·피로 변화 (없으면 생략)",
     "items":[{"name":"...","grade":"S/A/B/C/D","condition":"손상·충전 등 상태 (정상이면 생략)","description":"짧은 용도·내력 (선택)"}],
     "location":"종료 시점 위치 (변화 없으면 생략)",
