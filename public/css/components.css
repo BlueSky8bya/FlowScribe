@@ -259,11 +259,14 @@
 .ep-end-grid{
   display:grid;
   /* R5A-C 보강 — 카드 너비 350px (1~2명 가운데 정렬), 3+ 명일 때 본문 너비 맞춰 3열.
-   *  1명 → 350px (max), justify-content:center → 가운데
-   *  2명 → 350px × 2 + gap = 714px ≤ 760px → 가운데
-   *  3명+ → auto-fit이 3 columns 배치, (760-2*gap)/3 ≈ 244px each (min 240 충족)
-   * minmax(240,350): 1-2명일 때 350 cap, 3명+일 때 244로 줄어 3열 자동. */
-  grid-template-columns:repeat(auto-fit,minmax(240px,350px));
+   *  container max-width 760, padding 14×2, gap 14 → inner content 732, 3-col 가용 704
+   *  → 3 cards fit하려면 min ≤ 234.7. minmax(230, 350) 채택.
+   *  1명  → 350 max, 가운데
+   *  2명  → 350 × 2 + 14 = 714 ≤ 732, 가운데
+   *  3명+ → auto-fit 3 cols, 234.7px each (3-per-row)
+   *  4명  → 3 + 1 (마지막 줄 1개 가운데)
+   *  5-6명 → 3-per-row × N */
+  grid-template-columns:repeat(auto-fit,minmax(230px,350px));
   justify-content:center;
   gap:14px;
   /* grid default align-items:stretch이면 한 카드가 펼쳐질 때 같은 row의 다른
