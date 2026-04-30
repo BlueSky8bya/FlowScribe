@@ -256,29 +256,30 @@ contextRouter.post("/", async (req: Request, res: Response) => {
         names: entries.map(([n]) => n),
       });
 
-      // description 없는 아이템이 있으면 LLM 설명 생성 잡 enqueue (백그라운드)
+      // Phase 4.19 — 모든 아이템에 대해 LLM 설명 생성. 사용자가 직접 입력한 description은
+      // user_desc로 prompt에 source로 넘겨서 LLM이 인물·세계관 톤에 맞춰 풀어쓴다.
       for (const [name, info] of entries) {
         const rawItems: Array<any> = (typeof info === "object" && Array.isArray((info as any).initial_items))
           ? (info as any).initial_items : [];
-        const missing = rawItems.filter((it: any) => {
-          const parsed = typeof it === "string" ? { name: it } : it;
-          return !parsed.description;
-        });
-        if (!missing.length) continue;
-        const desc       = typeof info === "string" ? info : ((info as any).description ?? (info as any).personality ?? "");
+        if (!rawItems.length) continue;
+        const desc       = typeof info === "string" ? info : ((info as any).personality ?? (info as any).description ?? "");
         const type       = typeof info === "object" ? ((info as any).type ?? "") : "";
         const gender     = typeof info === "object" ? ((info as any).gender ?? "") : "";
         await generateAndSaveItemDescriptions({
           book_id,
           char_name: name,
-          char_personality: desc.slice(0, 100),
+          char_personality: desc, // Phase 4.19 — slice 100 제거. 함수 안에서 250자 제한.
           char_type: type,
           char_gender: gender,
-          items_without_desc: missing.map((it: any) => ({
-            name: typeof it === "string" ? it : it.name,
-            grade: it.grade ?? null,
-            condition: it.condition ?? null,
-          })),
+          items_without_desc: rawItems.map((it: any) => {
+            const parsed = typeof it === "string" ? { name: it } : it;
+            return {
+              name: parsed.name,
+              grade: parsed.grade ?? null,
+              condition: parsed.condition ?? null,
+              user_desc: parsed.description ?? null, // 사용자가 입력한 설명을 source로 전달
+            };
+          }),
         }).catch(() => {});
       }
     }

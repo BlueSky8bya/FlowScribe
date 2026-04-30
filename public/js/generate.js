@@ -927,17 +927,21 @@ function _buildSceneCharDetailedCardHtml(s) {
         || (itemCategory && _BADGE_DESC[itemCategory]) || null;
       const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName) || badgeDescFallback || cond && `상태: ${cond}` || null;
       const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
+      // Phase 4.19 — 배지는 키워드 기반(_qlabel)을 우선 사용. vocab의 LLM 분류는
+      // 잘못된 케이스(예: 갤럭시→문서)가 누적될 수 있어 키워드 매칭이 가능하면 그것을 신뢰.
       const _qlabelFromItem = (n) => {
+        const kw = _qlabel(n);
+        if (kw) return kw;
         if (itemBadgeLabel) {
           const CAT_COLOR = {
             무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
             문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
-            기기:'#3a6a80',  // Phase 4.19 — 디지털 디바이스
+            기기:'#3a6a80',
             의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 기타:'#888',
           };
           return { label: itemBadgeLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
         }
-        return _qlabel(n);
+        return null;
       };
       const gradeHtml = (isFantasyGenre && grade)
         ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
