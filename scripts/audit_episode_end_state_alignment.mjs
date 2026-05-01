@@ -1,40 +1,46 @@
 /**
- * audit_episode_end_state_alignment.mjs — R5B-1.8C
+ * audit_episode_end_state_alignment.mjs — R5B-1.8C / R5B-1.8D
  *
  * 인물의 episode-end 상태 카드(character_dynamic_states)가 실제 renderer 본문의
  * 마지막 의미 있는 등장 시점과 일치하는지 LLM judge로 검증.
  *
- * 핵심 원칙(R5B-1.8C 사용자 판단):
+ * R5B-1.8D 추가: deterministic detectMeaningfulAppearance를 (ep, character)별로 같이
+ * 계산해 LLM verdict와 함께 기록. detector level=weak/none이면 새 guard 정책상 update가
+ * 차단됐을 케이스 — 이를 기준으로 "새 guard 후 잔존 severe"를 추정한다.
+ *
+ * 핵심 원칙:
  *   - 같은 감정군이 길게 유지되어도 본문상 납득 가능하면 PASS.
- *   - cluster streak 자체는 FAIL 기준 아님.
  *   - 평가 대상: 본문 마지막 시점 상태와 카드 표시의 정확도.
  *
  * Verdict per (ep, character):
  *   PASS  — 본문 마지막 의미 있는 등장의 묘사·대사·행동이 stored emotional_state·
  *           recent_goal과 자연스럽게 일치.
- *   WARN  — 같은 감정군이지만 본문 마지막 근거가 약함 (단조롭거나 행동/말 변화 부족).
- *   FAIL  — severe mismatch:
- *             a) 본문 마지막에는 다른 감정인데 카드는 다른 감정
- *             b) 등장하지 않은 인물의 상태가 갱신됨
- *             c) goal이 본문 행동과 모순됨
+ *   WARN  — 같은 감정군이지만 본문 마지막 근거가 약함.
+ *   FAIL  — severe mismatch.
  *
  * Read-only. 본문 미저장. 결과는 .tmp/r5b1_8c_alignment_<bookId>.json.
  *
  * Usage:
- *   node scripts/audit_episode_end_state_alignment.mjs --book-id <uuid> [--max-ep N] [--ep-range from-to]
+ *   node scripts/audit_episode_end_state_alignment.mjs --book-id <uuid> [--max-ep N] [--ep-range from-to] [--appearance-mode meaningful|legacy]
  */
 import pg from "pg";
 import { writeFileSync, mkdirSync } from "fs";
 import { config } from "dotenv";
 import { runLLMTask, resolveTaskMultiRoute } from "../dist/services/model_router.js";
+import { detectMeaningfulAppearance, isUpdateAllowed } from "../dist/lib/meaningful_appearance.js";
 config();
 
 const args = process.argv.slice(2);
 const bookId = args[args.indexOf("--book-id") + 1];
 const maxEp = parseInt(args[args.indexOf("--max-ep") + 1] ?? "15", 10);
 const epRange = args.includes("--ep-range") ? args[args.indexOf("--ep-range") + 1] : null;
+const appearanceMode = args.includes("--appearance-mode") ? args[args.indexOf("--appearance-mode") + 1] : "legacy";
 if (!bookId) {
-  console.error("Usage: --book-id <uuid> [--max-ep 15] [--ep-range 1-15]");
+  console.error("Usage: --book-id <uuid> [--max-ep 15] [--ep-range 1-15] [--appearance-mode meaningful|legacy]");
+  process.exit(1);
+}
+if (appearanceMode !== "meaningful" && appearanceMode !== "legacy") {
+  console.error(`appearance-mode must be 'meaningful' or 'legacy', got '${appearanceMode}'`);
   process.exit(1);
 }
 
@@ -95,10 +101,14 @@ async function main() {
     for (const ch of charSet) bodyAppeared[ch] = e.content.includes(ch);
 
     const body = _bodyExcerpt(e.content);
+    const fullBody = e.content ?? "";
     const bodyAppearCount = {};
+    const detectorResults = {};
     for (const ch of charSet) {
       const re = new RegExp(ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
       bodyAppearCount[ch] = (body.match(re) ?? []).length;
+      // R5B-1.8D: deterministic detector — full body 기준 (excerpt 아님, 전체 본문)
+      detectorResults[ch] = detectMeaningfulAppearance(fullBody, ch);
     }
     const charsBlock = charsForEp.map(c => ({
       character_name: c.character_name,
@@ -162,12 +172,27 @@ ${JSON.stringify(charsBlock, null, 2)}
         if (start >= 0 && end > start) try { parsed = JSON.parse(txt.slice(start, end + 1)); } catch {}
       }
       if (parsed && Array.isArray(parsed.evaluations)) {
-        const counts = parsed.evaluations.reduce((acc, ev) => {
+        // R5B-1.8D: 각 evaluation에 detector 결과를 attach
+        const enriched = parsed.evaluations.map(ev => {
+          const det = detectorResults[ev.character];
+          return det ? {
+            ...ev,
+            detector_level: det.level,
+            detector_strong_count: det.strong_count,
+            detector_medium_count: det.medium_count,
+            detector_weak_count: det.weak_count,
+            detector_occurrence: det.occurrence_count,
+            detector_evidence_types: det.evidence_types,
+            detector_would_block: !isUpdateAllowed(det.level),  // weak/none = block
+          } : ev;
+        });
+        const counts = enriched.reduce((acc, ev) => {
           acc[ev.verdict] = (acc[ev.verdict] ?? 0) + 1;
           return acc;
         }, {});
-        console.log(`PASS=${counts.PASS ?? 0} WARN=${counts.WARN ?? 0} FAIL=${counts.FAIL ?? 0} (${res.elapsed_ms}ms)`);
-        allRecords.push({ episode: e.episode_number, evaluations: parsed.evaluations, elapsed_ms: res.elapsed_ms });
+        const blocked = enriched.filter(ev => ev.detector_would_block).length;
+        console.log(`PASS=${counts.PASS ?? 0} WARN=${counts.WARN ?? 0} FAIL=${counts.FAIL ?? 0} | block=${blocked} (${res.elapsed_ms}ms)`);
+        allRecords.push({ episode: e.episode_number, evaluations: enriched, elapsed_ms: res.elapsed_ms });
       } else {
         console.log(`PARSE_FAIL (${res.elapsed_ms}ms) raw_head: ${txt.slice(0, 120)}`);
         allRecords.push({ episode: e.episode_number, error: "parse_fail", raw_head: txt.slice(0, 200) });
@@ -182,38 +207,56 @@ ${JSON.stringify(charsBlock, null, 2)}
   // absent_update 엄격 정의:
   //   appeared_in_body=false + verdict != PASS → severe (실제 alignment 위반)
   //   appeared_in_body=false + verdict == PASS → borderline (carry-forward 정상)
-  // label/goal mismatch는 LLM verdict + reason 텍스트 둘 다 검사
+  // R5B-1.8D detector 추가 컬럼:
+  //   detector_block       — detector가 weak/none으로 block했을 케이스 수
+  //   would_remain_severe  — LLM이 FAIL/absent_severe인데 detector level=strong/medium → 새 guard도 못 잡음
+  //   detector_caught      — LLM absent_severe + detector weak/none = 새 guard가 잡았을 것
   console.log("");
   console.log("── [Per-character summary] ──");
-  console.log("char    | total | PASS | WARN | FAIL | absent_severe | absent_border | label_miss | goal_miss");
+  console.log("char    | total | PASS | WARN | FAIL | absent_severe | absent_border | det_block | det_caught | remain_sev");
   const charAgg = {};
   for (const rec of allRecords) {
     if (!Array.isArray(rec.evaluations)) continue;
     for (const ev of rec.evaluations) {
       const k = ev.character;
-      if (!charAgg[k]) charAgg[k] = { total: 0, PASS: 0, WARN: 0, FAIL: 0, absent_severe: 0, absent_border: 0, label_mismatch: 0, goal_mismatch: 0 };
+      if (!charAgg[k]) charAgg[k] = {
+        total: 0, PASS: 0, WARN: 0, FAIL: 0,
+        absent_severe: 0, absent_border: 0,
+        label_mismatch: 0, goal_mismatch: 0,
+        detector_block: 0, detector_caught_severe: 0, would_remain_severe: 0,
+      };
       charAgg[k].total++;
       charAgg[k][ev.verdict] = (charAgg[k][ev.verdict] ?? 0) + 1;
       const reason = (ev.reason ?? "").toLowerCase();
+      const isAbsentSevere = (ev.appeared_in_body === false && ev.verdict !== "PASS");
       if (ev.appeared_in_body === false) {
         if (ev.verdict !== "PASS") charAgg[k].absent_severe++;
         else                         charAgg[k].absent_border++;
       }
       if (reason.includes("label_mismatch") || ev.verdict === "FAIL") charAgg[k].label_mismatch++;
       if (reason.includes("goal_mismatch")) charAgg[k].goal_mismatch++;
+      if (ev.detector_would_block) charAgg[k].detector_block++;
+      if (isAbsentSevere) {
+        if (ev.detector_would_block) charAgg[k].detector_caught_severe++;
+        else                          charAgg[k].would_remain_severe++;
+      }
     }
   }
   for (const [name, c] of Object.entries(charAgg)) {
-    console.log(`${name.padEnd(7)} | ${String(c.total).padStart(5)} | ${String(c.PASS).padStart(4)} | ${String(c.WARN).padStart(4)} | ${String(c.FAIL).padStart(4)} | ${String(c.absent_severe).padStart(13)} | ${String(c.absent_border).padStart(13)} | ${String(c.label_mismatch).padStart(10)} | ${String(c.goal_mismatch).padStart(9)}`);
+    console.log(`${name.padEnd(7)} | ${String(c.total).padStart(5)} | ${String(c.PASS).padStart(4)} | ${String(c.WARN).padStart(4)} | ${String(c.FAIL).padStart(4)} | ${String(c.absent_severe).padStart(13)} | ${String(c.absent_border).padStart(13)} | ${String(c.detector_block).padStart(9)} | ${String(c.detector_caught_severe).padStart(10)} | ${String(c.would_remain_severe).padStart(10)}`);
   }
 
   // ── totals ──
   console.log("");
   console.log("── [Aggregate] ──");
   let total = 0, pass = 0, warn = 0, fail = 0, absent_severe = 0, absent_border = 0;
+  let detector_block = 0, detector_caught = 0, would_remain_severe = 0;
   for (const c of Object.values(charAgg)) {
     total += c.total; pass += c.PASS; warn += c.WARN; fail += c.FAIL;
     absent_severe += c.absent_severe; absent_border += c.absent_border;
+    detector_block += c.detector_block;
+    detector_caught += c.detector_caught_severe;
+    would_remain_severe += c.would_remain_severe;
   }
   const passRate = total ? (pass / total) : 0;
   console.log(`appeared evaluations: ${total}`);
@@ -222,11 +265,21 @@ ${JSON.stringify(charsBlock, null, 2)}
   console.log(`FAIL: ${fail} ${fail>0?"⚠":""}`);
   console.log(`absent_severe (본문 미등장 + verdict != PASS): ${absent_severe} ${absent_severe>0?"✗":""}`);
   console.log(`absent_border (본문 미등장 + carry-forward PASS): ${absent_border} (정상 carry-forward)`);
-
-  // ── R5B-1.8C PASS criteria ──
   console.log("");
-  console.log("── [R5B-1.8C PASS criteria] ──");
-  const checks = [
+  console.log("── [R5B-1.8D detector simulation — read-only] ──");
+  console.log(`detector_block (weak/none → guard가 update 차단): ${detector_block}`);
+  console.log(`detector_caught_severe (기존 absent_severe 중 새 detector가 잡았을 것): ${detector_caught} / ${absent_severe}`);
+  console.log(`would_remain_severe (새 guard 적용 후 잔존 severe 추정): ${would_remain_severe}`);
+
+  // ── PASS criteria ──
+  console.log("");
+  console.log(`── [PASS criteria — appearance-mode=${appearanceMode}] ──`);
+  const checks = appearanceMode === "meaningful" ? [
+    // R5B-1.8D: 새 guard 적용 시 잔존 severe만 본다
+    { name: "alignment PASS ≥ 90%",                          pass: passRate >= 0.90 },
+    { name: "would_remain_severe (잔존 absent_severe) = 0",  pass: would_remain_severe === 0 },
+    { name: "detector_caught_severe = absent_severe",        pass: detector_caught === absent_severe },
+  ] : [
     { name: "alignment PASS ≥ 85%",                    pass: passRate >= 0.85 },
     { name: "severe mismatch (FAIL) = 0",              pass: fail === 0 },
     { name: "absent_severe = 0",                       pass: absent_severe === 0 },
@@ -234,16 +287,22 @@ ${JSON.stringify(charsBlock, null, 2)}
   for (const c of checks) console.log(`  ${c.pass?"✓":"✗"} ${c.name}`);
   const passed = checks.filter(c => c.pass).length;
   console.log("");
-  console.log(`R5B-1.8C: ${passed}/${checks.length} ${passed===checks.length?"✅ READY":"⚠ CONDITIONAL or NOT READY"}`);
+  const phaseLabel = appearanceMode === "meaningful" ? "R5B-1.8D" : "R5B-1.8C";
+  console.log(`${phaseLabel}: ${passed}/${checks.length} ${passed===checks.length?"✅ READY":"⚠ CONDITIONAL or NOT READY"}`);
 
   // save
   mkdirSync(".tmp", { recursive: true });
-  const outPath = `.tmp/r5b1_8c_alignment_${bookId}.json`;
+  const outSuffix = appearanceMode === "meaningful" ? "_meaningful" : "";
+  const outPath = `.tmp/r5b1_8c_alignment_${bookId}${outSuffix}.json`;
   writeFileSync(outPath, JSON.stringify({
     book_id: bookId, episodes: { from: epFrom, to: epTo },
+    appearance_mode: appearanceMode,
     judge: { provider: route.provider, model: route.model },
     records: allRecords,
-    summary: { total, pass, warn, fail, absent_severe, absent_border, pass_rate: passRate },
+    summary: {
+      total, pass, warn, fail, absent_severe, absent_border, pass_rate: passRate,
+      detector_block, detector_caught_severe: detector_caught, would_remain_severe,
+    },
     criteria: { passed, total: checks.length, checks },
   }, null, 2), "utf8");
   console.log("");

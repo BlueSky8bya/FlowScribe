@@ -1,13 +1,15 @@
 /**
- * verify_episode_end_state_alignment.mjs — R5B-1.8C
+ * verify_episode_end_state_alignment.mjs — R5B-1.8C / R5B-1.8D superset
  *
  * 정적 contract verifier:
- *   1. pipeline absent_in_body guard — 본문 등장 < 임계 시 carry-forward absent로 강제
+ *   1. pipeline absent guard — 본문 의미 등장이 strong/medium이 아니면 carry-forward absent
  *   2. audit_episode_end_state_alignment.mjs 출력 필드 (LLM verdict, appeared_in_body, etc.)
- *   3. PASS 기준 3개: alignment ≥ 85%, FAIL = 0, absent_severe = 0
+ *   3. PASS 기준: alignment %, severe = 0, absent_severe = 0
  *   4. dist 산출물
  *
- * 본 verify는 정책 contract만 점검한다. 실제 alignment %는 audit_episode_end_state_alignment에서.
+ * R5B-1.8D 전환:
+ *   - guard helper는 _bodyAppearCount(R5B-1.8C) → _meaningfulAppearance + isUpdateAllowed(R5B-1.8D).
+ *   - 본 verify는 superset으로 둘 중 하나가 있으면 PASS.
  */
 import { existsSync, readFileSync } from "fs";
 
@@ -19,21 +21,24 @@ const okIf = (s, c, d) => c ? ok(s) : ng(s, d);
 const pipeline = readFileSync("src/pipeline/index.ts", "utf8");
 const audit    = readFileSync("scripts/audit_episode_end_state_alignment.mjs", "utf8");
 
-console.log("── [Pipeline] R5B-1.8C absent_in_body guard ──");
-okIf("R5B-1.8C 주석 헤더",
-  /R5B-1\.8C[\s\S]{0,80}본문 등장 빈도/.test(pipeline));
-okIf("_MEANINGFUL_APPEAR_THRESHOLD 상수",
-  /_MEANINGFUL_APPEAR_THRESHOLD\s*=\s*\d+/.test(pipeline));
-okIf("_bodyAppearCount helper 함수",
-  /_bodyAppearCount\s*=\s*\(name: string\)[\s\S]{0,300}generatedText\.match/.test(pipeline));
-okIf("absent_in_body warn 로그 호출",
-  /absent_in_body[\s\S]{0,200}planner 갱신 무시/.test(pipeline));
-okIf("absent_in_body 시 visibility=\"absent\" 강제",
-  /absent_in_body[\s\S]*?visibility_state:\s*"absent"/.test(pipeline));
-okIf("absent_in_body 시 carry-forward emotional_state",
+console.log("── [Pipeline] absent guard (R5B-1.8C/1.8D superset) ──");
+okIf("R5B-1.8C 또는 R5B-1.8D 주석 헤더",
+  /R5B-1\.8C[\s\S]{0,80}본문 등장 빈도/.test(pipeline) ||
+  /R5B-1\.8D[\s\S]{0,200}meaningful appearance/.test(pipeline));
+okIf("guard helper (legacy _bodyAppearCount or new detectMeaningfulAppearance)",
+  /_bodyAppearCount\s*=\s*\(name: string\)[\s\S]{0,300}generatedText\.match/.test(pipeline) ||
+  /detectMeaningfulAppearance\s*\(/.test(pipeline));
+okIf("update 차단 정책 호출 (threshold or isUpdateAllowed)",
+  /_appearCount\s*<\s*_MEANINGFUL_APPEAR_THRESHOLD/.test(pipeline) ||
+  /!isUpdateAllowed\(/.test(pipeline));
+okIf("absent guard warn 로그 (planner 갱신 무시)",
+  /planner 갱신 무시/.test(pipeline));
+okIf("guard hit 시 visibility=\"absent\" 강제",
+  /pipeline:r5b1_8[cd][\s\S]*?visibility_state:\s*"absent"/.test(pipeline));
+okIf("guard hit 시 carry-forward emotional_state",
   /_prevForAbsent\.emotional_state/.test(pipeline));
-okIf("absent_in_body 시 direct commit 스킵 (continue)",
-  /absent_in_body[\s\S]*?continue; \/\/ 다음 stateUpdate로/.test(pipeline));
+okIf("guard hit 시 direct commit 스킵 (continue)",
+  /continue;\s*\/\/ 다음 stateUpdate로/.test(pipeline));
 
 console.log("\n── [Audit] R5B-1.8C alignment audit 출력 필드 ──");
 okIf("LLM judge prompt PASS/WARN/FAIL 구분",

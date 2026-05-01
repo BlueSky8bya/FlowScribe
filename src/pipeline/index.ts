@@ -28,6 +28,7 @@ import { extractStateConstraints } from "./state_extractor.js";
 import { runCreativePlanner, countMeaningfulBeatDeltas, _isMeaningfulDelta, type CharacterEmotionalBeat } from "./planner.js";
 import { resolveEntity, type EntityResolution } from "../lib/entity_resolver.js";
 import { checkEpisodeDelta, type EpisodeDeltaCheckResult } from "../services/episode_delta_validator.js";
+import { detectMeaningfulAppearance, isUpdateAllowed } from "../lib/meaningful_appearance.js";
 
 /**
  * CharNormEvent — entity_resolver ResolutionType을 파이프라인 통계용으로 매핑.
@@ -637,16 +638,26 @@ export async function runPlannerPipeline(
       }
     }
 
-    // R5B-1.8C: 본문 등장 빈도 기반 absent guard.
-    //   planner가 character_state_updates에 인물을 포함했더라도, 실제 renderer 본문에
-    //   해당 인물이 의미 있게 등장하지 않으면 (이름 등장 < 임계) state 갱신 대신
-    //   visibility="absent" + emotional/goal carry-forward로 처리해 카드-본문 alignment 보장.
-    const _MEANINGFUL_APPEAR_THRESHOLD = 3;
-    const _bodyAppearCount = (name: string): number => {
-      if (!name || !generatedText) return 0;
-      // simple count — 한국어 조사 결합형도 포함되도록 substring 매칭
-      const re = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
-      return (generatedText.match(re) ?? []).length;
+    // R5B-1.8D: meaningful appearance guard.
+    //   planner가 character_state_updates에 인물을 포함했더라도, 본문에서 의미 있게 등장하지
+    //   않으면 (직접 대사/행동/결정/소지품 상호작용 없음) state 갱신 대신 visibility="absent" +
+    //   emotional/goal carry-forward로 처리해 카드-본문 alignment를 보장한다.
+    //
+    //   기존 R5B-1.8C는 "이름 등장 횟수 < 임계"로만 판정 — 다른 인물 대사 속 호명이나
+    //   회상 속 단순 언급도 등장으로 오판 (TEST2E ep16/17/21/31/32/45/46 카이렌 7건 누적).
+    //
+    //   R5B-1.8D는 detectMeaningfulAppearance(deterministic) 결과 level이 strong/medium일
+    //   때만 update 허용. weak(대사 속/단순 호명)/none은 carry-forward absent.
+    const _appearanceCache = new Map<string, ReturnType<typeof detectMeaningfulAppearance>>();
+    const _meaningfulAppearance = (name: string) => {
+      if (!name || !generatedText) {
+        return { level: "none" as const, occurrence_count: 0, strong_count: 0, medium_count: 0, weak_count: 0, evidence_types: [], reason: "no name or no body" };
+      }
+      const cached = _appearanceCache.get(name);
+      if (cached) return cached;
+      const r = detectMeaningfulAppearance(generatedText, name);
+      _appearanceCache.set(name, r);
+      return r;
     };
 
     // ── direct commit: planner가 명시한 상태 업데이트 ──────────
@@ -660,14 +671,20 @@ export async function runPlannerPipeline(
           normStats[normEvent]++;
           if (!resolvedName) continue; // descriptive_mention / orphan → 커밋 스킵
 
-          // R5B-1.8C: 본문 등장 빈도 검사 — 임계 미만이면 absent로 강제
-          const _appearCount = _bodyAppearCount(resolvedName);
-          if (generatedText && _appearCount < _MEANINGFUL_APPEAR_THRESHOLD) {
+          // R5B-1.8D: meaningful appearance 검사 — strong/medium만 허용, weak/none은 absent
+          const _evidence = _meaningfulAppearance(resolvedName);
+          if (generatedText && !isUpdateAllowed(_evidence.level)) {
             const _prevForAbsent = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
-            logWarn("pipeline:r5b1_8c", "absent_in_body — planner 갱신 무시 + carry-forward absent", {
+            logWarn("pipeline:r5b1_8d", "weak/none appearance — planner 갱신 무시 + carry-forward absent", {
               book_id: bookId, episode: ctx.episode_number, character: resolvedName,
-              appear_count: _appearCount, threshold: _MEANINGFUL_APPEAR_THRESHOLD,
+              evidence_level: _evidence.level,
+              evidence_types: _evidence.evidence_types,
+              occurrence_count: _evidence.occurrence_count,
+              strong_count: _evidence.strong_count,
+              medium_count: _evidence.medium_count,
+              weak_count: _evidence.weak_count,
               planner_emotional_state: upd.emotional_state,
+              reason: _evidence.reason,
             });
             if (_prevForAbsent) {
               const _prevCanonItems = canonicalItemMap.get(resolvedName) ?? [];
