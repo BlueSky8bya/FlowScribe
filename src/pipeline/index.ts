@@ -29,6 +29,8 @@ import { runCreativePlanner, countMeaningfulBeatDeltas, _isMeaningfulDelta, type
 import { resolveEntity, type EntityResolution } from "../lib/entity_resolver.js";
 import { checkEpisodeDelta, type EpisodeDeltaCheckResult } from "../services/episode_delta_validator.js";
 import { detectMeaningfulAppearance, isUpdateAllowed } from "../lib/meaningful_appearance.js";
+import { checkNarrativeRepetition, RETRY_INSTRUCTION as NARRATIVE_RETRY_INSTRUCTION, type PriorEpisode, type NarrativeRepetitionResult } from "../lib/narrative_repetition_guard.js";
+import { pool as _dbPool } from "../lib/db.js";
 
 /**
  * CharNormEvent — entity_resolver ResolutionType을 파이프라인 통계용으로 매핑.
@@ -342,6 +344,71 @@ export async function runPlannerPipeline(
     }
 
     generatedText = sanitized.text;
+
+    // ── R5B-3.5: narrative cliché runtime guard (post-gen, pre-storage) ──
+    //   최근 N=3화 본문과 새 본문 narrative 수준 비교. severe(exact dup ≥1, adjacent
+    //   full sim ≥0.85, closing scene sim ≥0.65)면 retry 1회. retry 시 renderer system
+    //   prompt 끝에 RETRY_INSTRUCTION을 append하고 temperature 약간 상향.
+    //   hybrid streaming 중에는 chunks가 이미 client에 흘렀으므로 retry 안 함 (UX 안전).
+    let _narrativeRepCheck: NarrativeRepetitionResult | undefined;
+    let _narrativeRetryAttempted = false;
+    let _narrativeRetrySucceeded = false;
+    if (generatedText && ctx.episode_number >= 2) {
+      try {
+        const _recentRows = await _dbPool.query(
+          `SELECT episode_number, content FROM episodes
+           WHERE book_id=$1 AND episode_number BETWEEN $2 AND $3
+           ORDER BY episode_number ASC`,
+          [bookId, Math.max(1, ctx.episode_number - 3), ctx.episode_number - 1],
+        );
+        const _recent: PriorEpisode[] = _recentRows.rows.map((r: any) => ({
+          episode_number: r.episode_number,
+          content: r.content ?? "",
+        }));
+        _narrativeRepCheck = checkNarrativeRepetition(generatedText, _recent);
+        if (_narrativeRepCheck.verdict === "RETRY" && !onRendererChunk) {
+          _narrativeRetryAttempted = true;
+          logWarn("pipeline:r5b3_5", "narrative cliché 반복 검출 — renderer retry 시도", {
+            episode: ctx.episode_number,
+            exact_duplicate_count: _narrativeRepCheck.exact_duplicate_count,
+            adjacent_full_similarity: _narrativeRepCheck.adjacent_full_similarity.toFixed(3),
+            closing_scene_similarity: _narrativeRepCheck.closing_scene_similarity.toFixed(3),
+            issues: _narrativeRepCheck.issues.slice(0, 5),
+          });
+          try {
+            const retryResult = await renderFromPlanWithTrace(
+              scenePlan, ctx, rendererModelOverride, routeSetOverride, undefined,
+              /*temperatureOverride*/ 0.92, /*extraSystem*/ NARRATIVE_RETRY_INSTRUCTION,
+            );
+            const retrySanitized = sanitizeGeneratedBody(retryResult.text);
+            const retryCheck = checkNarrativeRepetition(retrySanitized.text, _recent);
+            if (retryCheck.verdict !== "RETRY") {
+              _narrativeRetrySucceeded = true;
+              rawRenderedText = retryResult.text;
+              sanitized = retrySanitized;
+              generatedText = retrySanitized.text;
+              _narrativeRepCheck = retryCheck;
+              logInfo("pipeline:r5b3_5", "narrative retry 성공 — diversified output 사용", {
+                episode: ctx.episode_number,
+                retry_max_sim: retryCheck.max_similarity.toFixed(3),
+                retry_verdict: retryCheck.verdict,
+              });
+            } else {
+              logWarn("pipeline:r5b3_5", "narrative retry도 반복 — 첫 결과 그대로 사용", {
+                episode: ctx.episode_number,
+                retry_max_sim: retryCheck.max_similarity.toFixed(3),
+              });
+            }
+          } catch (retryErr) {
+            logWarn("pipeline:r5b3_5", "narrative retry 실행 실패 — 첫 결과 사용", { error: String(retryErr) });
+          }
+        }
+      } catch (guardErr) {
+        // guard 실패는 generation 자체를 막지 않음
+        logWarn("pipeline:r5b3_5", "narrative guard 검사 실패 (skip)", { error: String(guardErr) });
+      }
+    }
+
     tracer?.setRendererTrace({
       system_prompt:  renderResult.system_prompt,
       user_prompt:    renderResult.user_prompt,
@@ -355,6 +422,19 @@ export async function runPlannerPipeline(
         foreign_contam_count: _foreignContamCount,
         retry_attempted: _retryAttempted,
         retry_succeeded: _retrySucceeded,
+      });
+    }
+    // R5B-3.5: trace에 narrative repetition check 기록
+    if (_narrativeRepCheck) {
+      (tracer as any)?.setNarrativeRepetitionCheck?.({
+        verdict: _narrativeRepCheck.verdict,
+        max_similarity: _narrativeRepCheck.max_similarity,
+        exact_duplicate_count: _narrativeRepCheck.exact_duplicate_count,
+        adjacent_full_similarity: _narrativeRepCheck.adjacent_full_similarity,
+        closing_scene_similarity: _narrativeRepCheck.closing_scene_similarity,
+        issues: _narrativeRepCheck.issues,
+        retry_attempted: _narrativeRetryAttempted,
+        retry_succeeded: _narrativeRetrySucceeded,
       });
     }
   } catch (err) {

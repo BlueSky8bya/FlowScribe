@@ -279,9 +279,11 @@ export async function renderFromPlanWithTrace(
   routeSetOverride?: string,
   onChunk?: (delta: string) => void,
   temperatureOverride?: number,  // Phase 4.20 R5A-C — Fix F: foreign retry용 강제 temp
+  extraSystem?: string,          // R5B-3.5: retry 시 system prompt 끝에 추가할 instruction
 ): Promise<RenderResult> {
   const maxTok = Math.max(2048, Math.ceil(plan.target_length * 0.65 * 1.8) + 500);
-  const systemPrompt = buildRendererSystemPrompt(plan, ctx);
+  const baseSystemPrompt = buildRendererSystemPrompt(plan, ctx);
+  const systemPrompt = extraSystem ? `${baseSystemPrompt}\n\n${extraSystem}` : baseSystemPrompt;
   const userPrompt   = `${ctx.episode_number}화를 ${ctx.gen_config.pov} 시점으로 생성해줘.`;
 
   // Phase 4.13/4.14 — config 라우트가 renderer에 다른 provider/model을 지정하면 router 사용.

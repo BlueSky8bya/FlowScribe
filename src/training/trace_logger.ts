@@ -62,6 +62,27 @@ export class TraceLogger {
     return this;
   }
 
+  /** R5B-3.5: post-gen narrative repetition guard 결과 기록 (renderer_trace에 병합). */
+  setNarrativeRepetitionCheck(check: Record<string, unknown>): this {
+    if (!this.trace.renderer_trace) {
+      // renderer_trace가 아직 없으면 임시 stub 후 추후 setRendererTrace에서 보존
+      (this.trace as any).renderer_trace = { narrative_repetition_check: check };
+    } else {
+      (this.trace.renderer_trace as any).narrative_repetition_check = check;
+    }
+    return this;
+  }
+
+  /** R5B-3.5: 외부 sanitize 결과 기록 (선택, 운영 메타). */
+  setSanitizationMeta(meta: Record<string, unknown>): this {
+    if (!this.trace.renderer_trace) {
+      (this.trace as any).renderer_trace = { sanitization_meta: meta };
+    } else {
+      (this.trace.renderer_trace as any).sanitization_meta = meta;
+    }
+    return this;
+  }
+
   setProseValidation(v: ValidationResult): this {
     this.trace.prose_validation = v;
     return this;
