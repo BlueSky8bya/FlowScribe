@@ -10,6 +10,7 @@ import { getLatestDynamicStates, commitDynamicState } from "../services/characte
 import { annotateCharStatesWithAppearance } from "../services/episode_appearance.js";
 import { sanitizeLLMItemDescription } from "../services/item_desc.js";
 import { buildEffectiveContext, saveEpisodeSnapshot } from "../services/effective_context.js";
+import { buildFallbackSummary, generateAndSaveLLMSummary, SUMMARY_FALLBACK_MARKER } from "../services/episode_summary.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { enterGeneration, exitGeneration } from "../lib/generation_guard.js";
@@ -230,14 +231,18 @@ generateRouter.get("/", async (req: Request, res: Response) => {
         try {
           const clean = result.generated_text
             .replace(/\[CLIFF[\]\n]?/g, "").replace(/\[END\]/gi, "").trim();
-          // fallback summary: 첫 문장 (saveEpisode의 LLM 요약이 올 때까지 임시 사용)
-          const fallbackSummary = clean.split(/[.。!?]/)[0]?.trim() ?? "";
+          // R5B-1: fallback marker 부착 — 비동기 LLM 요약이 와서 덮어쓰기 가능하게
+          const fallbackSummary = buildFallbackSummary(clean);
           await pool.query(
             `INSERT INTO episodes (book_id, episode_number, content, summary)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (book_id, episode_number) DO UPDATE SET content = EXCLUDED.content,
-               summary = CASE WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary ELSE episodes.summary END`,
-            [bookId!, episode, clean, fallbackSummary]
+               summary = CASE
+                 WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary
+                 WHEN episodes.summary LIKE $5 || '%' THEN EXCLUDED.summary
+                 ELSE episodes.summary
+               END`,
+            [bookId!, episode, clean, fallbackSummary, SUMMARY_FALLBACK_MARKER]
           );
           await pool.query(
             `UPDATE books SET current_episode = GREATEST(current_episode, $1), updated_at = NOW() WHERE id = $2`,
@@ -254,6 +259,14 @@ generateRouter.get("/", async (req: Request, res: Response) => {
           const _savedBookId  = bookId!;
           const _savedText    = clean;
           setImmediate(async () => {
+            // R5B-1: LLM summary로 fallback 덮어쓰기 (rolling_summary 정보 밀도 회복)
+            try {
+              await generateAndSaveLLMSummary({
+                pool, bookId: _savedBookId, episodeNumber: _savedEpisode, content: _savedText,
+              });
+            } catch (e) {
+              logError("api:generate", e, { context: "summary llm post-processing", episode: _savedEpisode });
+            }
             try {
               await extractAndStoreForeshadow(_savedBookId, _savedEpisode, _savedText);
               await checkAndResolveForeshadows(_savedBookId, _savedEpisode, _savedText);

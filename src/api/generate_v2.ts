@@ -31,6 +31,7 @@
 import { Router, Request, Response } from "express";
 import { streamEpisode } from "../services/story.js";
 import { buildEffectiveContext, effectiveContextToStoryContext, saveEpisodeSnapshot } from "../services/effective_context.js";
+import { buildFallbackSummary, generateAndSaveLLMSummary, SUMMARY_FALLBACK_MARKER } from "../services/episode_summary.js";
 import { validate } from "../services/validator.js";
 import { reviseUntilPass } from "../services/revision.js";
 import { runPlannerPipeline } from "../pipeline/index.js";
@@ -180,21 +181,32 @@ generateV2Router.post("/", async (req: Request, res: Response) => {
       // episode content 저장 (generate.ts와 동일 패턴)
       if (bookId && fullText) {
         try {
-          const fallbackSummary = fullText.split(/[.。!?]/)[0]?.trim() ?? "";
+          // R5B-1: fallback marker 부착
+          const fallbackSummary = buildFallbackSummary(fullText);
           await pool.query(
             `INSERT INTO episodes (book_id, episode_number, content, summary)
              VALUES ($1, $2, $3, $4)
              ON CONFLICT (book_id, episode_number) DO UPDATE
                SET content = EXCLUDED.content,
-                   summary = CASE WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary ELSE episodes.summary END`,
-            [bookId, episode, fullText, fallbackSummary]
+                   summary = CASE
+                     WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary
+                     WHEN episodes.summary LIKE $5 || '%' THEN EXCLUDED.summary
+                     ELSE episodes.summary
+                   END`,
+            [bookId, episode, fullText, fallbackSummary, SUMMARY_FALLBACK_MARKER]
           );
           await pool.query(
             `UPDATE books SET current_episode = GREATEST(current_episode, $1), updated_at = NOW() WHERE id = $2`,
             [episode + 1, bookId]
           );
-          // arc + foreshadow 후처리 (비동기, 실패 무시)
+          // arc + foreshadow + summary 후처리 (비동기, 실패 무시)
           setImmediate(async () => {
+            // R5B-1: LLM summary로 fallback 덮어쓰기
+            try {
+              await generateAndSaveLLMSummary({ pool, bookId, episodeNumber: episode, content: fullText });
+            } catch (e) {
+              logError("api:generate_v2", e, { context: "summary llm post-processing", episode });
+            }
             try {
               await extractAndStoreForeshadow(bookId, episode, fullText);
               await checkAndResolveForeshadows(bookId, episode, fullText);

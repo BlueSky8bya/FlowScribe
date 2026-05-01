@@ -107,13 +107,63 @@ export async function extractAndStoreForeshadow(
       return;
     }
 
-    await Promise.all(items.map(item =>
+    // R5B-1: lightweight dedup — 기존 open 복선과 keyword Jaccard ≥ 0.6 이면 새 plant 거부.
+    // 같은 사실(예: "마나 없음")이 매 화 다른 표현으로 다중 plant 되는 패턴을 차단.
+    // Jaccard threshold 0.6은 보수적 — 진짜 다른 복선은 통과시키고 동일 모티프만 차단.
+    const existingOpen = await pool.query(
+      `SELECT keywords FROM foreshadows
+       WHERE book_id=$1 AND status='open' AND planted_episode < $2`,
+      [bookId, episodeNumber]
+    ).then(r => r.rows.map((row: any) => Array.isArray(row.keywords) ? row.keywords : []))
+     .catch(() => []);
+
+    const _normKw = (kw: string) => kw.trim().toLowerCase();
+    const _jaccard = (a: string[], b: string[]) => {
+      const sa = new Set(a.map(_normKw).filter(Boolean));
+      const sb = new Set(b.map(_normKw).filter(Boolean));
+      if (!sa.size || !sb.size) return 0;
+      let inter = 0;
+      for (const k of sa) if (sb.has(k)) inter++;
+      return inter / (sa.size + sb.size - inter);
+    };
+    const DEDUP_THRESHOLD = 0.6;
+
+    const accepted: typeof items = [];
+    let dedupSkipped = 0;
+    for (const item of items) {
+      const itemKw = item.keywords ?? [];
+      let dup = false;
+      for (const exKw of existingOpen) {
+        if (_jaccard(itemKw, exKw) >= DEDUP_THRESHOLD) { dup = true; break; }
+      }
+      if (dup) { dedupSkipped++; continue; }
+      accepted.push(item);
+    }
+
+    if (accepted.length === 0) {
+      logInfo("service:foreshadow", "추출된 복선 모두 dedup으로 차단됨", {
+        book_id: bookId, episode: episodeNumber, total: items.length, skipped: dedupSkipped,
+      });
+      return;
+    }
+
+    await Promise.all(accepted.map(item =>
       pool.query(
         `INSERT INTO foreshadows (book_id, planted_episode, content, keywords, status)
          VALUES ($1, $2, $3, $4, 'open')`,
         [bookId, episodeNumber, item.content, item.keywords]
       )
     ));
+
+    if (dedupSkipped > 0) {
+      logInfo("service:foreshadow", "복선 dedup", {
+        book_id: bookId, episode: episodeNumber,
+        accepted: accepted.length, skipped: dedupSkipped, threshold: DEDUP_THRESHOLD,
+      });
+    }
+    // 이후 로그는 accepted 기준으로 동작하도록 items 변수 교체 (logInfo 아래 블록과 정합성)
+    items.length = 0;
+    items.push(...accepted);
 
     // 캐시 무효화
     await redis.del(CACHE_KEY(bookId));

@@ -111,8 +111,8 @@ export async function buildEffectiveContext(opts: {
           [bookId, episodeNumber]
         ).catch(() => ({ rows: [] }))
       : Promise.resolve({ rows: [] }),
-    // Phase 4.16 — emotional progression streak 감지를 위해 최근 8화 기록 조회
-    bookId && episodeNumber >= 4
+    // R5B-1: streak 감지 조기 발동 — ep>=4 → ep>=2. 정체 ep1~3에서 즉시 차단.
+    bookId && episodeNumber >= 2
       ? pool.query(
           `SELECT character_name, episode_number, emotional_state, recent_goal
            FROM character_dynamic_states
@@ -230,10 +230,16 @@ export async function buildEffectiveContext(opts: {
   }
 
   // ── Rolling Summary ────────────────────────────────────────────
+  // R5B-1: fallback marker가 있으면 표시에서 제거 (실제 첫 문장만 노출)
+  const _SUMMARY_FALLBACK_MARKER = "[[FALLBACK]]";
   let rollingSummary = "";
   if (rollingSummaryRows.status === "fulfilled") {
     const rows = (rollingSummaryRows.value as any).rows as any[];
-    rollingSummary = [...rows].reverse().map((r: any) => `${r.episode_number}화: ${r.summary}`).join("\n");
+    rollingSummary = [...rows].reverse().map((r: any) => {
+      const s = (r.summary ?? "") as string;
+      const clean = s.startsWith(_SUMMARY_FALLBACK_MARKER) ? s.slice(_SUMMARY_FALLBACK_MARKER.length) : s;
+      return `${r.episode_number}화: ${clean}`;
+    }).join("\n");
   }
 
   // ── Prev Episode Tail ─────────────────────────────────────────
@@ -513,10 +519,11 @@ function buildContinuityContract(
       };
     });
 
-  // ── Phase 4.16: emotional_progression_requirements ─────────────
-  // 같은 emotional_state 또는 recent_goal로 4화 이상 정체된 인물에게 progression 요구.
-  // streak가 4 미만이면 emit하지 않음 — planner prompt 부담 최소화.
-  const STREAK_TRIGGER = 4;
+  // ── Phase 4.16 / R5B-1: emotional_progression_requirements ─────
+  // 같은 emotional_state 또는 recent_goal로 N화 이상 정체된 인물에게 progression 요구.
+  // R5B-1: trigger 4 → 2. forensic 분석 결과 5화 정체에 trigger=4는 사후약방문이었음.
+  // 2화 정체부터 즉시 instruction을 prompt에 emit해서 정체 누적을 차단.
+  const STREAK_TRIGGER = 2;
   const emotional_progression_requirements: NonNullable<ContinuityContract["emotional_progression_requirements"]> = [];
   if (recentHistory && recentHistory.length > 0) {
     // 인물별 그룹

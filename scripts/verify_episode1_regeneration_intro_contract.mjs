@@ -27,8 +27,8 @@ check("prevEpisodeTail은 episodeNumber > 1 가드", ctxSrc.match(/episodeNumber
 check("continuityContract는 episodeNumber >= 2 가드", ctxSrc.includes("episodeNumber >= 2") && ctxSrc.includes("buildContinuityContract"));
 // episodeDeltaContract는 episodeNumber >= 2
 check("episodeDeltaContract는 episodeNumber >= 2 가드", ctxSrc.includes("buildEpisodeDeltaContract") && ctxSrc.match(/episodeNumber >= 2[\s\S]{0,200}buildEpisodeDeltaContract/));
-// recent state history는 episodeNumber >= 4 가드 (Phase 4.16)
-check("recent state history는 episodeNumber >= 4 가드", ctxSrc.includes("episodeNumber >= 4"));
+// recent state history는 episodeNumber >= 2 가드 (R5B-1 — 4→2로 정체 조기 감지)
+check("recent state history는 episodeNumber >= 2 가드", ctxSrc.includes("episodeNumber >= 2"));
 
 // ── 2. planner: 1화일 때 continuity_contract/delta가 prompt에 들어가지 않아야 ──
 console.log("\n── [2] planner ep1 prompt 격리 ──");

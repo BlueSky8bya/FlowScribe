@@ -1,9 +1,9 @@
 import { Router, Request, Response } from "express";
 import { pool } from "../lib/db.js";
-import { getLLMClient, getSummaryModel } from "../lib/llm.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import { extractAndStoreForeshadow, checkAndResolveForeshadows, getForeshadowStats } from "../services/foreshadow.js";
 import { generateAndSaveArcSummary, ARC_SIZE } from "../services/arc_memory.js";
+import { buildFallbackSummary, generateAndSaveLLMSummary, SUMMARY_FALLBACK_MARKER } from "../services/episode_summary.js";
 
 export const episodesRouter = Router();
 
@@ -19,12 +19,19 @@ episodesRouter.post("/", async (req: Request, res: Response) => {
 
   try {
     // 1. DB 저장 먼저 — LLM 실패와 무관하게 에피소드는 반드시 보존
-    const fallbackSummary = content.split(/[.。!?]/)[0]?.trim() ?? "";
+    // R5B-1: fallback marker 부착 — LLM 요약이 와서 덮어쓰기 가능하게
+    const fallbackSummary = buildFallbackSummary(content);
     await pool.query(
       `INSERT INTO episodes (book_id, episode_number, content, summary)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (book_id, episode_number) DO UPDATE SET content=$3`,
-      [bookId, ep, content, fallbackSummary]
+       ON CONFLICT (book_id, episode_number) DO UPDATE
+         SET content=$3,
+             summary = CASE
+               WHEN episodes.summary IS NULL OR episodes.summary = '' THEN EXCLUDED.summary
+               WHEN episodes.summary LIKE $5 || '%' THEN EXCLUDED.summary
+               ELSE episodes.summary
+             END`,
+      [bookId, ep, content, fallbackSummary, SUMMARY_FALLBACK_MARKER]
     );
     logInfo("api:episodes:save", "에피소드 저장 완료", { book_id: bookId, episode_number: ep });
 
@@ -34,32 +41,7 @@ episodesRouter.post("/", async (req: Request, res: Response) => {
     // 2. 모든 비동기 후처리 (요약·복선·아크) — 응답과 무관
     setImmediate(async () => {
       try {
-        // 요약 생성 및 업데이트
-        const summaryRes = await getLLMClient().chat.completions.create({
-          model: getSummaryModel(),
-          messages: [
-            {
-              role: "system",
-              content: [
-                "당신은 소설 요약 전문가다. 반드시 아래 규칙을 지켜라.",
-                "1. 사용자가 제공한 소설 본문만 요약한다. 없는 내용을 추가하거나 창작하지 않는다.",
-                "2. 등장인물 이름, 주요 사건, 감정 흐름을 3~5문장으로 서술한다.",
-                "3. 반드시 본문에 실제로 등장한 인물 이름만 사용한다.",
-                "4. 요약문만 출력한다. 설명·주석 금지.",
-              ].join("\n"),
-            },
-            { role: "user", content: `다음 소설 화를 요약해줘:\n\n${content}` },
-          ],
-          temperature: 0.1,
-          max_tokens: 250,
-        });
-        const rawSummary = summaryRes.choices[0]?.message?.content ?? "";
-        const summary    = rawSummary.trim().length < 20 ? fallbackSummary : rawSummary.trim();
-        await pool.query(
-          `UPDATE episodes SET summary=$1 WHERE book_id=$2 AND episode_number=$3`,
-          [summary, bookId, ep]
-        );
-        logInfo("api:episodes:save", "요약 업데이트 완료", { book_id: bookId, episode_number: ep });
+        await generateAndSaveLLMSummary({ pool, bookId, episodeNumber: ep, content });
       } catch {
         logWarn("api:episodes:save", "요약 생성 실패 (에피소드는 저장됨)", { book_id: bookId, episode_number: ep });
       }
