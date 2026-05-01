@@ -96,7 +96,7 @@ async function suggestCharacter(btn) {
       showToast("인물 생성에 실패했습니다.", "err", 3000);
     } finally {
       btn.disabled = false;
-      btn.textContent = "✦ AI 추천";
+      btn.textContent = "✨ AI 추천";
       btn.classList.remove("loading");
       queuedCards.delete(card);
       let i = 1;
@@ -134,7 +134,7 @@ async function suggestAllCharacters() {
   const waitDone = setInterval(() => {
     if (!suggestRunning) {
       allBtn.disabled = false;
-      allBtn.textContent = "✦ 전체 AI 추천";
+      allBtn.textContent = "✨ 전체 AI 추천";
       clearInterval(waitDone);
     }
   }, 500);
@@ -188,7 +188,7 @@ async function refinePersonality(btn) {
     showToast("구체화에 실패했습니다.", "err", 3000);
   } finally {
     btn.disabled = false;
-    btn.textContent = "✦ 구체화";
+    btn.textContent = "✨ 구체화";
   }
 }
 
@@ -219,7 +219,7 @@ async function suggestRules() {
     showToast("규칙 생성에 실패했습니다. 잠시 후 다시 시도하세요.", "err", 4000);
   } finally {
     btn.disabled = false;
-    btn.textContent = "✦ AI 추천";
+    btn.textContent = "✨ AI 추천";
     btn.classList.remove("loading");
     stopLoadingOverlay("rulesLoadingBar");
   }

@@ -124,7 +124,7 @@ function appendCharCard(container, i, p) {
         <div class="char-card-header-top">
           <span class="char-card-num">Character · ${i + 1}</span>
           <span class="char-card-name-preview">${esc(p.name||"이름 미입력")}</span>
-          <button class="card-ai-btn char-ai-btn" style="margin-left:auto;flex-shrink:0" onclick="suggestCharacter(this)">✦ AI 추천</button>
+          <button class="card-ai-btn char-ai-btn" style="margin-left:auto;flex-shrink:0" onclick="suggestCharacter(this)">✨ AI 추천</button>
           <button class="char-delete-btn" style="flex-shrink:0" onclick="deleteCharCard(this)" title="인물 삭제">✕</button>
           <button class="char-lock-btn" style="flex-shrink:0" onclick="toggleCharLock(this)">확정</button>
         </div>
@@ -141,7 +141,7 @@ function appendCharCard(container, i, p) {
         <div class="char-fields-full">
           <div class="char-personality-label-row">
             <div class="char-personality-label">성격 · 특징</div>
-            <button class="char-refine-btn" onclick="refinePersonality(this)">✦ 구체화</button>
+            <button class="char-refine-btn" onclick="refinePersonality(this)">✨ 구체화</button>
           </div>
           <div class="char-personality-preview-box" style="display:${p.personality?'block':'none'}">${esc(p.personality||"")}</div>
           <textarea class="char-input char-personality" placeholder="말투·행동·외형을 구체적으로&#10;예) 말이 없고 눈을 잘 안 마주침. 화날 때 입술을 깨뭄. 키가 크고 손이 크다." style="display:${p.personality?'none':'block'}">${esc(p.personality||"")}</textarea>
