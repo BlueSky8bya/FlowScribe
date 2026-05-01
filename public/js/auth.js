@@ -1086,6 +1086,7 @@ function updateEpisodeListUI() {
       updateEpisodeUI();
       updateEpisodeListUI();
       updateOutputHeader();
+      updateArcUI?.(currentEpisode - 1);
       _loadAndApplyCharStates?.(n);
       // Phase 4.16 — 회차 변경 시 본문 상단으로 스크롤
       try {
@@ -1387,10 +1388,12 @@ function updateArcUI(ep) {
 
     // 현재 막은 ep까지만, 완료 막은 전체 표시
     const epEnd = isCurrentAct ? ep : act.e;
+    // highlight 대상은 "보고 있는 화"(displayedEpisode). 없으면 진행 ep로 fallback.
+    const viewingEp = (typeof displayedEpisode === "number" && displayedEpisode > 0) ? displayedEpisode : ep;
     for (let i = act.s; i <= epEnd; i++) {
       const epEl = document.createElement("div");
       const hasContent = !!episodeCache[i];
-      const isCurrent = i === ep;
+      const isCurrent = i === viewingEp;
       epEl.className = "arc-ep-row-item" + (hasContent ? " done" : "") + (isCurrent ? " current" : "");
       let epTitle = "";
       if (hasContent && typeof extractEpTitle === "function") {
