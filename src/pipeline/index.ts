@@ -637,6 +637,18 @@ export async function runPlannerPipeline(
       }
     }
 
+    // R5B-1.8C: 본문 등장 빈도 기반 absent guard.
+    //   planner가 character_state_updates에 인물을 포함했더라도, 실제 renderer 본문에
+    //   해당 인물이 의미 있게 등장하지 않으면 (이름 등장 < 임계) state 갱신 대신
+    //   visibility="absent" + emotional/goal carry-forward로 처리해 카드-본문 alignment 보장.
+    const _MEANINGFUL_APPEAR_THRESHOLD = 3;
+    const _bodyAppearCount = (name: string): number => {
+      if (!name || !generatedText) return 0;
+      // simple count — 한국어 조사 결합형도 포함되도록 substring 매칭
+      const re = new RegExp(name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g");
+      return (generatedText.match(re) ?? []).length;
+    };
+
     // ── direct commit: planner가 명시한 상태 업데이트 ──────────
     if (stateUpdates.length > 0) {
       for (const upd of stateUpdates) {
@@ -647,6 +659,42 @@ export async function runPlannerPipeline(
           );
           normStats[normEvent]++;
           if (!resolvedName) continue; // descriptive_mention / orphan → 커밋 스킵
+
+          // R5B-1.8C: 본문 등장 빈도 검사 — 임계 미만이면 absent로 강제
+          const _appearCount = _bodyAppearCount(resolvedName);
+          if (generatedText && _appearCount < _MEANINGFUL_APPEAR_THRESHOLD) {
+            const _prevForAbsent = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
+            logWarn("pipeline:r5b1_8c", "absent_in_body — planner 갱신 무시 + carry-forward absent", {
+              book_id: bookId, episode: ctx.episode_number, character: resolvedName,
+              appear_count: _appearCount, threshold: _MEANINGFUL_APPEAR_THRESHOLD,
+              planner_emotional_state: upd.emotional_state,
+            });
+            if (_prevForAbsent) {
+              const _prevCanonItems = canonicalItemMap.get(resolvedName) ?? [];
+              const _normPrevItems = normalizeItems(
+                _prevForAbsent.items ?? [],
+                _prevCanonItems,
+                [],
+                itemLedgerStats,
+              );
+              await commitDynamicState({
+                book_id:        bookId,
+                character_name: resolvedName,
+                episode_number: ctx.episode_number,
+                location:       normalizeLocation(_prevForAbsent.location) ?? _prevForAbsent.location,
+                physical_state: normalizePhysicalState(_prevForAbsent.physical_state) ?? _prevForAbsent.physical_state,
+                emotional_state: normalizeEmotionalState(_prevForAbsent.emotional_state) ?? _prevForAbsent.emotional_state,
+                items:          _normPrevItems as import("../types/canonical.js").ItemEntry[],
+                visibility_state: "absent",
+                recent_goal:    normalizeRecentGoal(_prevForAbsent.recent_goal) ?? "이전 목표 유지",
+                relationship_updates:   _prevForAbsent.relationship_updates ?? {},
+                foreshadow_connections: _prevForAbsent.foreshadow_connections ?? [],
+                behavior_hints: _prevForAbsent.behavior_hints,
+                alias_used:     _prevForAbsent.alias_used ?? [],
+              });
+            }
+            continue; // 다음 stateUpdate로 — direct commit 스킵
+          }
 
           const prev = prevMap.get(resolvedName) ?? prevMap.get(upd.character_name);
           const canonicalItems = canonicalItemMap.get(resolvedName) ?? [];
