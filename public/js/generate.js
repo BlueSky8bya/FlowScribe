@@ -1799,11 +1799,11 @@ async function captureEpisode(mode = 'body') {
     'font-size:15px',  // 명시적 기준 font-size — html2canvas가 상속하도록
   ].join(';');
 
-  // 헤더
+  // 헤더 — 책 제목 / 화 라벨 / 화 제목. charsOnly 모드는 헤더 생략 (인물 카드만)
   const bookTitle = document.getElementById('outputBookTitle')?.textContent?.trim() ?? '';
   const epLabel   = document.getElementById('outputEpLabel')?.textContent?.trim() ?? '';
   const epTitle   = document.getElementById('outputEpTitle')?.textContent?.trim() ?? '';
-  wrap.innerHTML = `<div class="cap-header">
+  wrap.innerHTML = charsOnly ? '' : `<div class="cap-header">
     ${bookTitle ? `<span class="cap-book-title">${bookTitle}</span>` : ''}
     ${bookTitle && epLabel ? `<span class="cap-sep"> · </span>` : ''}
     ${epLabel   ? `<span class="cap-ep-label">${epLabel}</span>` : ''}
@@ -1822,15 +1822,16 @@ async function captureEpisode(mode = 'body') {
   }
 
   // 본문 plain text (클립보드 text/plain 병행용 — body 모드일 때만 의미 있음)
+  // charsOnly: 책/화 헤더와 본문 생략, 인물 상태 placeholder만
   const plainText = (() => {
     const lines = [];
-    if (bookTitle) lines.push(bookTitle + (epLabel ? ' · ' + epLabel : ''));
-    if (epTitle)   lines.push(epTitle);
-    lines.push('');
-    if (!charsOnly) {
-      outputEl.querySelectorAll('p').forEach(p => { if (p.textContent.trim()) lines.push(p.textContent.trim()); });
-    } else {
+    if (charsOnly) {
       lines.push('[현재 인물 상태]');
+    } else {
+      if (bookTitle) lines.push(bookTitle + (epLabel ? ' · ' + epLabel : ''));
+      if (epTitle)   lines.push(epTitle);
+      lines.push('');
+      outputEl.querySelectorAll('p').forEach(p => { if (p.textContent.trim()) lines.push(p.textContent.trim()); });
     }
     return lines.join('\n');
   })();
