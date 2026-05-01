@@ -108,6 +108,24 @@
         "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
         "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
       }
+    },
+
+    "openai_renderer": {
+      "description": "Route J (R5B-4a 비교용) — Planner OpenAI, Renderer OpenAI gpt-4.1-mini",
+      "routes": {
+        "planner":  { "provider": "openai", "model": "${OPENAI_PLANNER_MODEL:-gpt-4.1-mini}", "temperature": 0.4, "json_mode": true },
+        "renderer": { "provider": "openai", "model": "${OPENAI_RENDERER_MODEL:-gpt-4.1-mini}", "temperature": 0.7 },
+        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
+      }
+    },
+
+    "gemini_renderer": {
+      "description": "Route K (R5B-4a 비교용) — Planner OpenAI, Renderer Gemini 2.5-flash",
+      "routes": {
+        "planner":  { "provider": "openai", "model": "${OPENAI_PLANNER_MODEL:-gpt-4.1-mini}", "temperature": 0.4, "json_mode": true },
+        "renderer": { "provider": "gemini", "model": "${GEMINI_RENDERER_MODEL:-gemini-2.5-flash}", "temperature": 0.7 },
+        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
+      }
     }
   }
 }
