@@ -1799,15 +1799,17 @@ async function captureEpisode(mode = 'body') {
     'font-size:15px',  // 명시적 기준 font-size — html2canvas가 상속하도록
   ].join(';');
 
-  // 헤더 — 책 제목 / 화 라벨 / 화 제목. charsOnly 모드는 헤더 생략 (인물 카드만)
+  // 헤더 — 책 제목 (1줄) / "n화 (화 제목)" (1줄). charsOnly 모드는 헤더 생략.
   const bookTitle = document.getElementById('outputBookTitle')?.textContent?.trim() ?? '';
   const epLabel   = document.getElementById('outputEpLabel')?.textContent?.trim() ?? '';
   const epTitle   = document.getElementById('outputEpTitle')?.textContent?.trim() ?? '';
+  // ep label + title 한 줄로 합치기: "{n화} ({화 제목})" — 둘 중 하나만 있어도 자연스럽게
+  const epLineText = epLabel
+    ? (epTitle ? `${epLabel} (${epTitle})` : epLabel)
+    : (epTitle ?? '');
   wrap.innerHTML = charsOnly ? '' : `<div class="cap-header">
-    ${bookTitle ? `<span class="cap-book-title">${bookTitle}</span>` : ''}
-    ${bookTitle && epLabel ? `<span class="cap-sep"> · </span>` : ''}
-    ${epLabel   ? `<span class="cap-ep-label">${epLabel}</span>` : ''}
-    ${epTitle   ? `<div class="cap-ep-title">${epTitle}</div>` : ''}
+    ${bookTitle ? `<div class="cap-book-title">${bookTitle}</div>` : ''}
+    ${epLineText ? `<div class="cap-ep-line">${epLineText}</div>` : ''}
   </div>`;
 
   // 본문 복제 + 대사 강조 (charsOnly일 때는 본문 생략)
@@ -2011,10 +2013,8 @@ async function captureEpisode(mode = 'body') {
 <style>
   body { margin:0; background:${bgColor}; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
   .cap-header { margin-bottom:2.4rem; padding-bottom:1.2rem; border-bottom:1px solid rgba(168,152,128,.25); }
-  .cap-book-title { font-size:1.55rem; font-weight:700; opacity:.9; letter-spacing:.04em; }
-  .cap-sep { font-size:1.45rem; opacity:.4; margin:0 .35rem; }
-  .cap-ep-label { font-size:1.45rem; font-weight:600; opacity:.7; }
-  .cap-ep-title { font-size:2.2rem; font-weight:800; margin-top:.7rem; line-height:1.35; color:${CSS_VARS['var(--strong)']}; }
+  .cap-book-title { display:block; font-size:1.55rem; font-weight:700; opacity:.9; letter-spacing:.04em; line-height:1.4; }
+  .cap-ep-line { display:block; font-size:2.2rem; font-weight:800; margin-top:.55rem; line-height:1.35; color:${CSS_VARS['var(--strong)']}; }
   p { margin:.6em 0; line-height:2.1; color:${CSS_VARS['var(--text)']}; font-size:15px; word-break:keep-all; }
   p.dialogue-line { color:${CSS_VARS['var(--strong)']}; font-weight:500; border-left:3px solid rgba(180,100,80,.5); padding-left:.9em; }
 </style>

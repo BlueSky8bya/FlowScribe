@@ -806,12 +806,13 @@ body.mode-tts #output p.tts-done{
 .btn-prev,.btn-generate,.btn-regen,.btn-action,.ep-pill,.ep-regen-btn,.cap-btn-group{all:unset;}
 
 /* ── 캡처 오프스크린 헤더 스타일 ───────────────────────── */
-/* R5B-1.7+ 사용자 요청: 캡처 헤더 크기 대폭 확대 */
+/* 사용자 요청 — 2줄 디자인: "책 제목" / "n화 (화 제목)" */
 .cap-header{margin-bottom:2.4rem;padding-bottom:1.2rem;border-bottom:1px solid rgba(168,152,128,.25);}
-.cap-book-title{font-size:1.55rem;font-weight:700;color:var(--text2);letter-spacing:.04em;}
-.cap-sep{font-size:1.45rem;color:var(--text4);margin:0 .35em;}
-.cap-ep-label{font-size:1.45rem;font-weight:600;color:var(--text3);}
-.cap-ep-title{font-size:2.2rem;font-weight:800;color:var(--strong);margin-top:.7rem;letter-spacing:.02em;line-height:1.35;}
+.cap-book-title{display:block;font-size:1.55rem;font-weight:700;color:var(--text2);letter-spacing:.04em;line-height:1.4;}
+.cap-ep-line{display:block;font-size:2.2rem;font-weight:800;color:var(--strong);margin-top:.55rem;letter-spacing:.02em;line-height:1.35;}
+/* 호환: legacy 마크업이 들어올 때만 fallback (현재 코드는 cap-ep-line으로 통합됨) */
+.cap-sep{display:none;}
+.cap-ep-label,.cap-ep-title{font:inherit;color:inherit;}
 
 /* ── 작가 개입 패널 ─────────────────────────────────────── */
 .director-panel{
