@@ -21,12 +21,17 @@ const pipeline  = readFileSync("src/pipeline/index.ts", "utf8");
 const renderer  = readFileSync("src/pipeline/renderer.ts", "utf8");
 const audit     = readFileSync("scripts/audit_emotional_progression_forensics.mjs", "utf8");
 
-console.log("── [Planner] system prompt — character_emotional_beats schema ──");
+// NOTE: R5B-1.7의 strict cluster-diff 프레임은 R5B-1.8(Emotional Plausibility)에서 폐기됨.
+//   같은 cluster 유지가 자동 fake progression이 아니라, 본문 사건이 만든 6-delta 진전이 있는지로 판정.
+//   이 verify는 R5B-1.7이 도입했던 "structural carry-forward gating + emotional_beats schema +
+//   audit cluster metric" 골격이 그대로 살아있는지만 점검한다.
+
+console.log("── [Planner] system prompt — character_emotional_beats schema (R5B-1.8 superset) ──");
 okIf("character_emotional_beats 스키마 라인 존재", /character_emotional_beats/.test(planner));
 okIf("emotion_cause / goal_delta / behavior_delta 필드 정의", /emotion_cause[\s\S]{0,400}goal_delta[\s\S]{0,400}behavior_delta/.test(planner));
-okIf("R5B-1.7 character_emotional_beats 가이드 헤더", /R5B-1\.7 character_emotional_beats/.test(planner));
-okIf("같은 cluster 단어 변경 fake progression 명시", /같은 cluster 내 단어 변경[\s\S]{0,200}fake progression/.test(planner));
-okIf("같은 emotional_state 유지 시 behavior_delta 변화 강제", /같은 emotional_state가 유지되어도 OK[\s\S]{0,150}behavior_delta는 반드시 변해야 한다/.test(planner));
+okIf("character_emotional_beats 가이드 헤더 존재 (R5B-1.7→R5B-1.8)", /R5B-1\.[78] character_emotional_beats/.test(planner));
+okIf("fake progression 정의 명시 (라벨 변경+근거 없음)", /fake progression/.test(planner));
+okIf("같은 감정 유지 = 자연스러움 (R5B-1.8 재정의)", /같은 감정군이 여러 화에 걸쳐 유지되는 것은 자연스럽다/.test(planner));
 
 console.log("\n── [Planner] extractor — extractEmotionalBeats ──");
 okIf("extractEmotionalBeats 함수 정의", /function extractEmotionalBeats/.test(planner));
@@ -39,14 +44,14 @@ okIf("emotionalBeats 추출 (scenePlan)", /character_emotional_beats[\s\S]{0,80}
 okIf("_beatByName 인물 이름 매칭 Map", /_beatByName\s*=\s*new Map/.test(pipeline));
 okIf("appearedInBeats 검출 (scene_beats characters_involved)", /_isAppearedInBeats[\s\S]{0,200}characters_involved/.test(pipeline));
 okIf("emotion same + goal same 비교", /_emoSame[\s\S]{0,400}_goalSame/.test(pipeline));
-okIf("hasDelta 검사 (cause/goal_delta/behavior_delta)", /_hasDelta[\s\S]{0,200}emotion_cause[\s\S]{0,80}goal_delta[\s\S]{0,80}behavior_delta/.test(pipeline));
+okIf("meaningful delta 검사 (R5B-1.8: 6-delta 카운트)", /_meaningfulDeltaCount|countMeaningfulBeatDeltas/.test(pipeline));
 okIf("carry_forward_without_delta warn 로그", /carry_forward_without_delta — fake progression risk/.test(pipeline));
 
-console.log("\n── [Renderer] 감정 장면화 ──");
-okIf("[감정 장면화] section 헤더", /\[★ R5B-1\.7 감정 장면화\]/.test(renderer));
+console.log("\n── [Renderer] 감정 장면화/납득성 ──");
+okIf("[감정 납득성/장면화] section 헤더 (R5B-1.7→R5B-1.8)", /\[★ R5B-1\.[78][^\]]*\]/.test(renderer));
 okIf("'단어로 직접 설명하지 말고' 라인", /단어[\s\S]{0,40}로 직접 설명하지 말고/.test(renderer));
-okIf("나쁨/좋음 예시", /나쁨:[\s\S]{0,150}좋음:/.test(renderer));
-okIf("character_emotional_beats 본문 구현 instruction", /character_emotional_beats[\s\S]{0,200}본문 행동·대사·결정으로 실제 구현/.test(renderer));
+okIf("나쁨/좋음 예시", /나쁨:[\s\S]{0,200}좋음:/.test(renderer));
+okIf("character_emotional_beats 본문 구현 instruction", /character_emotional_beats[\s\S]{0,400}본문 행동·대사·결정/.test(renderer));
 
 console.log("\n── [Audit] cluster streak 추가 ──");
 okIf("maxClusterStreak 변수", /maxClusterStreak/.test(audit));

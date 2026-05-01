@@ -306,7 +306,11 @@ JSON만 출력 (다른 텍스트 없이):
     "current_emotion":"이번 화 감정",
     "emotion_cause":"이번 화 사건·관계·정보 중 어떤 것이 감정을 만들었는가 (1줄)",
     "goal_delta":"recent_goal 변화 — 같으면 '유지', 다르면 무엇이 어떻게 (1줄)",
-    "behavior_delta":"본문에서 인물이 어떻게 다르게 행동했는가 (1줄, 같은 감정이 유지되더라도 행동 양상이 달라야 함)"
+    "behavior_delta":"행동·말투·시선·거리감·반응 양상의 변화 (1줄)",
+    "relationship_delta":"이번 화에서 다른 인물과의 관계·신뢰·거리감 변화 (변화 없으면 '유지')",
+    "decision_delta":"이번 화 인물이 내린 작은·큰 결정·태도 변화 (없으면 '유지')",
+    "consequence_delta":"이번 화 인물 행동·결정이 가져온 결과·여파 (없으면 '없음')",
+    "plausibility_note":"같은 감정군이 유지되더라도 왜 자연스러운가 — 본문 사건·상황 근거 1줄"
   }]
 }
 
@@ -330,17 +334,23 @@ immediate_threat | unexpected_discovery | new_problem | unresolved_situation | r
 - items는 항상 출력 (변화 없으면 현재 소지 그대로, 없으면 빈 배열). 생략 안 함.
 - location/physical_state는 변화 없으면 생략 가능 (단, 인물 이동이 본문에 있다면 location 명시).
 - R5B-1.5 [필수 출력] emotional_state, recent_goal은 scene_beats 등장 인물 모두에 대해 항상 출력. 생략 금지.
-  - 이전 화와 같은 단어는 사용 금지 — 감정 단어만 바꾸는 fake progression 금지. 본문 사건·결정·관계 변화·새 정보·대가에서 비롯된 자연스러운 진전이어야 한다.
+  - 이번 화 사건·결정·관계 변화·새 정보·대가에서 비롯된 자연스러운 흐름이어야 한다. 본문 사건이 없는데 라벨만 임의로 바꾸지 말 것 — 그것이 fake progression이다.
   - 이번 화에서 등장하지 않는 인물(scene_beats에 없음)은 character_state_updates에 포함하지 않는다 — 억지 갱신 금지.
-- recent_goal은 이번 화 인물 목표·태도를 1~2문장. 이전 화와 같은 표현 사용 금지 — 작은 진전(구체화·범위 변경·타깃 변경)이라도 명시할 것.
+- recent_goal은 이번 화 인물 목표·태도를 1~2문장. 작은 진전(구체화·범위 변경·타깃 변경)이라도 본문 사건이 만든 변화면 명시한다.
 
-[★ R5B-1.7 character_emotional_beats — appeared 인물별 감정 변화 설계]
+[★ R5B-1.8 character_emotional_beats — 감정 납득성·원인-행동 진전]
 - scene_beats에 등장하는 핵심 인물(주인공·조력자·적대자) 각각에 대해 emotional_beat을 1개씩 출력.
 - 비등장 인물(scene_beats characters_involved 없음)은 포함 안 함 — 억지 beat 생성 금지.
-- 같은 cluster 내 단어 변경(불안↔긴장↔경계, 결의↔결단↔다짐, 혼란↔당황↔의문)은 fake progression. emotion_cause + goal_delta + behavior_delta 셋 중 최소 2개가 explicit하게 변화로 채워져야 의미 있는 변화로 간주.
-- 같은 emotional_state가 유지되어도 OK — 단, behavior_delta는 반드시 변해야 한다 ("같은 불안이지만 이번엔 먼저 행동함" 같이).
+- [핵심 원칙] 같은 감정군이 여러 화에 걸쳐 유지되는 것은 자연스럽다. 사건·인물 상황에 맞으면 "불안 → 긴장 → 경계 → 초조"처럼 같은 anxiety 계열이 이어져도 PASS다.
+- 부자연스러운 것은 큰 사건 없이 "불안 → 기쁨 → 분노 → 안도 → 결의"처럼 감정군이 휙휙 바뀌는 것이다. 라벨을 억지로 바꾸려 하지 말 것.
+- [납득성 기준] 감정 라벨 변경보다 emotion_cause / goal_delta / behavior_delta / relationship_delta / decision_delta / consequence_delta 중 최소 2개가 explicit하게 채워져 있는지가 중요하다. 본문 사건이 명확하면 같은 감정이 유지되어도 의미 있는 진전으로 간주한다.
+- [fake 정의] "라벨을 바꿨는데 cause·behavior·goal·relationship·decision 그 어느 것도 본문에서 진전하지 않은 경우" — 이것이 fake progression이다. cluster가 안 바뀐 것이 fake가 아니다.
+- [구체 가이드]
+  · 같은 감정이 유지될 때 → behavior_delta(반응 양상·행동 방식)나 relationship_delta·decision_delta가 실제로 달라야 한다.
+  · 감정군이 바뀔 때 → emotion_cause에 본문의 어떤 사건·정보·관계 변화가 그 변화를 만들었는지 명시.
+  · plausibility_note는 같은 감정이 유지되는 경우에 특히 중요 — "왜 이 감정이 자연스럽게 이어지는가"를 1줄로.
 - previous_emotion이 없으면 (1화) "(없음)"으로 둘 것.
-- 1줄·1줄·1줄·1줄·1줄 — 인당 5줄 이내, 길게 쓰지 말 것.
+- 각 필드는 1줄 — 인당 9줄 이내, 길게 쓰지 말 것.
 
 [소지품 원칙]
 - 세계관·배경·시대·상황과 인물 성격·역할에 일치하는 물건만 배정. "이 세계의 이 인물이 이 상황에서 가질 수 있는가" 우선 검증. 소지품 없으면 빈 배열 — 억지로 채우지 않는다.
@@ -839,9 +849,12 @@ function _isStateString(s: string): boolean {
 }
 
 /**
- * R5B-1.7 — character_emotional_beats 안전 추출.
- * planner output에서 인물별 감정 변화 설계 (cause/goal_delta/behavior_delta)를 뽑아
+ * R5B-1.8 — character_emotional_beats 안전 추출.
+ * planner output에서 인물별 감정 변화 설계를 뽑아
  * pipeline carry-forward gating + audit에 사용.
+ *
+ * R5B-1.8: 라벨 변경이 아니라 "원인·행동·목표·관계·결정의 진전"이 fake/genuine 판정의 기준.
+ *   relationship_delta / decision_delta / consequence_delta / plausibility_note 추가.
  */
 export interface CharacterEmotionalBeat {
   name: string;
@@ -850,6 +863,10 @@ export interface CharacterEmotionalBeat {
   emotion_cause?: string;
   goal_delta?: string;
   behavior_delta?: string;
+  relationship_delta?: string;
+  decision_delta?: string;
+  consequence_delta?: string;
+  plausibility_note?: string;
 }
 
 function extractEmotionalBeats(parsed: any): CharacterEmotionalBeat[] {
@@ -859,12 +876,43 @@ function extractEmotionalBeats(parsed: any): CharacterEmotionalBeat[] {
     .filter((b: any) => typeof b?.name === "string" && b.name.trim().length > 0)
     .map((b: any) => ({
       name: String(b.name).trim(),
-      previous_emotion: typeof b.previous_emotion === "string" ? b.previous_emotion : undefined,
-      current_emotion:  typeof b.current_emotion  === "string" ? b.current_emotion  : undefined,
-      emotion_cause:    typeof b.emotion_cause    === "string" ? b.emotion_cause    : undefined,
-      goal_delta:       typeof b.goal_delta       === "string" ? b.goal_delta       : undefined,
-      behavior_delta:   typeof b.behavior_delta   === "string" ? b.behavior_delta   : undefined,
+      previous_emotion:    typeof b.previous_emotion    === "string" ? b.previous_emotion    : undefined,
+      current_emotion:     typeof b.current_emotion     === "string" ? b.current_emotion     : undefined,
+      emotion_cause:       typeof b.emotion_cause       === "string" ? b.emotion_cause       : undefined,
+      goal_delta:          typeof b.goal_delta          === "string" ? b.goal_delta          : undefined,
+      behavior_delta:      typeof b.behavior_delta      === "string" ? b.behavior_delta      : undefined,
+      relationship_delta:  typeof b.relationship_delta  === "string" ? b.relationship_delta  : undefined,
+      decision_delta:      typeof b.decision_delta      === "string" ? b.decision_delta      : undefined,
+      consequence_delta:   typeof b.consequence_delta   === "string" ? b.consequence_delta   : undefined,
+      plausibility_note:   typeof b.plausibility_note   === "string" ? b.plausibility_note   : undefined,
     }));
+}
+
+/**
+ * R5B-1.8: 한 emotional beat에 "본문 진전 신호"가 있는가?
+ * "있음"으로 판정되는 필드: emotion_cause / goal_delta / behavior_delta /
+ *                          relationship_delta / decision_delta / consequence_delta.
+ * "유지" / "없음" / 빈문자 / undefined는 신호 없음으로 간주.
+ *
+ * 의미 있는 진전: 위 필드 중 _최소 2개_가 의미 있는 값으로 채워져 있는 경우.
+ */
+const _MEANINGLESS_DELTA_RE = /^(유지|없음|동일|변화\s*없음|변동\s*없음|n\/?a|none|-)\s*$/i;
+export function _isMeaningfulDelta(s: string | undefined): boolean {
+  if (!s) return false;
+  const t = s.trim();
+  if (t.length < 2) return false;
+  return !_MEANINGLESS_DELTA_RE.test(t);
+}
+export function countMeaningfulBeatDeltas(beat: CharacterEmotionalBeat | undefined): number {
+  if (!beat) return 0;
+  let n = 0;
+  if (_isMeaningfulDelta(beat.emotion_cause))      n++;
+  if (_isMeaningfulDelta(beat.goal_delta))         n++;
+  if (_isMeaningfulDelta(beat.behavior_delta))     n++;
+  if (_isMeaningfulDelta(beat.relationship_delta)) n++;
+  if (_isMeaningfulDelta(beat.decision_delta))     n++;
+  if (_isMeaningfulDelta(beat.consequence_delta))  n++;
+  return n;
 }
 
 /** character_state_updates 배열 안전 추출 — 형식 불일치 시 [] 반환 */

@@ -25,7 +25,7 @@ import { normalizeItems, checkLocationChange, emptyItemLedgerCheck, emptyLocatio
 import type { EffectiveContext, ValidationResult, Verdict } from "../types/canonical.js";
 import type { ScenePlan, PlannerPipelineResult } from "../types/planner.js";
 import { extractStateConstraints } from "./state_extractor.js";
-import { runCreativePlanner } from "./planner.js";
+import { runCreativePlanner, countMeaningfulBeatDeltas, _isMeaningfulDelta, type CharacterEmotionalBeat } from "./planner.js";
 import { resolveEntity, type EntityResolution } from "../lib/entity_resolver.js";
 import { checkEpisodeDelta, type EpisodeDeltaCheckResult } from "../services/episode_delta_validator.js";
 
@@ -529,12 +529,9 @@ export async function runPlannerPipeline(
 
   // ─── Step 5.5: Character State Commit (planner 예측 → DB) ────
   const stateUpdates = scenePlan.character_state_updates ?? [];
-  // R5B-1.7: planner의 character_emotional_beats를 추출 (carry-forward gating용)
-  const emotionalBeats: Array<{
-    name: string; previous_emotion?: string; current_emotion?: string;
-    emotion_cause?: string; goal_delta?: string; behavior_delta?: string;
-  }> = (scenePlan as any).character_emotional_beats ?? [];
-  const _beatByName = new Map<string, typeof emotionalBeats[number]>();
+  // R5B-1.8: planner의 character_emotional_beats를 추출 (carry-forward gating + plausibility 평가용)
+  const emotionalBeats: CharacterEmotionalBeat[] = (scenePlan as any).character_emotional_beats ?? [];
+  const _beatByName = new Map<string, CharacterEmotionalBeat>();
   for (const b of emotionalBeats) _beatByName.set(b.name, b);
   if (stateUpdates.length === 0) {
     logWarn("pipeline", "character_state_updates 없음 — 상태 커밋 스킵", {
@@ -675,22 +672,37 @@ export async function runPlannerPipeline(
           const rawPhysical  = upd.physical_state  ?? prev?.physical_state  ?? undefined;
           const rawGoal      = upd.recent_goal     ?? prev?.recent_goal     ?? undefined;
 
-          // R5B-1.7: carry-forward gating + fake progression detection
-          // appeared_in_episode=true 인 인물(scene_beats characters_involved에 포함)에 대해
-          // emotional_state가 prev와 동일하면 character_emotional_beats의 cause/goal/behavior delta가
-          // 채워져 있는지 확인. 모두 비어있으면 silent carry-forward fake risk로 간주 + warn.
+          // R5B-1.8: emotional plausibility + cause-action progression gating.
+          //   PASS 기준 — appeared 인물에 대해 다음 중 하나:
+          //     (a) 감정 라벨이 본문 사건에 의해 자연스럽게 변함 (cause/decision/consequence delta 있음)
+          //     (b) 라벨이 같거나 같은 감정군 안이지만, behavior/goal/relationship/decision 중 ≥1 진전 있음
+          //   FAIL 기준:
+          //     (c) appeared + 라벨 변함 + cause/decision/consequence delta 모두 없음 → fake_label_change
+          //     (d) appeared + emotion_state와 recent_goal 둘 다 정확히 같음 + delta 0개 → carry_forward_without_delta
+          //   cluster streak는 강제 FAIL 아님 — 사건이 만든 흐름이면 OK.
           const _isAppearedInBeats = (scenePlan.scene_beats ?? []).some((b: any) =>
             Array.isArray(b?.characters_involved) && b.characters_involved.includes(resolvedName)
           );
           const _emoSame = !!rawEmotional && !!prev?.emotional_state && rawEmotional === prev.emotional_state;
           const _goalSame = !!rawGoal && !!prev?.recent_goal && rawGoal.trim() === prev.recent_goal.trim();
           const _beat = _beatByName.get(resolvedName) ?? _beatByName.get(upd.character_name);
-          const _hasDelta = !!(_beat?.emotion_cause || _beat?.goal_delta || _beat?.behavior_delta);
-          if (_isAppearedInBeats && _emoSame && _goalSame && !_hasDelta) {
+          const _meaningfulDeltaCount = countMeaningfulBeatDeltas(_beat);
+          const _hasCauseSignal = _isMeaningfulDelta(_beat?.emotion_cause)
+                               || _isMeaningfulDelta(_beat?.decision_delta)
+                               || _isMeaningfulDelta(_beat?.consequence_delta);
+          if (_isAppearedInBeats && _emoSame && _goalSame && _meaningfulDeltaCount === 0) {
             logWarn("pipeline:emotional_progression", "carry_forward_without_delta — fake progression risk", {
               book_id: bookId, episode: ctx.episode_number, character: resolvedName,
               emotional_state: rawEmotional, has_beat: !!_beat,
-              note: "appeared 인물 + emotion/goal 둘 다 동일 + emotional_beat의 cause/goal_delta/behavior_delta 모두 없음",
+              note: "appeared 인물 + emotion/goal 둘 다 동일 + emotional_beat의 6개 delta 모두 없음",
+            });
+          }
+          if (_isAppearedInBeats && !_emoSame && !!rawEmotional && !!prev?.emotional_state && !_hasCauseSignal) {
+            logWarn("pipeline:emotional_progression", "label_change_without_cause — implausible shift risk", {
+              book_id: bookId, episode: ctx.episode_number, character: resolvedName,
+              prev_emotional_state: prev.emotional_state, current_emotional_state: rawEmotional,
+              has_beat: !!_beat, meaningful_deltas: _meaningfulDeltaCount,
+              note: "라벨 변경됐는데 emotion_cause/decision_delta/consequence_delta 모두 비어 있음 — 사건 없는 라벨 점프",
             });
           }
 
