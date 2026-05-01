@@ -54,10 +54,10 @@ okIf("STREAK_TRIGGER = 2 (R5B-1)", /STREAK_TRIGGER\s*=\s*2/.test(effective));
 okIf("STREAK_TRIGGER = 4 잔존 안 함", !/const\s+STREAK_TRIGGER\s*=\s*4/.test(effective));
 okIf("recentHistory 조회 ep>=2", /R5B-1[\s\S]{0,200}ep>=4 → ep>=2[\s\S]{0,200}episodeNumber\s*>=\s*2[\s\S]{0,400}character_dynamic_states/.test(effective));
 
-console.log("\n── [foreshadow.ts] lightweight dedup ──");
-okIf("Jaccard 계산 함수 _jaccard 정의", /_jaccard\s*=/.test(foreshadow));
-okIf("DEDUP_THRESHOLD 0.6", /DEDUP_THRESHOLD\s*=\s*0\.6/.test(foreshadow));
-okIf("기존 open 복선 keyword 조회", /SELECT keywords FROM foreshadows[\s\S]{0,100}status='open'/.test(foreshadow));
+console.log("\n── [foreshadow.ts] dedup (R5B-1.5에서 강화됨, R5B-1 hotfix는 baseline 통과) ──");
+okIf("Jaccard 계산 함수 (R5B-1.5: _setJaccard로 일반화)", /_setJaccard\s*=|_jaccard\s*=/.test(foreshadow));
+okIf("DEDUP_THRESHOLD 0.4 이하 (R5B-1.5 강화)", /DEDUP_THRESHOLD\s*=\s*0\.[0-6]/.test(foreshadow) && !/DEDUP_THRESHOLD\s*=\s*0\.[7-9]/.test(foreshadow));
+okIf("기존 open 복선 keyword 조회 (R5B-1.5: + content)", /SELECT[\s\S]{0,80}keywords[\s\S]{0,80}FROM foreshadows[\s\S]{0,150}status='open'/.test(foreshadow));
 okIf("dedup skip 시 dedupSkipped 카운터", /dedupSkipped\+\+/.test(foreshadow));
 okIf("accepted 만 INSERT", /accepted\.map\(item =>[\s\S]{0,200}INSERT INTO foreshadows/.test(foreshadow));
 

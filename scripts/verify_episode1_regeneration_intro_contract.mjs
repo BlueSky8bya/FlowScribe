@@ -33,7 +33,7 @@ check("recent state history는 episodeNumber >= 2 가드", ctxSrc.includes("epis
 // ── 2. planner: 1화일 때 continuity_contract/delta가 prompt에 들어가지 않아야 ──
 console.log("\n── [2] planner ep1 prompt 격리 ──");
 // 연속성 계약 블록은 cc 존재 시에만 emit (ep1엔 cc 없음)
-check("연속성 계약 블록은 cc 조건부", plannerSrc.match(/if \(cc\)\s*\{[\s\S]{0,2000}\[연속성 계약/));
+check("연속성 계약 블록은 cc 조건부", plannerSrc.match(/if \(cc\)\s*\{[\s\S]{0,4000}\[연속성 계약/));
 check("episode_delta_contract도 dc 조건부", plannerSrc.includes("ctx.episode_delta_contract") || plannerSrc.match(/dc\.[a-z_]+/));
 // prev_tail block도 prevTailText 조건부
 check("prev_tail block은 prevTailText 조건부", plannerSrc.match(/if \(prevTailText\)\s*\{?\s*[\s\S]{0,500}\[직전 화 말미/));

@@ -74,20 +74,43 @@ export async function extractAndStoreForeshadow(
           role: "system",
           content: [
             "당신은 소설 복선 분석 전문가다. 반드시 아래 규칙을 지켜라.",
-            "1. 제공된 소설 본문에서 다음 중 하나라도 해당하면 복선으로 추출한다:",
-            "   - 아직 답이 나오지 않은 의문·미스터리 (누가, 왜, 어떻게 등)",
-            "   - 등장인물의 숨겨진 동기·비밀·이중성",
-            "   - 앞으로 벌어질 사건을 암시하는 묘사·대화·행동",
-            "   - 해결되지 않은 갈등·위험·긴장 요소",
-            "2. 본문에 없는 내용을 추가하거나 창작하지 않는다.",
-            "3. 각 복선을 한 문장으로 서술하고, 핵심 키워드(2~4개)를 함께 반환한다.",
-            "4. 최소 1개, 최대 4개를 추출한다. 명백한 복선 요소가 없어도 미해결 의문이나 갈등을 찾아 추출한다.",
-            '5. 반드시 JSON 배열만 출력한다. 형식: [{"content":"복선 내용","keywords":["키워드1","키워드2"]}]',
+            "",
+            "[복선이란 — 추출 대상]",
+            "복선은 '아직 본문에서 일어나지 않은 사건을 암시'하거나 '앞으로 답이 필요한 미해결 질문'이다.",
+            "다음만 추출한다:",
+            "  - 아직 정체가 밝혀지지 않은 인물·존재",
+            "  - 아직 발생하지 않은 위험·사건의 암시",
+            "  - 아직 설명되지 않은 모순·이질성",
+            "  - 등장인물의 숨겨진 동기·비밀·이중성",
+            "  - 다음 화 이후에 답·결과·정체가 드러날 수 있는 미해결 질문",
+            "",
+            "[복선 아님 — 절대 추출 금지]",
+            "다음 항목은 '이미 본문에서 발생한 사건'이므로 복선이 아니다. 의미가 미스터리하더라도 복선으로 추출하지 않는다:",
+            "  - 본문에서 인물이 직접 발견·확인한 흔적·단서·증거",
+            "  - 본문에서 인물이 말로 공유한 사실·정보",
+            "  - 본문에서 이미 일어난 검증·조사·실험 행위",
+            "  - 본문에서 이미 확인된 상태·규칙·물리 현상",
+            "  - 본문에서 이미 일어난 만남·대화·결정·각성",
+            "  - 단순 장소·환경·분위기 묘사",
+            "발견된 흔적의 '의미가 무엇인가'는 미해결 질문이 될 수 있지만, 그 경우 '발견 사건'이 아니라 '의미에 대한 미해결 질문' 형태로만 표현하라.",
+            "",
+            "[출력 규칙]",
+            "1. 본문에 없는 내용을 추가하거나 창작하지 않는다.",
+            "2. 각 복선은 '아직 답이 없는 질문' 또는 '아직 일어나지 않은 사건의 암시' 형태로 한 문장 서술. 발견 행위 자체를 서술하지 말 것.",
+            "3. 핵심 키워드(2~4개) 동반.",
+            "4. 0~4개 추출. 명백한 미해결 질문이 없으면 빈 배열 반환 OK — 억지로 추출하지 말 것.",
+            '5. 반드시 JSON 배열만 출력. 형식: [{"content":"복선 내용","keywords":["키워드1","키워드2"]}]',
+            "",
+            "[예시]",
+            '나쁨: {"content":"카이렌이 도서관 입구에서 흔적을 발견했다","keywords":["흔적","발견"]}',
+            "  → 발견 사건은 이미 일어남. 복선 아님.",
+            '좋음: {"content":"도서관 입구의 흔적을 남긴 자의 정체와 목적이 아직 드러나지 않았다","keywords":["흔적 주체","정체","목적"]}',
+            "  → 발견 자체가 아닌, '아직 답이 없는 질문'으로 표현.",
           ].join("\n"),
         },
         {
           role: "user",
-          content: `다음 소설 화에서 복선과 미해결 떡밥을 추출해줘:\n\n${content}`,
+          content: `다음 소설 화에서 미해결 질문 또는 미래 사건의 암시만 추출해줘 (이미 발생한 발견·확인 사건은 추출 금지):\n\n${content}`,
         },
       ],
       temperature: 0.1,
@@ -107,34 +130,58 @@ export async function extractAndStoreForeshadow(
       return;
     }
 
-    // R5B-1: lightweight dedup — 기존 open 복선과 keyword Jaccard ≥ 0.6 이면 새 plant 거부.
-    // 같은 사실(예: "마나 없음")이 매 화 다른 표현으로 다중 plant 되는 패턴을 차단.
-    // Jaccard threshold 0.6은 보수적 — 진짜 다른 복선은 통과시키고 동일 모티프만 차단.
+    // R5B-1.5: dedup 강화
+    //   - threshold 0.6 → 0.4 (motif 표현 변주를 더 강하게 차단)
+    //   - keyword + content head signature 양쪽 비교 (조사·동사·공백 normalize)
+    //   - 최근 3화 내 plant된 open 복선만 비교 대상 (오래된 motif는 dedup 제외)
+    const RECENT_WINDOW = 3;
     const existingOpen = await pool.query(
-      `SELECT keywords FROM foreshadows
-       WHERE book_id=$1 AND status='open' AND planted_episode < $2`,
-      [bookId, episodeNumber]
-    ).then(r => r.rows.map((row: any) => Array.isArray(row.keywords) ? row.keywords : []))
-     .catch(() => []);
+      `SELECT planted_episode, keywords, content FROM foreshadows
+       WHERE book_id=$1 AND status='open'
+         AND planted_episode < $2 AND planted_episode >= $3`,
+      [bookId, episodeNumber, Math.max(1, episodeNumber - RECENT_WINDOW)]
+    ).then(r => r.rows.map((row: any) => ({
+      keywords: Array.isArray(row.keywords) ? row.keywords : [],
+      content: typeof row.content === "string" ? row.content : "",
+    }))).catch(() => [] as Array<{ keywords: string[]; content: string }>);
 
-    const _normKw = (kw: string) => kw.trim().toLowerCase();
-    const _jaccard = (a: string[], b: string[]) => {
-      const sa = new Set(a.map(_normKw).filter(Boolean));
-      const sb = new Set(b.map(_normKw).filter(Boolean));
+    // R5B-1.5: motif normalize — 한글 조사/공백/특수문자 제거, lowercase.
+    // "마력의 잔재" / "마력 잔재" / "마력잔재" 모두 동일 시그니처로 처리.
+    const _STOPWORD_PARTICLE = /[은는이가을를의에과와로으로도]$/;
+    const _normToken = (s: string) => {
+      let t = (s ?? "").toLowerCase().trim();
+      // 한글 조사 끝글자 제거 (반복 적용으로 다중 조사도 처리)
+      while (_STOPWORD_PARTICLE.test(t)) t = t.slice(0, -1);
+      return t.replace(/[\s　\p{P}]+/gu, "");
+    };
+    // content 첫 문장 → 명사구 토큰 set (한글 2~5자 sequence 추출)
+    const _contentSig = (content: string) => {
+      const head = content.slice(0, 80);
+      const tokens = head.match(/[가-힣]{2,5}/g) ?? [];
+      return new Set(tokens.map(_normToken).filter(Boolean));
+    };
+    const _setJaccard = (sa: Set<string>, sb: Set<string>) => {
       if (!sa.size || !sb.size) return 0;
       let inter = 0;
       for (const k of sa) if (sb.has(k)) inter++;
       return inter / (sa.size + sb.size - inter);
     };
-    const DEDUP_THRESHOLD = 0.6;
+    const _kwSet = (a: string[]) => new Set(a.map(_normToken).filter(Boolean));
+    const DEDUP_THRESHOLD = 0.4;
 
     const accepted: typeof items = [];
     let dedupSkipped = 0;
     for (const item of items) {
-      const itemKw = item.keywords ?? [];
+      const itemKwSet = _kwSet(item.keywords ?? []);
+      const itemSigSet = _contentSig(item.content ?? "");
       let dup = false;
-      for (const exKw of existingOpen) {
-        if (_jaccard(itemKw, exKw) >= DEDUP_THRESHOLD) { dup = true; break; }
+      for (const ex of existingOpen) {
+        const exKwSet = _kwSet(ex.keywords);
+        const exSigSet = _contentSig(ex.content);
+        // keyword 또는 content signature 둘 중 하나가 threshold 넘으면 dup
+        const kwSim = _setJaccard(itemKwSet, exKwSet);
+        const sigSim = _setJaccard(itemSigSet, exSigSet);
+        if (kwSim >= DEDUP_THRESHOLD || sigSim >= DEDUP_THRESHOLD) { dup = true; break; }
       }
       if (dup) { dedupSkipped++; continue; }
       accepted.push(item);

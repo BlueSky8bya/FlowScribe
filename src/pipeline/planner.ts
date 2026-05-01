@@ -319,9 +319,12 @@ immediate_threat | unexpected_discovery | new_problem | unresolved_situation | r
 - 모든 beat 설계에 "이 화·이 인물·이 세계관에서만 일어날 구체적 사건"을 1개 이상 포함한다. 내면 갈등(선택·의심·결심·배신감·수치심·충동)이나 관계 역학 변화를 중심으로 설계하는 것을 권장한다.
 - [1화 전용] 사건보다 인물의 목소리·태도·세계 인식이 먼저 드러난다 — "이 인물은 어떤 존재인가"를 우선 보여준다.
 - character_state_updates: 화 종료 시점 핵심 인물 상태. scene_beats 등장 인물만.
-- items는 항상 출력 (변화 없으면 현재 소지 그대로, 없으면 빈 배열). 생략 안 함. 변화 없는 다른 필드(location, physical_state 등)는 생략 가능.
-- emotional_state는 이전 화와 다르게 한다 — 서사 맥락의 자연스러운 변화.
-- recent_goal은 이번 화 인물 목표·태도를 1~2문장.
+- items는 항상 출력 (변화 없으면 현재 소지 그대로, 없으면 빈 배열). 생략 안 함.
+- location/physical_state는 변화 없으면 생략 가능 (단, 인물 이동이 본문에 있다면 location 명시).
+- R5B-1.5 [필수 출력] emotional_state, recent_goal은 scene_beats 등장 인물 모두에 대해 항상 출력. 생략 금지.
+  - 이전 화와 같은 단어는 사용 금지 — 감정 단어만 바꾸는 fake progression 금지. 본문 사건·결정·관계 변화·새 정보·대가에서 비롯된 자연스러운 진전이어야 한다.
+  - 이번 화에서 등장하지 않는 인물(scene_beats에 없음)은 character_state_updates에 포함하지 않는다 — 억지 갱신 금지.
+- recent_goal은 이번 화 인물 목표·태도를 1~2문장. 이전 화와 같은 표현 사용 금지 — 작은 진전(구체화·범위 변경·타깃 변경)이라도 명시할 것.
 
 [소지품 원칙]
 - 세계관·배경·시대·상황과 인물 성격·역할에 일치하는 물건만 배정. "이 세계의 이 인물이 이 상황에서 가질 수 있는가" 우선 검증. 소지품 없으면 빈 배열 — 억지로 채우지 않는다.
@@ -481,7 +484,15 @@ function buildPlannerUserPrompt(
       ccLines.push(`[인물 관계 현황]\n${cc.relationship_state.map(r => `- ${r}`).join("\n")}`);
     }
     if (cc.open_threads.length) {
-      ccLines.push(`[열린 플롯 — 이번 화에서 1~2개 이어간다]\n${cc.open_threads.map(t => `- ${t}`).join("\n")}`);
+      // R5B-1.5: 발견 사건 재현 차단 — instruction을 "재발견 금지, 의미 추적"으로 변경
+      ccLines.push(
+        `[열린 플롯 — 미해결 질문/암시. 이번 화에서 1~2개 이어간다]\n` +
+        cc.open_threads.map(t => `- ${t}`).join("\n") + "\n" +
+        `[발견 행위 반복 금지] 위 항목은 "아직 답이 없는 질문" 또는 "아직 일어나지 않은 사건의 암시"다. ` +
+        `이미 본문에서 발견·확인·발화된 사건을 다시 처음 발견하듯 재현하지 말 것. ` +
+        `같은 인물이든 다른 인물이든 "마치 처음 발견한 것처럼" 흔적·단서·사실을 발화하면 안 된다. ` +
+        `이어가기는 "그 흔적/단서의 의미 해석", "다음 행동 결정", "정체 추적", "위험 노출", "관계·신뢰 변화" 중 하나로만 진전시킨다.`
+      );
     }
     if (cc.forbidden_regressions.length) {
       ccLines.push(`[퇴행 금지 — 본문 전개에서 유지]\n${cc.forbidden_regressions.map(r => `- ${r}`).join("\n")}`);
@@ -518,8 +529,18 @@ function buildPlannerUserPrompt(
     );
   }
 
-  if (storyFlowText)
-    sections.push(`[스토리 흐름]\n${storyFlowText}`);
+  if (storyFlowText) {
+    // R5B-1.5: rolling_summary를 [이미 발생한 사건 — 재현 금지] 섹션으로 reframe.
+    // LLM 요약은 발견·확인·발화 사건을 캡처하므로, 이걸 명시적으로 "재현 금지 lock"하면
+    // planner/renderer가 같은 흔적·단서를 다시 발견하듯 처리하지 않게 된다.
+    sections.push(
+      `[이미 발생한 사건 — 재현·재발견·재발화 금지]\n` +
+      `아래는 직전 화까지 본문에서 실제로 발생한 사건의 요약이다. 이번 화에서 같은 사건을 처음 일어나는 것처럼 다시 쓰지 말 것. ` +
+      `같은 인물이든 다른 인물이든, 같은 흔적/단서/사실을 처음 발견하듯 발화하면 안 된다. ` +
+      `진전 방식: 그 사건의 결과/의미/대응/추적 중 하나로만 이어갈 것.\n\n` +
+      storyFlowText
+    );
+  }
 
   if (characterArcText)
     sections.push(`[인물 아크]\n${characterArcText}`);
