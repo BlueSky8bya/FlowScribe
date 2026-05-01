@@ -299,6 +299,14 @@ JSON만 출력 (다른 텍스트 없이):
     "location":"종료 시점 위치 (변화 없으면 생략)",
     "visibility_state":"present",
     "recent_goal":"이번 화 인물 목표·태도 1~2문장"
+  }],
+  "character_emotional_beats": [{
+    "name":"인물명 (scene_beats 등장 인물 중)",
+    "previous_emotion":"직전 화 감정",
+    "current_emotion":"이번 화 감정",
+    "emotion_cause":"이번 화 사건·관계·정보 중 어떤 것이 감정을 만들었는가 (1줄)",
+    "goal_delta":"recent_goal 변화 — 같으면 '유지', 다르면 무엇이 어떻게 (1줄)",
+    "behavior_delta":"본문에서 인물이 어떻게 다르게 행동했는가 (1줄, 같은 감정이 유지되더라도 행동 양상이 달라야 함)"
   }]
 }
 
@@ -325,6 +333,14 @@ immediate_threat | unexpected_discovery | new_problem | unresolved_situation | r
   - 이전 화와 같은 단어는 사용 금지 — 감정 단어만 바꾸는 fake progression 금지. 본문 사건·결정·관계 변화·새 정보·대가에서 비롯된 자연스러운 진전이어야 한다.
   - 이번 화에서 등장하지 않는 인물(scene_beats에 없음)은 character_state_updates에 포함하지 않는다 — 억지 갱신 금지.
 - recent_goal은 이번 화 인물 목표·태도를 1~2문장. 이전 화와 같은 표현 사용 금지 — 작은 진전(구체화·범위 변경·타깃 변경)이라도 명시할 것.
+
+[★ R5B-1.7 character_emotional_beats — appeared 인물별 감정 변화 설계]
+- scene_beats에 등장하는 핵심 인물(주인공·조력자·적대자) 각각에 대해 emotional_beat을 1개씩 출력.
+- 비등장 인물(scene_beats characters_involved 없음)은 포함 안 함 — 억지 beat 생성 금지.
+- 같은 cluster 내 단어 변경(불안↔긴장↔경계, 결의↔결단↔다짐, 혼란↔당황↔의문)은 fake progression. emotion_cause + goal_delta + behavior_delta 셋 중 최소 2개가 explicit하게 변화로 채워져야 의미 있는 변화로 간주.
+- 같은 emotional_state가 유지되어도 OK — 단, behavior_delta는 반드시 변해야 한다 ("같은 불안이지만 이번엔 먼저 행동함" 같이).
+- previous_emotion이 없으면 (1화) "(없음)"으로 둘 것.
+- 1줄·1줄·1줄·1줄·1줄 — 인당 5줄 이내, 길게 쓰지 말 것.
 
 [소지품 원칙]
 - 세계관·배경·시대·상황과 인물 성격·역할에 일치하는 물건만 배정. "이 세계의 이 인물이 이 상황에서 가질 수 있는가" 우선 검증. 소지품 없으면 빈 배열 — 억지로 채우지 않는다.
@@ -822,6 +838,35 @@ function _isStateString(s: string): boolean {
   return STATE_KEYWORDS.some(k => s.includes(k));
 }
 
+/**
+ * R5B-1.7 — character_emotional_beats 안전 추출.
+ * planner output에서 인물별 감정 변화 설계 (cause/goal_delta/behavior_delta)를 뽑아
+ * pipeline carry-forward gating + audit에 사용.
+ */
+export interface CharacterEmotionalBeat {
+  name: string;
+  previous_emotion?: string;
+  current_emotion?: string;
+  emotion_cause?: string;
+  goal_delta?: string;
+  behavior_delta?: string;
+}
+
+function extractEmotionalBeats(parsed: any): CharacterEmotionalBeat[] {
+  const raw = parsed?.character_emotional_beats;
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((b: any) => typeof b?.name === "string" && b.name.trim().length > 0)
+    .map((b: any) => ({
+      name: String(b.name).trim(),
+      previous_emotion: typeof b.previous_emotion === "string" ? b.previous_emotion : undefined,
+      current_emotion:  typeof b.current_emotion  === "string" ? b.current_emotion  : undefined,
+      emotion_cause:    typeof b.emotion_cause    === "string" ? b.emotion_cause    : undefined,
+      goal_delta:       typeof b.goal_delta       === "string" ? b.goal_delta       : undefined,
+      behavior_delta:   typeof b.behavior_delta   === "string" ? b.behavior_delta   : undefined,
+    }));
+}
+
 /** character_state_updates 배열 안전 추출 — 형식 불일치 시 [] 반환 */
 function extractStateUpdates(parsed: any): CharacterStateUpdate[] {
   const raw = parsed?.character_state_updates;
@@ -1004,12 +1049,18 @@ export async function runCreativePlanner(
         raw_tail: raw.slice(-200),
       });
     }
+    // R5B-1.7: character_emotional_beats 추출 (carry-forward gating에 사용)
+    const emotionalBeats = extractEmotionalBeats(rawParsed);
 
     const parsed = parseCreativePlan(raw);
 
     if (parsed) {
       parsed.character_state_updates = stateUpdates;
-      logInfo("pipeline:planner", "플래너 JSON 파싱 성공", { state_updates: stateUpdates.length });
+      (parsed as any).character_emotional_beats = emotionalBeats;
+      logInfo("pipeline:planner", "플래너 JSON 파싱 성공", {
+        state_updates: stateUpdates.length,
+        emotional_beats: emotionalBeats.length,
+      });
       return { plan: parsed, fallback_used: false, raw_output: raw };
     }
 

@@ -529,6 +529,13 @@ export async function runPlannerPipeline(
 
   // ─── Step 5.5: Character State Commit (planner 예측 → DB) ────
   const stateUpdates = scenePlan.character_state_updates ?? [];
+  // R5B-1.7: planner의 character_emotional_beats를 추출 (carry-forward gating용)
+  const emotionalBeats: Array<{
+    name: string; previous_emotion?: string; current_emotion?: string;
+    emotion_cause?: string; goal_delta?: string; behavior_delta?: string;
+  }> = (scenePlan as any).character_emotional_beats ?? [];
+  const _beatByName = new Map<string, typeof emotionalBeats[number]>();
+  for (const b of emotionalBeats) _beatByName.set(b.name, b);
   if (stateUpdates.length === 0) {
     logWarn("pipeline", "character_state_updates 없음 — 상태 커밋 스킵", {
       episode: ctx.episode_number,
@@ -667,6 +674,26 @@ export async function runPlannerPipeline(
           const rawEmotional = upd.emotional_state ?? prev?.emotional_state ?? undefined;
           const rawPhysical  = upd.physical_state  ?? prev?.physical_state  ?? undefined;
           const rawGoal      = upd.recent_goal     ?? prev?.recent_goal     ?? undefined;
+
+          // R5B-1.7: carry-forward gating + fake progression detection
+          // appeared_in_episode=true 인 인물(scene_beats characters_involved에 포함)에 대해
+          // emotional_state가 prev와 동일하면 character_emotional_beats의 cause/goal/behavior delta가
+          // 채워져 있는지 확인. 모두 비어있으면 silent carry-forward fake risk로 간주 + warn.
+          const _isAppearedInBeats = (scenePlan.scene_beats ?? []).some((b: any) =>
+            Array.isArray(b?.characters_involved) && b.characters_involved.includes(resolvedName)
+          );
+          const _emoSame = !!rawEmotional && !!prev?.emotional_state && rawEmotional === prev.emotional_state;
+          const _goalSame = !!rawGoal && !!prev?.recent_goal && rawGoal.trim() === prev.recent_goal.trim();
+          const _beat = _beatByName.get(resolvedName) ?? _beatByName.get(upd.character_name);
+          const _hasDelta = !!(_beat?.emotion_cause || _beat?.goal_delta || _beat?.behavior_delta);
+          if (_isAppearedInBeats && _emoSame && _goalSame && !_hasDelta) {
+            logWarn("pipeline:emotional_progression", "carry_forward_without_delta — fake progression risk", {
+              book_id: bookId, episode: ctx.episode_number, character: resolvedName,
+              emotional_state: rawEmotional, has_beat: !!_beat,
+              note: "appeared 인물 + emotion/goal 둘 다 동일 + emotional_beat의 cause/goal_delta/behavior_delta 모두 없음",
+            });
+          }
+
           await commitDynamicState({
             book_id:        bookId,
             character_name: resolvedName,

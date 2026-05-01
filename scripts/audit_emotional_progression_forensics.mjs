@@ -100,10 +100,17 @@ async function main() {
       fakeRisks: 0,
       maxStreakOverall: 1,
       maxStreakAppearedOnly: 1,
+      // R5B-1.7: cluster streak — 같은 cluster 안 단어 변경(불안↔긴장)도 cluster streak로 카운트
+      maxClusterStreak: 1,
+      maxClusterStreakAppeared: 1,
       currentStreak: 1,
       currentAppearedStreak: 1,
+      currentClusterStreak: 1,
+      currentClusterStreakAppeared: 1,
       currentEmo: null,
       currentEmoAppeared: null,
+      currentCluster: null,
+      currentClusterAppeared: null,
     };
     let prev = null;
     for (let ep = 1; ep <= maxEp; ep++) {
@@ -149,6 +156,23 @@ async function main() {
           charStats[name].currentEmoAppeared = cur.emotional_state;
         }
       }
+      // R5B-1.7: cluster streak — 같은 cluster 안에서 단어만 변경되어도 streak 누적
+      // (cluster=null/-1은 동일 cluster로 간주 안 함 — 짧은 unique label 보호)
+      if (prev && curCluster !== null && curCluster >= 0 && curCluster === prevCluster) {
+        charStats[name].currentClusterStreak++;
+        if (charStats[name].currentClusterStreak > charStats[name].maxClusterStreak) charStats[name].maxClusterStreak = charStats[name].currentClusterStreak;
+      } else {
+        charStats[name].currentClusterStreak = 1;
+      }
+      if (isAppeared && curCluster !== null && curCluster >= 0) {
+        if (charStats[name].currentClusterAppeared === curCluster) {
+          charStats[name].currentClusterStreakAppeared++;
+          if (charStats[name].currentClusterStreakAppeared > charStats[name].maxClusterStreakAppeared) charStats[name].maxClusterStreakAppeared = charStats[name].currentClusterStreakAppeared;
+        } else {
+          charStats[name].currentClusterStreakAppeared = 1;
+          charStats[name].currentClusterAppeared = curCluster;
+        }
+      }
 
       const goalHead = (cur.recent_goal ?? "").slice(0, 40);
       const locHead = (cur.location ?? "").slice(0, 20);
@@ -163,13 +187,15 @@ async function main() {
 
   // ── per-character summary ──
   console.log("── [Per-character summary] ──");
-  console.log("char    | eps | label_changes | cluster_changes | goal_changes | loc_changes | fake_risks | streak_overall | streak_appeared");
+  console.log("char    | eps | label_chg | cluster_chg | goal_chg | loc_chg | fake | str_lbl | str_app | str_clu | str_clu_app");
   for (const [name, st] of Object.entries(charStats)) {
     console.log(
       `${name.padEnd(7)} | ${String(st.episodes.length).padStart(3)} | ` +
-      `${String(st.labelChanges).padStart(13)} | ${String(st.clusterChanges).padStart(15)} | ` +
-      `${String(st.goalChanges).padStart(12)} | ${String(st.locationChanges).padStart(11)} | ` +
-      `${String(st.fakeRisks).padStart(10)} | ${String(st.maxStreakOverall).padStart(14)} | ${String(st.maxStreakAppearedOnly).padStart(15)}`
+      `${String(st.labelChanges).padStart(9)} | ${String(st.clusterChanges).padStart(11)} | ` +
+      `${String(st.goalChanges).padStart(8)} | ${String(st.locationChanges).padStart(7)} | ` +
+      `${String(st.fakeRisks).padStart(4)} | ${String(st.maxStreakOverall).padStart(7)} | ` +
+      `${String(st.maxStreakAppearedOnly).padStart(7)} | ` +
+      `${String(st.maxClusterStreak).padStart(7)} | ${String(st.maxClusterStreakAppeared).padStart(11)}`
     );
   }
 
@@ -184,6 +210,11 @@ async function main() {
   // appeared-only streak max
   const maxAppearedStreak = Math.max(...Object.values(charStats).map(c => c.maxStreakAppearedOnly), 0);
   console.log(`max appeared-only emotion streak: ${maxAppearedStreak}` + (maxAppearedStreak >= 3 ? " ⚠ (≥3 정체 의심)" : ""));
+  // R5B-1.7: cluster streak — 단어만 바뀌고 cluster 동일한 fake progression 패턴 측정
+  const maxClusterStreak = Math.max(...Object.values(charStats).map(c => c.maxClusterStreak), 0);
+  const maxClusterStreakAppeared = Math.max(...Object.values(charStats).map(c => c.maxClusterStreakAppeared), 0);
+  console.log(`max cluster streak (overall): ${maxClusterStreak}` + (maxClusterStreak >= 4 ? " ⚠ (cluster 정체)" : ""));
+  console.log(`max cluster streak (appeared-only): ${maxClusterStreakAppeared}` + (maxClusterStreakAppeared >= 4 ? " ⚠" : ""));
 
   // ── Root cause candidate (heuristic) ──
   console.log("");
