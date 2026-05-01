@@ -2010,11 +2010,11 @@ async function captureEpisode(mode = 'body') {
   const capHtml = `<!DOCTYPE html><html><head><meta charset="utf-8">
 <style>
   body { margin:0; background:${bgColor}; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif; }
-  .cap-header { margin-bottom:1.5rem; }
-  .cap-book-title { font-size:.8rem; opacity:.6; letter-spacing:.06em; }
-  .cap-sep { opacity:.4; margin:0 .3rem; }
-  .cap-ep-label { font-size:.8rem; opacity:.5; }
-  .cap-ep-title { font-size:1.1rem; font-weight:700; margin-top:.4rem; color:${CSS_VARS['var(--text)']}; }
+  .cap-header { margin-bottom:2.4rem; padding-bottom:1.2rem; border-bottom:1px solid rgba(168,152,128,.25); }
+  .cap-book-title { font-size:1.55rem; font-weight:700; opacity:.9; letter-spacing:.04em; }
+  .cap-sep { font-size:1.45rem; opacity:.4; margin:0 .35rem; }
+  .cap-ep-label { font-size:1.45rem; font-weight:600; opacity:.7; }
+  .cap-ep-title { font-size:2.2rem; font-weight:800; margin-top:.7rem; line-height:1.35; color:${CSS_VARS['var(--strong)']}; }
   p { margin:.6em 0; line-height:2.1; color:${CSS_VARS['var(--text)']}; font-size:15px; word-break:keep-all; }
   p.dialogue-line { color:${CSS_VARS['var(--strong)']}; font-weight:500; border-left:3px solid rgba(180,100,80,.5); padding-left:.9em; }
 </style>
