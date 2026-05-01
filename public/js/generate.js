@@ -1031,7 +1031,10 @@ function _buildSceneCharDetailedCardHtml(s) {
     ? dataRows.join('')
     : `<div class="scene-char-detail" style="color:var(--text4);font-style:italic;font-size:.75em;">이번 화 상태 미기록</div>`;
 
-  return `<div class="scene-char-item collapsed" data-char="${s.character_name}">
+  // R5B-1.8C UI: 본문 하단 카드는 _기본 open_, capture+ 스타일 계열 시각 톤.
+  //   - wrapper: collapse 클래스 없음 (기본 펼침). 헤더 클릭 시 toggleCharCard로 접기 가능.
+  //   - 항목 (.item-card-expandable): 기존대로 description collapsed 기본, 클릭으로 펼침.
+  return `<div class="scene-char-item ep-end-card" data-char="${s.character_name}">
     <div class="scene-char-header" onclick="toggleCharCard(this)">
       <span class="scene-char-name" style="color:${gColor}">${nameDisplay}</span>
       ${gLabel ? `<span class="scene-char-gender" style="color:${gColor};font-size:.72em;opacity:.7">${gLabel}</span>` : ''}

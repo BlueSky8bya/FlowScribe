@@ -278,15 +278,22 @@
    * 카드는 자기 콘텐츠 높이만 차지하도록 start로 정렬. */
   align-items:start;
 }
-/* 본문 하단 카드는 사이드바보다 두 단계 크게 보이도록 override */
-.ep-end-grid .scene-char-item{
-  padding:16px 18px 14px;
+/* R5B-1.8C UI: 본문 하단 카드 = capture+ 스타일 계열 (여유 있는 vertical 카드).
+ * 사이드바 detailed보다 시원하고, 본문 톤에 맞도록 padding/font 확대.
+ * 카드 자체는 기본 open (.scene-char-item에 .collapsed 안 붙음).
+ */
+.ep-end-grid .scene-char-item.ep-end-card{
+  padding:18px 20px 16px;
   border-radius:12px;
   box-shadow:0 1px 6px rgba(0,0,0,.10);
   font-size:1rem;
+  background:var(--bg2);
+  border:1px solid var(--border);
 }
-.ep-end-grid .scene-char-header{
-  padding-bottom:10px;margin-bottom:10px;gap:.55rem;
+/* ep-end-card 헤더 — capture+ 처럼 깔끔하게. 토글 가능하지만 시각적 강조 최소. */
+.ep-end-grid .scene-char-item.ep-end-card .scene-char-header{
+  padding-bottom:10px;margin-bottom:12px;gap:.55rem;
+  border-bottom:1px solid var(--border);
 }
 .ep-end-grid .scene-char-name{font-size:1.1em;}
 .ep-end-grid .scene-char-gender{font-size:.86em!important;}
@@ -296,11 +303,32 @@
 .ep-end-grid .scene-char-detail .detail-label{
   font-size:.94em;min-width:38px;
 }
+/* R5B-1.8C UI: 본문 하단 카드의 item-card는 capture+의 cap-item-row 스타일 계열.
+ * 박스형(전체 border + 둥근 박스)에서 vertical 리스트 (left-border accent + 더 가벼운 톤)로.
+ * description은 .item-card-expandable.collapsed에서 기본 hidden — 클릭 시 펼침.
+ */
 .ep-end-grid .item-card{
   font-size:.95em;
+  background:transparent;
+  border:none;
+  border-left:2px solid var(--border2);
+  border-radius:0;
+  padding:5px 0 5px 10px;
+  margin-bottom:1px;
 }
+.ep-end-grid .item-card[data-grade="S"]{border-left-color:color-mix(in srgb,#ffd700 70%,transparent);}
+.ep-end-grid .item-card[data-grade="A"]{border-left-color:color-mix(in srgb,#c084fc 70%,transparent);}
+.ep-end-grid .item-card[data-grade="B"]{border-left-color:color-mix(in srgb,#60a5fa 70%,transparent);}
+.ep-end-grid .item-card[data-grade="C"]{border-left-color:color-mix(in srgb,#86efac 70%,transparent);}
+.ep-end-grid .item-card[data-grade="D"]{border-left-color:var(--border2);}
+.ep-end-grid .item-card-expandable:hover{border-left-color:var(--accent-border);background:color-mix(in srgb,var(--bg3) 50%,transparent);}
 .ep-end-grid .item-card-name{font-size:1em;}
 .ep-end-grid .item-card-row{font-size:.92em;}
+.ep-end-grid .item-card-body{
+  border-top:1px dashed var(--border2);
+  margin-top:5px;padding-top:5px;
+}
+.ep-end-grid .item-cards-wrap{gap:2px;}
 .ep-end-grid .emot-badge-wrap .state-badge,
 .ep-end-grid .state-badge{font-size:.92em;padding:.18em .55em;}
 @media (max-width:560px){

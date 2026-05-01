@@ -27,8 +27,9 @@ check("ep-end가 _buildSceneCharDetailedCardHtml 호출 (사이드바와 동일 
   /ep-end-grid[\s\S]{0,300}_buildSceneCharDetailedCardHtml/.test(gen));
 check("legacy 사이드바도 같은 helper 호출",
   /_legacyUpdateSceneCharPanelDetailed[\s\S]{0,800}_buildSceneCharDetailedCardHtml/.test(gen));
+// R5B-1.8C UI: ep-end-card 변종 클래스. wrapper는 _기본 open_ (.collapsed 미부착).
 check("scene-char-item / item-card markup 정의 (helper 안)",
-  /class="scene-char-item collapsed"/.test(gen) && /class="item-card/.test(gen));
+  /class="scene-char-item ep-end-card"/.test(gen) && /class="item-card/.test(gen));
 
 console.log("\n── [3] 사이드바 minimal ──");
 check("scene-char-min markup (이름+성별만)", /class="scene-char-min"/.test(gen));
@@ -66,7 +67,9 @@ check(".episode-end-cards 스타일 정의", /\.episode-end-cards\s*\{/.test(css
 // 허용: minmax(<num>px, 1fr) (구버전) 또는 minmax(<num>px, <num>px) (신버전 cap).
 check(".ep-end-grid auto-fit grid (1~3열 자동, 너비 cap)", /\.ep-end-grid\s*\{[\s\S]*?grid-template-columns:repeat\(auto-fit,minmax\(\d+px,(?:1fr|\d+px)\)\)/.test(css));
 check(".ep-end-grid justify-content:center (1~2개일 때 중앙 정렬)", /\.ep-end-grid\s*\{[\s\S]*?justify-content:center/.test(css));
-check(".ep-end-grid 안 .scene-char-item override (사이드바보다 큼)", /\.ep-end-grid\s+\.scene-char-item\s*\{/.test(css));
+// R5B-1.8C UI: ep-end-card 변종 selector로 사이드바와 분리.
+check(".ep-end-grid 안 .scene-char-item.ep-end-card override (capture+ 계열)",
+  /\.ep-end-grid\s+\.scene-char-item\.ep-end-card\s*\{/.test(css));
 check(".episode-end-cards 명시 width + max-width (column flex 안에서 1열 쪼그라듦 방지)",
   /\.episode-end-cards\s*\{[\s\S]*?width:100%[\s\S]*?max-width:\d+px/.test(css));
 check(".scene-char-min 스타일 정의 (사이드바)", /\.scene-char-min\s*\{/.test(css));
