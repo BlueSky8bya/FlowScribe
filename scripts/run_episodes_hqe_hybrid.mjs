@@ -20,7 +20,8 @@ const outDir = args.includes("--out-dir") ? args[args.indexOf("--out-dir") + 1] 
 if (!bookId || !from || !to) { console.error("Usage: --book-id <uuid> --from N --to M"); process.exit(1); }
 
 const BASE = process.env.APP_URL ?? "http://localhost:3000";
-const ROUTE = "high_quality_ensemble";
+// R5B-4b: --route flag로 비교 가능. 기본값 high_quality_ensemble (R5B-1.9 baseline 호환).
+const ROUTE = args.includes("--route") ? args[args.indexOf("--route") + 1] : "high_quality_ensemble";
 const STREAM = "hybrid";
 
 const { Pool } = pg;
