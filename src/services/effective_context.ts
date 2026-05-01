@@ -82,6 +82,7 @@ export async function buildEffectiveContext(opts: {
     arcSummaries,
     rollingSummaryRows,
     prevTailRow,
+    prevTitlesRows,
     recentDynStateHistory,
   ] = await Promise.allSettled([
     bookId ? redis.get(`context:${bookId}`) : Promise.resolve(null),
@@ -99,6 +100,16 @@ export async function buildEffectiveContext(opts: {
       : Promise.resolve({ rows: [] }),
     bookId && episodeNumber > 1
       ? pool.query(`SELECT content FROM episodes WHERE book_id=$1 AND episode_number=$2`, [bookId, episodeNumber - 1])
+      : Promise.resolve({ rows: [] }),
+    // 이전 화 제목 (renderer에 전달해 동일·유사 제목 재선택 방지). 최근 10화의 첫 줄만.
+    bookId && episodeNumber > 1
+      ? pool.query(
+          `SELECT episode_number, SUBSTRING(content FROM 1 FOR 200) AS head
+           FROM episodes
+           WHERE book_id=$1 AND episode_number < $2
+           ORDER BY episode_number DESC LIMIT 10`,
+          [bookId, episodeNumber]
+        ).catch(() => ({ rows: [] }))
       : Promise.resolve({ rows: [] }),
     // Phase 4.16 — emotional progression streak 감지를 위해 최근 8화 기록 조회
     bookId && episodeNumber >= 4
@@ -232,6 +243,22 @@ export async function buildEffectiveContext(opts: {
     if (content) prevEpisodeTail = content.slice(-900);
   }
 
+  // ── Prev Episode Titles ───────────────────────────────────────
+  // renderer가 동일·유사 제목을 재선택하지 못하도록 최근 화 제목 목록을 컨텍스트에 포함.
+  // content 첫 줄 "# N화 - 제목" 패턴 추출. 추출 실패 시 해당 화는 스킵.
+  const _TITLE_LINE_RE = /^#\s*(\d+화\s*[-–—]\s*.+?)\s*$/m;
+  let prevEpisodeTitles: string[] = [];
+  if (prevTitlesRows.status === "fulfilled") {
+    const rows = (prevTitlesRows.value as any).rows as Array<{ episode_number: number; head: string }>;
+    prevEpisodeTitles = rows
+      .map(r => {
+        const m = (r.head ?? "").match(_TITLE_LINE_RE);
+        return m ? m[1].trim() : null;
+      })
+      .filter((t): t is string => !!t)
+      .reverse();
+  }
+
   // ── Prev Episode State 조립 ────────────────────────────────────
   const prevState: PrevEpisodeState = {
     ...DEFAULT_PREV_STATE,
@@ -291,6 +318,7 @@ export async function buildEffectiveContext(opts: {
     character_arcs: characterArcs,
     rolling_summary: rollingSummary,
     prev_episode_tail: prevEpisodeTail,
+    prev_episode_titles: prevEpisodeTitles,
     continuity_contract: continuityContract,
     episode_delta_contract: episodeDeltaContract,
     reader_profile: readerProfile.status === "fulfilled" ? readerProfile.value : { focus: 55, sentiment: 55, urgency: 50, complexity: 55, dialogue: 55, audio_sync: 40 },

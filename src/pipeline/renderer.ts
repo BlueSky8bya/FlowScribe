@@ -187,6 +187,13 @@ function buildRendererSystemPrompt(plan: ScenePlan, ctx: EffectiveContext): stri
   - [CLIFF] 마커 사용 금지
 `;
 
+  // 이전 화 제목 — 동일·유사 제목 재선택 방지 (구조적, 책 무관 일반 메커니즘)
+  const prevTitlesSection = (ctx.prev_episode_titles && ctx.prev_episode_titles.length > 0)
+    ? `\n[이전 화 제목 — 이번 화 제목으로 재사용·유사 변형 금지]\n` +
+      ctx.prev_episode_titles.map(t => `- ${t}`).join("\n") +
+      `\n  이번 ${ep}화 제목은 위 목록과 의미·핵심 단어가 겹치지 않게 새로 짓는다. 이번 화의 핵심 사건/전환을 반영할 것.\n`
+    : "";
+
   return `[언어] 100% 한국어. 비한글 문자(키릴·아랍·가나·한자 등) 사용 안 함 (고유명사 제외). 영어는 고유명사·브랜드명만 허용.
 
 당신은 한국 소설 생성 AI다.
@@ -229,8 +236,8 @@ ${hookSection}${finaleSection}
 [대화 따옴표]
   모든 대사: "로 열고 "로 닫는다. 미닫힘은 심각한 오류.
 
-[출력 규칙]
-- 화 제목: "# ${ep}화 - 제목" 형식으로 첫 줄
+${prevTitlesSection}[출력 규칙]
+- 화 제목: "# ${ep}화 - 제목" 형식으로 첫 줄. ${ctx.prev_episode_titles && ctx.prev_episode_titles.length > 0 ? "위 [이전 화 제목] 목록과 동일·유사 금지 (의미·키워드 겹침 금지)." : ""}
 - 본문만 출력. 설명·주석·JSON 절대 금지
 - 반드시 완결된 문장으로 끝낼 것
 ${isFinal

@@ -410,6 +410,11 @@ export interface EffectiveContext {
   continuity_contract?: ContinuityContract;
   /** ep >= 2 생성 시 조립되는 진전 강제 계약 */
   episode_delta_contract?: EpisodeDeltaContract;
+  /**
+   * 이전 화 제목 목록 (renderer에 전달해 동일·유사 제목 재사용 방지).
+   * "N화 - 제목" 형식 그대로. 최근 ~10화. ep1에서는 빈 배열.
+   */
+  prev_episode_titles?: string[];
   reader_profile: {
     focus: number; sentiment: number; urgency: number;
     complexity: number; dialogue: number; audio_sync: number;
