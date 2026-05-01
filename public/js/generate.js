@@ -1770,7 +1770,11 @@ function _startLoadingAnim() {
 // 고해상도 PNG 캡처 + text/plain 병행 클립보드 복사
 // scale = max(2, devicePixelRatio) cap 3 → 레티나/4K 환경에서 선명도 보장
 // logical width 900px 고정 → 긴 콘텐츠는 세로로 늘어나고 글자 크기 유지
-async function captureEpisode(withChars = false) {
+//
+// mode 옵션:
+//   'body'  (default) — 본문만 캡처. 인물카드가 있으면 패널에 [인물카드 복사하러 ›] 버튼 표시.
+//   'chars'           — 인물카드만 캡처 (헤더 + 카드 그리드만). [인물카드 복사하러] 진입 시 사용.
+async function captureEpisode(mode = 'body') {
   const outputEl = document.getElementById('output');
   if (!outputEl || !outputEl.textContent.trim()) {
     showToast('캡처할 내용이 없습니다.'); return;
@@ -1778,6 +1782,7 @@ async function captureEpisode(withChars = false) {
   if (typeof html2canvas === 'undefined') {
     showToast('캡처 라이브러리 로딩 중입니다. 잠시 후 다시 시도해주세요.'); return;
   }
+  const charsOnly = mode === 'chars';
 
   const btn = document.getElementById('captureBtnMain');
   const origLabel = btn?.innerHTML;
@@ -1805,27 +1810,34 @@ async function captureEpisode(withChars = false) {
     ${epTitle   ? `<div class="cap-ep-title">${epTitle}</div>` : ''}
   </div>`;
 
-  // 본문 복제 + 대사 강조
-  const bodyClone = outputEl.cloneNode(true);
-  bodyClone.querySelectorAll('.focus-line').forEach(el => el.classList.remove('focus-line'));
-  bodyClone.style.cssText = 'font-size:0.95rem;line-height:2.1;padding:0;color:var(--text);word-break:keep-all;overflow-wrap:break-word;';
-  bodyClone.querySelectorAll('p.dialogue-line').forEach(p => {
-    p.style.cssText = 'color:var(--strong);font-weight:500;border-left:3px solid rgba(180,100,80,.5);padding-left:0.9em;margin-left:0;';
-  });
-  wrap.appendChild(bodyClone);
+  // 본문 복제 + 대사 강조 (charsOnly일 때는 본문 생략)
+  if (!charsOnly) {
+    const bodyClone = outputEl.cloneNode(true);
+    bodyClone.querySelectorAll('.focus-line').forEach(el => el.classList.remove('focus-line'));
+    bodyClone.style.cssText = 'font-size:0.95rem;line-height:2.1;padding:0;color:var(--text);word-break:keep-all;overflow-wrap:break-word;';
+    bodyClone.querySelectorAll('p.dialogue-line').forEach(p => {
+      p.style.cssText = 'color:var(--strong);font-weight:500;border-left:3px solid rgba(180,100,80,.5);padding-left:0.9em;margin-left:0;';
+    });
+    wrap.appendChild(bodyClone);
+  }
 
-  // 본문 plain text (클립보드 text/plain 병행용)
+  // 본문 plain text (클립보드 text/plain 병행용 — body 모드일 때만 의미 있음)
   const plainText = (() => {
     const lines = [];
     if (bookTitle) lines.push(bookTitle + (epLabel ? ' · ' + epLabel : ''));
     if (epTitle)   lines.push(epTitle);
     lines.push('');
-    outputEl.querySelectorAll('p').forEach(p => { if (p.textContent.trim()) lines.push(p.textContent.trim()); });
+    if (!charsOnly) {
+      outputEl.querySelectorAll('p').forEach(p => { if (p.textContent.trim()) lines.push(p.textContent.trim()); });
+    } else {
+      lines.push('[현재 인물 상태]');
+    }
     return lines.join('\n');
   })();
 
-  // 인물정보 섹션 (withChars=true이고 등장 인물이 있을 때)
-  if (withChars && _currentCharStates?.length) {
+  // 인물정보 섹션 — charsOnly이거나 (R5B-1.5 이전 호환) 등장 인물이 있을 때
+  // body 모드는 본문만 캡처 → 패널에서 [인물카드 복사하러 ›] 버튼으로 chars 모드 재진입
+  if (charsOnly && _currentCharStates?.length) {
     const outputText = outputEl.textContent ?? '';
     const appearing = _currentCharStates.filter(s =>
       s.visibility_state !== 'absent' || outputText.includes(s.character_name)
@@ -1834,7 +1846,10 @@ async function captureEpisode(withChars = false) {
       const GENDER_COLOR = { '남성': '#7090c8', '여성': '#c07090', '기타': '#70a878', '해당없음': 'var(--text4)' };
       const GRADE_COLOR  = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
       const divider = document.createElement('div');
-      divider.style.cssText = 'margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid rgba(168,152,128,.2);';
+      // charsOnly 모드는 본문이 없으니 separator 없이 위쪽 여백만 약간
+      divider.style.cssText = charsOnly
+        ? 'margin-top:0;padding-top:0;'
+        : 'margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid rgba(168,152,128,.2);';
       // severity → inline color (캡처는 CSS class 미적용, inline style 필요)
       const PHYS_COLOR = {
         'phys-normal':   { bg: 'rgba(34,197,94,.12)',   color: 'rgba(34,197,94,.9)',   border: 'rgba(34,197,94,.3)'  },
@@ -1936,9 +1951,9 @@ async function captureEpisode(withChars = false) {
                   ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
                   ${displayName}
                 </div>
-                ${cond       ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);letter-spacing:.04em;">상태:</span><span style="color:var(--text2);font-size:.95em;">${cond}</span></div>` : ''}
-                ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);letter-spacing:.04em;">설명:</span><span style="color:var(--text2);font-size:.95em;">${effectiveDesc}</span></div>` : ''}
-                ${hiddenNote ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:center;"><span style="color:var(--text4);letter-spacing:.04em;">위치:</span><span style="color:var(--text2);font-size:.95em;">${hiddenNote}</span></div>` : ''}
+                ${cond       ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">상태:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${cond}</span></div>` : ''}
+                ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">설명:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${effectiveDesc}</span></div>` : ''}
+                ${hiddenNote ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">위치:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${hiddenNote}</span></div>` : ''}
               </div>`;
             }).join('');
             const _capEmotBadges = (e) => {
@@ -2007,8 +2022,8 @@ async function captureEpisode(withChars = false) {
 ${resolveVars(wrap.innerHTML)}
 </div></body></html>`;
 
-  const label    = withChars ? '텍스트+인물정보' : '텍스트';
-  const filename = (n) => `${bookTitle || 'episode'}_${epLabel || ''}${withChars ? '_chars' : ''}${n ? '_p' + String(n).padStart(2,'0') : ''}.png`.replace(/\s+/g,'_');
+  const label    = charsOnly ? '인물정보' : '텍스트';
+  const filename = (n) => `${bookTitle || 'episode'}_${epLabel || ''}${charsOnly ? '_chars' : ''}${n ? '_p' + String(n).padStart(2,'0') : ''}.png`.replace(/\s+/g,'_');
   const done     = () => { document.body.removeChild(wrap); if (btn) { btn.disabled = false; btn.innerHTML = origLabel; } };
 
   // ── PNG 렌더 — CSS 변수 치환 DOM → html2canvas ──────────────
@@ -2113,7 +2128,16 @@ ${resolveVars(wrap.innerHTML)}
   // R5A-C v8 — 페이지 nav: [이전] [복사하기] [다음], 닫기 X는 우상단.
   //   복사 상태는 페이지별 추적 (copiedSet) → 이전/다음 이동 후에도 상태 유지.
   //   이전 페이지로 돌아가서 다시 복사 가능 → 실수 시 닫고 재진입 불필요.
-  const showPageCopyUI = (pages) => {
+  const showPageCopyUI = (pages, opts = {}) => {
+    // R5B-1.5 UI: 캡처 토글 통합 — body 모드에서 인물 카드가 있으면
+    // [인물카드 복사하러 ›] 버튼을 추가해 chars 모드 전환을 유도.
+    // opts.kind: 'body' | 'chars' (panel 헤더 표기 + 'go-chars' 버튼 활성 분기)
+    // opts.onGoChars: chars 모드 진입 callback (body 모드에서만 의미)
+    const kind = opts.kind ?? 'body';
+    const isCharsKind = kind === 'chars';
+    const showGoChars = !isCharsKind && typeof opts.onGoChars === 'function';
+    const headerLabel = isCharsKind ? '인물 카드 순차 복사' : '본문 순차 복사';
+
     let idx = 0;
     const copiedSet = new Set();  // 복사 완료된 페이지 idx 모음
 
@@ -2125,7 +2149,7 @@ ${resolveVars(wrap.innerHTML)}
     const panel = document.createElement('div');
     panel.style.cssText = 'position:relative;background:#1c1a17;border:1px solid rgba(255,255,255,.1);border-radius:16px;padding:32px 32px 26px;width:420px;box-shadow:0 12px 40px rgba(0,0,0,.9);';
 
-    const close = () => document.body.removeChild(overlay);
+    const close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
 
     const render = () => {
       const isFirst = idx === 0;
@@ -2136,7 +2160,7 @@ ${resolveVars(wrap.innerHTML)}
       // 색상 — 배경 #1c1a17 대비 가독성 충분
       panel.innerHTML = `
         <button id="_cap_close" aria-label="닫기" style="position:absolute;top:12px;right:12px;background:transparent;border:none;color:#a89880;font-size:1.5rem;line-height:1;cursor:pointer;width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;transition:background .15s;">×</button>
-        <div style="font-size:1.15rem;color:#d4c0a8;letter-spacing:.04em;margin-bottom:.9rem;font-weight:600;padding-right:32px;">순차 복사 · <span style="color:#f4e4c8;">${idx+1}</span>번째 장 / 총 ${pages.length}장 ${allCopied ? '<span style="color:#22c55e;font-size:.9em;">· 모두 복사됨</span>' : ''}</div>
+        <div style="font-size:1.15rem;color:#d4c0a8;letter-spacing:.04em;margin-bottom:.9rem;font-weight:600;padding-right:32px;">${headerLabel} · <span style="color:#f4e4c8;">${idx+1}</span>번째 장 / 총 ${pages.length}장 ${allCopied ? '<span style="color:#22c55e;font-size:.9em;">· 모두 복사됨</span>' : ''}</div>
         <img src="${thumbUrl}" style="width:100%;border-radius:6px;border:1px solid rgba(255,255,255,.08);margin-bottom:1.1rem;display:block;">
         <div style="font-size:1.05rem;color:${copied?'#22c55e':'#c0a080'};margin-bottom:1.4rem;line-height:1.8;min-height:3.5em;">
           ${copied
@@ -2147,7 +2171,8 @@ ${resolveVars(wrap.innerHTML)}
           <button id="_cap_prev" ${isFirst?'disabled':''} style="background:${isFirst?'#1f1d1a':'#2a2a2a'};border:none;border-radius:8px;padding:.7rem 1rem;color:${isFirst?'#555':'#c0a890'};font-size:1rem;cursor:${isFirst?'not-allowed':'pointer'};font-weight:600;">‹ 이전</button>
           <button id="_cap_copy" style="flex:1;background:${copied?'#3a4a35':'#c87840'};border:none;border-radius:8px;padding:.75rem;color:#fff;font-weight:700;font-size:1.05rem;cursor:pointer;">${copied?'다시 복사':`${idx+1}번째 장 복사하기`}</button>
           <button id="_cap_next" ${isLast?'disabled':''} style="background:${isLast?'#1f1d1a':'#2a2a2a'};border:none;border-radius:8px;padding:.7rem 1rem;color:${isLast?'#555':'#c0a890'};font-size:1rem;cursor:${isLast?'not-allowed':'pointer'};font-weight:600;">다음 ›</button>
-        </div>`;
+        </div>
+        ${showGoChars ? `<div style="margin-top:.9rem;"><button id="_cap_go_chars" style="width:100%;background:#3a3a4a;border:1px solid rgba(168,152,255,.3);border-radius:8px;padding:.7rem;color:#c8c0e8;font-size:.95rem;cursor:pointer;font-weight:600;">📋 인물 카드 복사하러 가기 ›</button></div>` : ''}`;
 
       const closeBtn = panel.querySelector('#_cap_close');
       if (closeBtn) {
@@ -2166,6 +2191,10 @@ ${resolveVars(wrap.innerHTML)}
       panel.querySelector('#_cap_next')?.addEventListener('click', () => {
         if (idx < pages.length - 1) { idx++; render(); }
       });
+      panel.querySelector('#_cap_go_chars')?.addEventListener('click', () => {
+        close();
+        opts.onGoChars();  // showGoChars=true 일 때만 emit
+      });
     };
 
     overlay.appendChild(panel);
@@ -2183,14 +2212,27 @@ ${resolveVars(wrap.innerHTML)}
       const pages = sliceCanvas(canvas, splitCandidates, contentTops);
       console.debug('[capture]', { pages: pages.length, w: canvas.width, h: canvas.height, candidates: splitCandidates.length });
 
-      if (pages.length === 1) {
-        // 단일 페이지 → 클립보드 직접 복사
+      // R5B-1.5: body 모드 + 인물 카드 등장 인물 있음 → showPageCopyUI에서
+      //   [인물 카드 복사하러 ›] 버튼 노출. 단일 페이지여도 panel 띄움.
+      const hasCharsAhead = !charsOnly && _currentCharStates?.length > 0 && _currentCharStates.some(s => {
+        const txt = outputEl.textContent ?? '';
+        return s.visibility_state !== 'absent' || txt.includes(s.character_name);
+      });
+      const onGoChars = hasCharsAhead
+        ? () => { setTimeout(() => captureEpisode('chars'), 50); }
+        : null;
+
+      if (pages.length === 1 && !hasCharsAhead) {
+        // 단일 페이지 + 인물 카드 진입 옵션 없음 → 클립보드 직접 복사
         const blob = await new Promise(res => pages[0].toBlob(res, 'image/png'));
         await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]);
         showToast(`클립보드에 복사됐습니다 (${label} · ${canvas.width}×${canvas.height}px)`);
       } else {
-        // 여러 페이지 → 순차 복사 오버레이
-        showPageCopyUI(pages);
+        // 여러 페이지 OR 인물 카드 진입 가능 → 순차 복사 오버레이
+        showPageCopyUI(pages, {
+          kind: charsOnly ? 'chars' : 'body',
+          onGoChars,
+        });
       }
       done(); return;
     } catch (e) {

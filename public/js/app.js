@@ -48,11 +48,8 @@ function updateEpisodeUI() {
   // 재생성: 최신화에서만
   const regenBtn = document.getElementById("regenBtn");
   if (regenBtn) regenBtn.style.display = (displayedEpisode && isLatestEp) ? "inline-flex" : "none";
-  const capToggle = document.getElementById("capToggleWrap");
-  const capBtn    = document.getElementById("captureBtnMain");
-  const capShow   = displayedEpisode ? "inline-flex" : "none";
-  if (capToggle) capToggle.style.display = capShow;
-  if (capBtn)    capBtn.style.display    = capShow;
+  const capBtn = document.getElementById("captureBtnMain");
+  if (capBtn) capBtn.style.display = displayedEpisode ? "inline-flex" : "none";
 
   // center 구분선: epInfo가 있을 때만
   const directorSep = document.getElementById("directorSep");

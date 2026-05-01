@@ -237,17 +237,7 @@
             </div>
 
             <div class="bc-right">
-              <label class="bc-cap-toggle" id="capToggleWrap" style="display:none" data-tip="OFF: 텍스트만&#10;ON: +인물 정보 포함">
-                <input type="checkbox" id="capToggleCheck" onchange="
-                  window._capWithChars = this.checked;
-                  var b = document.getElementById('captureBtnMain');
-                  document.getElementById('captureBtnLabel').textContent = this.checked ? '캡처+' : '캡처';
-                  b.classList.toggle('cap-active', this.checked);
-                  b.dataset.tip = this.checked ? '본문 + 등장 인물 상태를 이미지로 캡처' : '본문을 이미지로 캡처해 클립보드에 복사';
-                ">
-                <span class="bc-cap-toggle-track"></span>
-              </label>
-              <button class="bc-ghost bc-cap-btn" id="captureBtnMain" style="display:none" onclick="captureEpisode(window._capWithChars)" data-tip="본문을 이미지로 캡처해 클립보드에 복사"><span class="bc-cap-icon">📷</span><span class="bc-cap-label" id="captureBtnLabel">캡처</span></button>
+              <button class="bc-ghost bc-cap-btn" id="captureBtnMain" style="display:none" onclick="captureEpisode()" data-tip="본문을 이미지로 캡처해 클립보드에 복사. 인물 카드는 본문 캡처 후 별도로 진행."><span class="bc-cap-icon">📷</span><span class="bc-cap-label" id="captureBtnLabel">캡처</span></button>
               <button class="bc-primary" id="sendBtn" onclick="generate()">1화 생성</button>
             </div>
 

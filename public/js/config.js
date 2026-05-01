@@ -42,7 +42,7 @@ const episodeCache = {};
 let bookId = null; // auth.js의 initAuth()에서 설정
 let activeBookTitle = ""; // 현재 선택된 책 제목
 let readMode = localStorage.getItem("fs-readmode") || "eye";
-window._capWithChars = false; // 캡처 토글 상태 (false=텍스트만, true=+인물정보)
+// R5B-1.5 UI: 캡처 토글 통합 — 본문 캡처 후 [인물카드 복사하러] 버튼으로 분기. _capWithChars 폐기.
 
 // ── 인물 로딩 메시지 풀 ───────────────────────────────────────
 const LOADING_MSGS = [
