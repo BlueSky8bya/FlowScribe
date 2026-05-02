@@ -24,17 +24,20 @@ function clearWorldSettingsUI() {
   if (ccn) ccn.textContent = "1";
   _syncCharCounterBtns?.();
 
-  // storyConfig 기본값 복원
-  Object.assign(storyConfig, {
-    conflict:3, foreshadow:3, emotion:3, dialogue:3, direction:3,
-    episodeLength:2000, episodeLengthVar:500, totalEpisodes:30, totalEpisodesVar:5,
-    pov: "3인칭 관찰자", style: "균형",
-  });
+  // storyConfig 기본값 복원 — config.js의 STORY_CONFIG_DEFAULTS와 동일 값으로 갈아끼움.
+  // POST-S13.5: 직전 책에서 Object.assign으로 동적 추가된 키(genre/mood 등)도 모두 제거 후 default로 reset.
+  // 이렇게 하지 않으면 reset 객체에 없는 키는 잔존 → saveContext payload에 stale 값 섞여 새 책에 박힘.
+  for (const k of Object.keys(storyConfig)) delete storyConfig[k];
+  Object.assign(storyConfig, STORY_CONFIG_DEFAULTS);
   ["conflict","foreshadow","emotion","dialogue","direction"].forEach(key => {
     const slider = document.getElementById(key + "Slider");
     const valEl  = document.getElementById(key + "Val");
-    if (slider) { slider.value = storyConfig[key]; slider.style.setProperty("--pct", "22.2%"); }
-    if (valEl)  valEl.textContent = storyConfig[key];
+    if (slider) {
+      slider.value = storyConfig[key];
+      const pct = ((storyConfig[key] - 1) / 9 * 100).toFixed(1) + "%";
+      slider.style.setProperty("--pct", pct);
+    }
+    if (valEl) valEl.textContent = storyConfig[key];
   });
   ["pov","style"].forEach(key => {
     const val = storyConfig[key];

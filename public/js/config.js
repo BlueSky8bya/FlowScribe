@@ -25,10 +25,13 @@ const moodVals    = [];
 const lockedSettings = new Set();
 const lockedMoods    = new Set();
 
-// 서사 설정 상태
-const storyConfig = {
+// 서사 설정 기본값 — POST-S13.5 fix: storyConfig 초기값과 clearWorldSettingsUI() reset이 같은 상수를 참조한다.
+// genre/mood도 명시적으로 정의해, 책 전환 시 직전 책에서 Object.assign으로 동적 추가된 키가 잔존하지 않도록 한다.
+const STORY_CONFIG_DEFAULTS = Object.freeze({
   pov: "3인칭 관찰자",
   style: "균형",
+  genre: "",
+  mood: "",
   episodeLength: 2000,
   episodeLengthVar: 500,
   totalEpisodes: 30,
@@ -38,7 +41,10 @@ const storyConfig = {
   emotion: 5,
   dialogue: 5,
   direction: 5,
-};
+});
+
+// 서사 설정 상태 — STORY_CONFIG_DEFAULTS로 초기화. 책 전환 시 clearWorldSettingsUI()가 reset.
+const storyConfig = { ...STORY_CONFIG_DEFAULTS };
 const ruleEntries = []; // { val, hard }
 let charCount     = 1;
 let currentEpisode = 1;
