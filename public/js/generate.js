@@ -940,7 +940,7 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
     const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
     return `<div class="cap-item-row" style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
       <div style="font-size:.78em;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3em;">
-        ${showGrade ? `<span style="font-size:.67em;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25em;">${grade}</span>` : (ql ? `<span style="font-size:.67em;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25em;background:${ql.color}18;">${ql.label}</span>` : '')}
+        ${showGrade ? `<span style="font-size:.85em;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .3em;">${grade}</span>` : (ql ? `<span style="font-size:.85em;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .3em;background:${ql.color}18;">${ql.label}</span>` : '')}
         ${displayName}
       </div>
       ${cond       ? `<div style="font-size:.72em;display:flex;gap:.4em;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">상태:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${cond}</span></div>` : ''}
