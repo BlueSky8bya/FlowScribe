@@ -1802,13 +1802,13 @@ async function captureEpisode(mode = 'body') {
     'font-size:15px',  // 명시적 기준 font-size — html2canvas가 상속하도록
   ].join(';');
 
-  // 헤더 — 책 제목 (1줄) / "n화 (화 제목)" (1줄). charsOnly 모드는 헤더 생략.
+  // 헤더 — 책 제목 (1줄) / "n화 화 제목" (1줄). FINAL: 괄호 제거.
   const bookTitle = document.getElementById('outputBookTitle')?.textContent?.trim() ?? '';
   const epLabel   = document.getElementById('outputEpLabel')?.textContent?.trim() ?? '';
   const epTitle   = document.getElementById('outputEpTitle')?.textContent?.trim() ?? '';
-  // ep label + title 한 줄로 합치기: "{n화} ({화 제목})" — 둘 중 하나만 있어도 자연스럽게
+  // ep label + title 한 줄로 합치기: "{n화} {화 제목}" — 둘 중 하나만 있어도 자연스럽게
   const epLineText = epLabel
-    ? (epTitle ? `${epLabel} (${epTitle})` : epLabel)
+    ? (epTitle ? `${epLabel} ${epTitle}` : epLabel)
     : (epTitle ?? '');
   wrap.innerHTML = charsOnly ? '' : `<div class="cap-header">
     ${bookTitle ? `<div class="cap-book-title">${bookTitle}</div>` : ''}

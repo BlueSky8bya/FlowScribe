@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>FlowScribe</title>
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 64 64%22><rect width=%2264%22 height=%2264%22 rx=%2212%22 fill=%22%231a1a2e%22/><text x=%2232%22 y=%2244%22 font-family=%22sans-serif%22 font-size=%2240%22 font-weight=%22bold%22 fill=%22%23e8e8f0%22 text-anchor=%22middle%22>F</text></svg>" />
   <link rel="stylesheet" href="/css/tokens.css" />
   <link rel="stylesheet" href="/css/layout.css?v=2" />
   <link rel="stylesheet" href="/css/components.css?v=33" />
@@ -203,12 +204,12 @@
           <button class="icon-btn debug-mode-btn" id="debugModeBtn" onclick="toggleDebugDrawer()" title="디버그 모드">🔍</button>
         </div>
 
-        <!-- 에피소드 제목 헤더 -->
+        <!-- 에피소드 제목 헤더 — FINAL: 좌(N화 화 제목) / 우(책 제목) -->
         <div class="output-header" id="outputHeader" style="display:none;">
-          <span class="output-book-title" id="outputBookTitle"></span>
-          <span class="output-ep-sep" id="outputEpSep" style="display:none;">·</span>
           <span class="output-ep-label" id="outputEpLabel"></span>
           <span class="output-ep-title" id="outputEpTitle"></span>
+          <span class="output-ep-sep" id="outputEpSep" style="display:none;">·</span>
+          <span class="output-book-title" id="outputBookTitle"></span>
         </div>
 
         <!-- 출력 스크롤 영역 -->

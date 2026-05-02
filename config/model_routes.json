@@ -1,11 +1,11 @@
 {
-  "$schema_comment": "Phase 4.12 Model Routing Configuration. router는 ${ENV_VAR} 형태를 process.env에서 치환한다. R5B-4d (2026-05-02): production active_route를 openai_renderer로 전환 — 100ep TEST2G actual PASS 입증. baseline_local은 fallback.",
+  "$schema_comment": "Phase 4.12 Model Routing Configuration. router는 ${ENV_VAR} 형태를 process.env에서 치환한다. R5B-4d (2026-05-02): production active_route를 openai_renderer로 전환 — 100ep TEST2G actual PASS 입증. baseline_local은 fallback. FINAL (2026-05-02): 미사용 route_set 제거 (deepseek_*, high_quality_ensemble, gemma3_*_local, gemini_renderer) — production 사용 route(openai_renderer + baseline_local fallback)만 유지.",
   "active_route": "openai_renderer",
   "fallback_route": "baseline_local",
 
   "route_sets": {
     "baseline_local": {
-      "description": "현재 운영 — Phase 4.11까지의 baseline",
+      "description": "Fallback route — OpenAI 장애 시 안전망 (ollama + gemini narrative_repair)",
       "routes": {
         "world_setting_suggest":   { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
         "rules_suggest":           { "provider": "ollama", "model": "${SUGGEST_MODEL:-gemma3:12b}", "temperature": 0.7 },
@@ -35,95 +35,11 @@
       }
     },
 
-    "deepseek_renderer": {
-      "description": "Route B — DeepSeek로 본문 생성 (한국어 문장력 비교)",
-      "routes": {
-        "renderer":         { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
-        "narrative_repair": { "provider": "gemini",   "model": "gemini-2.5-flash", "temperature": 0.1 }
-      }
-    },
-
-    "deepseek_planner": {
-      "description": "Route C — DeepSeek로 plan 생성",
-      "routes": {
-        "planner":          { "provider": "deepseek", "model": "${DEEPSEEK_PLANNER_MODEL:-deepseek-chat}", "temperature": 0.4, "json_mode": true },
-        "narrative_repair": { "provider": "gemini",   "model": "gemini-2.5-flash", "temperature": 0.1 }
-      }
-    },
-
-    "deepseek_full": {
-      "description": "Route D — Planner + Renderer 둘 다 DeepSeek",
-      "routes": {
-        "planner":  { "provider": "deepseek", "model": "${DEEPSEEK_PLANNER_MODEL:-deepseek-chat}",  "temperature": 0.4, "json_mode": true },
-        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
-        "narrative_repair": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 }
-      }
-    },
-
-    "gemini_planner_deepseek_renderer": {
-      "description": "Route E — Planner는 Gemini, Renderer는 DeepSeek",
-      "routes": {
-        "planner":  { "provider": "gemini",   "model": "${GEMINI_PLANNER_MODEL:-gemini-2.5-flash}", "temperature": 0.4, "json_mode": true },
-        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
-        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
-      }
-    },
-
-    "high_quality_ensemble": {
-      "description": "Route F — Planner OpenAI, Renderer DeepSeek, Repair OpenAI/Gemini",
-      "routes": {
-        "planner":  { "provider": "openai",   "model": "${OPENAI_PLANNER_MODEL:-gpt-4.1-mini}", "temperature": 0.4, "json_mode": true },
-        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
-        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 },
-        "arc_summary_writer": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.3 },
-        "foreshadow_reasoning":{ "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.2 }
-      }
-    },
-
-    "gemma3_12b_fast_local": {
-      "description": "Route D — gemma3:12b 단독 fast local (API 없이 동작)",
-      "routes": {
-        "planner":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.4 },
-        "renderer": { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.7 },
-        "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
-        "narrative_repair": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 }
-      }
-    },
-
-    "gemma3_27b_full_local": {
-      "description": "Route H — gemma3:27b 단독 local high-quality (API 없이)",
-      "routes": {
-        "planner":  { "provider": "ollama", "model": "gemma3:27b", "temperature": 0.4 },
-        "renderer": { "provider": "ollama", "model": "gemma3:27b", "temperature": 0.7 },
-        "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
-        "narrative_repair": { "provider": "gemini", "model": "gemini-2.5-flash", "temperature": 0.1 }
-      }
-    },
-
-    "gemma3_27b_planner_deepseek_renderer": {
-      "description": "Route I — gemma3:27b planner + DeepSeek renderer (cost/quality 균형)",
-      "routes": {
-        "planner":  { "provider": "ollama", "model": "gemma3:27b", "temperature": 0.4 },
-        "renderer": { "provider": "deepseek", "model": "${DEEPSEEK_RENDERER_MODEL:-deepseek-chat}", "temperature": 0.7 },
-        "state_extractor":  { "provider": "ollama", "model": "gemma3:12b", "temperature": 0.2 },
-        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
-      }
-    },
-
     "openai_renderer": {
-      "description": "Route J (R5B-4a 비교용) — Planner OpenAI, Renderer OpenAI gpt-4.1-mini",
+      "description": "Production active route — Planner + Renderer + Repair 모두 OpenAI gpt-4.1-mini (R5B-4c 100ep PASS, R6 60ep multi-genre PASS).",
       "routes": {
         "planner":  { "provider": "openai", "model": "${OPENAI_PLANNER_MODEL:-gpt-4.1-mini}", "temperature": 0.4, "json_mode": true },
         "renderer": { "provider": "openai", "model": "${OPENAI_RENDERER_MODEL:-gpt-4.1-mini}", "temperature": 0.7 },
-        "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
-      }
-    },
-
-    "gemini_renderer": {
-      "description": "Route K (R5B-4a 비교용) — Planner OpenAI, Renderer Gemini 2.5-flash",
-      "routes": {
-        "planner":  { "provider": "openai", "model": "${OPENAI_PLANNER_MODEL:-gpt-4.1-mini}", "temperature": 0.4, "json_mode": true },
-        "renderer": { "provider": "gemini", "model": "${GEMINI_RENDERER_MODEL:-gemini-2.5-flash}", "temperature": 0.7 },
         "narrative_repair": { "provider": "openai", "model": "${OPENAI_REPAIR_MODEL:-gpt-4.1-mini}", "temperature": 0.1 }
       }
     }
