@@ -24,7 +24,7 @@ check("updateSceneCharPanel가 renderEpisodeEndCharCards 호출", /renderEpisode
 check("_buildSceneCharDetailedCardHtml helper 정의", /function _buildSceneCharDetailedCardHtml\s*\(/.test(gen));
 check("ep-end-grid container 생성", /class="ep-end-grid"/.test(gen));
 check("ep-end가 _buildSceneCharDetailedCardHtml 호출 (사이드바와 동일 markup)",
-  /ep-end-grid[\s\S]{0,300}_buildSceneCharDetailedCardHtml/.test(gen));
+  /ep-end-grid[\s\S]{0,800}_buildSceneCharDetailedCardHtml/.test(gen));
 check("legacy 사이드바도 같은 helper 호출",
   /_legacyUpdateSceneCharPanelDetailed[\s\S]{0,800}_buildSceneCharDetailedCardHtml/.test(gen));
 // POST-1 §S10 reopen — wrapper는 cap-char-card + scene-char-item ep-end-card 병합.

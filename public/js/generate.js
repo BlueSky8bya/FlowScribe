@@ -877,6 +877,8 @@ function _capEmotBadgesHtml(e) {
 // 캡처+ 스타일 인물 카드 — 본문 하단 ep-end + 캡처 양쪽 공유.
 // opts.extraClass: 추가 wrapper class (예: 'scene-char-item ep-end-card')
 // opts.dataChar:   true이면 data-char 속성 추가 (출력 동기화)
+// opts.fontScale:  outer font-size 배율 (rem 단위). 기본 1, 본문 하단은 1.15로 키움.
+//                  내부는 모두 em 단위라 outer font-size에 비례 스케일.
 function _buildCapStyleCharCardHtml(s, opts = {}) {
   const gColor = _CAP_GENDER_COLOR[s.gender] ?? 'var(--text4)';
   const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
@@ -887,8 +889,8 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
   const isFantasyGenre = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
 
   const stateRow = (lbl, valHtml) =>
-    `<div style="display:flex;gap:.35rem;font-size:.78rem;margin-top:3px;align-items:flex-start;">
-      <span style="color:var(--text4);min-width:1.6rem;flex-shrink:0;">${lbl}</span>
+    `<div style="display:flex;gap:.35em;font-size:.78em;margin-top:3px;align-items:flex-start;">
+      <span style="color:var(--text4);min-width:1.6em;flex-shrink:0;">${lbl}</span>
       <span>${valHtml}</span>
     </div>`;
 
@@ -914,13 +916,13 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
     const ql  = !showGrade ? _capQlabel(displayName) : null;
     const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
     return `<div class="cap-item-row" style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
-      <div style="font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3rem;">
-        ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
+      <div style="font-size:.78em;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3em;">
+        ${showGrade ? `<span style="font-size:.67em;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25em;">${grade}</span>` : (ql ? `<span style="font-size:.67em;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25em;background:${ql.color}18;">${ql.label}</span>` : '')}
         ${displayName}
       </div>
-      ${cond       ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">상태:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${cond}</span></div>` : ''}
-      ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">설명:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${effectiveDesc}</span></div>` : ''}
-      ${hiddenNote ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">위치:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${hiddenNote}</span></div>` : ''}
+      ${cond       ? `<div style="font-size:.72em;display:flex;gap:.4em;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">상태:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${cond}</span></div>` : ''}
+      ${effectiveDesc ? `<div style="font-size:.72em;display:flex;gap:.4em;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">설명:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${effectiveDesc}</span></div>` : ''}
+      ${hiddenNote ? `<div style="font-size:.72em;display:flex;gap:.4em;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">위치:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${hiddenNote}</span></div>` : ''}
     </div>`;
   }).join('');
 
@@ -928,14 +930,19 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
     stateRow('감정', _capEmotBadgesHtml(s.emotional_state)),
     stateRow('신체', _capPhysBadgesHtml(s.physical_state || '정상')),
     (s.items?.length
-      ? `<div style="margin-top:4px;"><div style="font-size:.72rem;color:var(--text4);">소지</div>${itemsHtml}</div>`
+      ? `<div style="margin-top:4px;"><div style="font-size:.72em;color:var(--text4);">소지</div>${itemsHtml}</div>`
       : stateRow('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>')),
   ].join('');
 
   const cls       = `cap-char-card${opts.extraClass ? ' ' + opts.extraClass : ''}`;
   const dataAttr  = opts.dataChar ? ` data-char="${s.character_name}"` : '';
-  return `<div class="${cls}"${dataAttr} style="background:var(--bg2);border-radius:10px;padding:.75rem 1rem;border:1px solid var(--border);">
-    <div style="font-size:.86rem;font-weight:700;color:${gColor};margin-bottom:.5rem;">${nameDisplay}${gLabel ? ` <span style="font-size:.7rem;opacity:.6;font-weight:400;">${gLabel}</span>` : ''}</div>
+  // POST-1 §S10 reopen-2:
+  //   - outer font-size = ${fsRoot}rem로 설정 → 내부 em 단위 폰트 비례 스케일.
+  //   - height:100%; box-sizing:border-box → grid align-items:stretch와 호환,
+  //     같은 row 카드들이 가장 큰 카드 높이에 맞춰 통일.
+  const fsRoot = `${opts.fontScale ?? 1}rem`;
+  return `<div class="${cls}"${dataAttr} style="background:var(--bg2);border-radius:10px;padding:.75rem 1rem;border:1px solid var(--border);font-size:${fsRoot};height:100%;box-sizing:border-box;">
+    <div style="font-size:.95em;font-weight:700;color:${gColor};margin-bottom:.5em;">${nameDisplay}${gLabel ? ` <span style="font-size:.78em;opacity:.6;font-weight:400;">${gLabel}</span>` : ''}</div>
     ${rows}
   </div>`;
 }
@@ -1020,8 +1027,9 @@ function renderEpisodeEndCharCards(charStates) {
     const html = _buildSceneCharDetailedCardHtml(s);
     // 3-col layout에서 마지막 카드가 row의 첫 cell에만 위치하면 빈 column이 우측에 보임 → 가운데로.
     if (n >= 3 && (idx === n - 1) && (n % 3 === 1)) {
-      // 마지막 단독 카드 → 2번째 column에 배치 (POST-1 §S10 reopen: cap-char-card wrapper 기준)
-      return html.replace('class="cap-char-card', 'style="grid-column:2;" class="cap-char-card');
+      // 마지막 단독 카드 → 2번째 column에 배치. reopen-2: 카드의 inline style 안에
+      // 직접 grid-column을 추가 (별도 style attr 추가 시 동일 attr 중복으로 background/border가 무시됨).
+      return html.replace('style="background:var(--bg2)', 'style="grid-column:2;background:var(--bg2)');
     }
     return html;
   }).join('');
@@ -1036,10 +1044,12 @@ function renderEpisodeEndCharCards(charStates) {
 // POST-1 §S10 reopen — 본문 하단 ep-end-card는 캡처와 동일 presentational renderer 사용.
 // _buildCapStyleCharCardHtml에 verify-호환 wrapper class만 추가로 부여.
 // 항상 펼침, toggle/chevron 없음, 소지품 상세(상태·설명·위치) 기본 노출.
+// reopen-2: fontScale 1.15로 본문 하단 카드 폰트 키움 (캡처보다 약 15% 큼).
 function _buildSceneCharDetailedCardHtml(s) {
   return _buildCapStyleCharCardHtml(s, {
     extraClass: 'scene-char-item ep-end-card',
     dataChar:   true,
+    fontScale:  1.15,
   });
 }
 

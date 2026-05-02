@@ -273,10 +273,11 @@
   grid-template-columns:repeat(auto-fit,minmax(200px,350px));
   justify-content:center;
   gap:10px;
-  /* grid default align-items:stretch이면 한 카드가 펼쳐질 때 같은 row의 다른
-   * 카드도 그 높이만큼 늘어나(빈 박스가 함께 커져) "같이 확장된 것처럼" 보인다.
-   * 카드는 자기 콘텐츠 높이만 차지하도록 start로 정렬. */
-  align-items:start;
+  /* POST-1 §S10 reopen-2: 같은 row 카드들이 동일 높이로 보이도록 stretch.
+   * 이전 align-items:start는 토글 펼침 시 빈 row 늘어남 방지였으나, S10 reopen에서
+   * toggle/chevron 자체가 사라져 더 이상 해당 위험 없음. 카드 inner div는 height:100%
+   * + box-sizing:border-box를 inline으로 부여받아 grid cell을 가득 채움. */
+  align-items:stretch;
 }
 /* POST-1 §S10 reopen — 본문 하단 카드 = 캡처와 동일한 _buildCapStyleCharCardHtml로 렌더.
  * 카드 본체는 inline style로 자체 처리 (background:var(--bg2), border, padding .75rem 1rem,
