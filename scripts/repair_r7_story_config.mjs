@@ -1,8 +1,9 @@
 /**
- * repair_r7_story_config.mjs — POST-S13.5 R7 canary 책 storyConfig 정정
+ * repair_r7_story_config.mjs v2 — POST-S13.5 P0 R7 canary storyConfig 정정
  *
- * R7 canary 책(R7_회색지대_생존기_CANARY)의 books.context.story_config 필드와
- * forbidden_settings에 박힌 stale 값을 R7 목적에 맞게 정정한다.
+ * v1과 차이: books.context만 UPDATE하던 부분 회귀를 차단.
+ * v2는 syncWorldContext helper를 호출해 books.context + world_configs + world_rules + Redis를
+ * 한 번에 동기화한다 (saveContext API와 동일한 sync 경로).
  *
  * 본 script는 명시적 --apply 없이는 dry-run only — 절대 DB write 안 함.
  *
@@ -10,37 +11,35 @@
  *   # dry-run (DB 미수정)
  *   node scripts/repair_r7_story_config.mjs --book-id <book_id>
  *
- *   # 실제 UPDATE 적용
+ *   # 실제 sync 적용 (4중)
  *   node scripts/repair_r7_story_config.mjs --book-id <book_id> --apply
  *
  * 안전 가드:
  *   - book_id 미입력 시 즉시 종료
  *   - title이 정확히 "R7_회색지대_생존기_CANARY"인지 검증 (다른 책 보호)
- *   - --apply 없으면 어떤 UPDATE도 수행 안 함
- *   - 트랜잭션 사용 — 부분 실패 시 rollback
- *   - world_rules / character_defaults / canonical_characters / item_vocab은 절대 미터치
- *   - resolved_final_episode 유지 (정상 정책: totalEpisodes 30 ± totalEpisodesVar 5 범위 random)
+ *   - --apply 없으면 어떤 DB write도 수행 안 함
+ *   - syncWorldContext가 단일 트랜잭션 — 부분 실패 시 rollback
+ *   - canonical_characters / item_vocab / characters / initial_items 절대 미터치
+ *   - resolved_final_episode 보존 (정상 정책: totalEpisodes 30 ± totalEpisodesVar 5 random)
  *
  * 정정 대상 (storyConfig):
- *   genre:     "포스트아포칼립스 서바이벌"
- *   mood:      "스릴러, 드라마"
- *   style:     "균형"
- *   emotion:   5
- *   conflict:  5
- *   direction: 5
+ *   genre/mood/style/emotion/conflict/direction
  *
  * 유지 (변경 없음):
  *   pov, dialogue, foreshadow, episodeLength*, totalEpisodes*, resolved_final_episode
  *
  * 정정 대상 (forbidden_settings):
- *   하나라도 있으면 그대로 유지하고, 빠진 hard rule만 추가한다.
- *     - "사망자 발화 금지"
- *     - "지식 경계 / 알 수 없는 정보 사용 금지"
+ *   - "사망자 발화 금지"
+ *   - "지식 경계 / 알 수 없는 정보 사용 금지"
+ *   (이미 등록된 항목은 dedupe)
  */
 
 import pg from "pg";
 import { config as loadEnv } from "dotenv";
 loadEnv();
+
+// dist에서 helper import — tsc 빌드가 먼저 실행되어야 한다.
+const { syncWorldContext } = await import("../dist/services/world_context_sync.js");
 
 const { Pool } = pg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
@@ -91,7 +90,7 @@ function diffForbidden(current, required) {
 
 async function main() {
   console.log(`\n${"═".repeat(72)}`);
-  console.log(`repair_r7_story_config — ${MODE}`);
+  console.log(`repair_r7_story_config v2 — ${MODE}`);
   console.log(`book_id:  ${BOOK_ID}`);
   console.log(`${"═".repeat(72)}`);
 
@@ -113,7 +112,6 @@ async function main() {
   const sc  = ctx.story_config || {};
   const fb  = ctx.forbidden_settings;
 
-  // delta 계산
   const scDelta = diffStoryConfig(sc, TARGET_STORY_CONFIG);
   const fbDelta = diffForbidden(fb, REQUIRED_FORBIDDEN);
 
@@ -140,7 +138,6 @@ async function main() {
   if (fbDelta.toAdd.length === 0) console.log("    (없음 — 이미 모두 등록됨)");
   else fbDelta.toAdd.forEach(s => console.log(`    + ${s}`));
 
-  // 미터치 영역 표시
   console.log(`\n${"─".repeat(72)}`);
   console.log("UNTOUCHED (미터치 영역)");
   console.log(`${"─".repeat(72)}`);
@@ -157,12 +154,25 @@ async function main() {
   console.log(`  • storyConfig.resolved_final_episode: ${sc.resolved_final_episode ?? "(없음)"} — 유지 (정상 정책)`);
   console.log(`  • canonical_characters: 미터치 (별도 테이블)`);
   console.log(`  • item_vocab:           미터치 (별도 테이블)`);
+  console.log(`  • characters:           미터치 (별도 테이블)`);
+
+  console.log(`\n${"─".repeat(72)}`);
+  console.log("v2 sync 대상 (helper 호출 시 갱신)");
+  console.log(`${"─".repeat(72)}`);
+  console.log("  1. books.context           UPDATE jsonb (story_config + forbidden_settings 적용)");
+  console.log("  2. world_configs           upsert (genre/mood/background/theme/common_tone)");
+  console.log("  3. world_rules             deactivate + reinsert (general / absolute_forbidden)");
+  console.log("  4. Redis context:${book_id} SET (TTL 7일)");
 
   if (scDelta.length === 0 && fbDelta.toAdd.length === 0) {
     console.log(`\n${"─".repeat(72)}`);
-    console.log("변경할 항목 없음 — 정정 불필요. 종료.");
-    await pool.end();
-    return;
+    console.log("storyConfig + forbidden 변경할 항목 없음. ");
+    console.log("단, world_configs/world_rules/Redis가 stale일 가능성 → --apply로 helper 강제 sync 권장.");
+    if (!APPLY) {
+      console.log("DRY-RUN 종료. DB 미수정.");
+      await pool.end();
+      return;
+    }
   }
 
   if (!APPLY) {
@@ -172,9 +182,9 @@ async function main() {
     return;
   }
 
-  // APPLY: 트랜잭션 안에서 context jsonb 갱신
+  // APPLY: helper 호출 — 4중 sync (트랜잭션 내부)
   console.log(`\n${"─".repeat(72)}`);
-  console.log("APPLY — context jsonb UPDATE (transaction)");
+  console.log("APPLY — syncWorldContext helper 호출 (4중 sync)");
   console.log(`${"─".repeat(72)}`);
 
   const newSc = { ...sc };
@@ -185,24 +195,16 @@ async function main() {
     forbidden_settings: fbDelta.finalArr,
   };
 
-  const client = await pool.connect();
   try {
-    await client.query("BEGIN");
-    const upd = await client.query(
-      `UPDATE books SET context = $1::jsonb, updated_at = NOW() WHERE id = $2 AND title = $3`,
-      [JSON.stringify(newCtx), BOOK_ID, EXPECTED_TITLE]
-    );
-    if (upd.rowCount !== 1) {
-      throw new Error(`UPDATE rowCount unexpected: ${upd.rowCount}`);
-    }
-    await client.query("COMMIT");
-    console.log(`✓ COMMIT — books.context jsonb UPDATE (rowCount=${upd.rowCount}).`);
+    const result = await syncWorldContext(BOOK_ID, newCtx);
+    console.log(`✓ syncWorldContext 완료`);
+    console.log(`  genre_synced:    ${result.genre_synced}`);
+    console.log(`  general_count:   ${result.general_count}`);
+    console.log(`  forbidden_count: ${result.forbidden_count}`);
   } catch (e) {
-    await client.query("ROLLBACK").catch(() => {});
-    console.error(`✗ ROLLBACK — ${e?.message ?? e}`);
-    process.exitCode = 1;
-  } finally {
-    client.release();
+    console.error(`✗ syncWorldContext 실패: ${e?.message ?? e}`);
+    await pool.end().catch(() => {});
+    process.exit(1);
   }
 
   // post-apply read-only 검증
@@ -216,17 +218,32 @@ async function main() {
   for (const [k, target] of Object.entries(TARGET_STORY_CONFIG)) {
     const got = vSc[k];
     const ok = got === target;
-    console.log(`  ${ok ? "✓" : "✗"} storyConfig.${k} = ${JSON.stringify(got)} ${ok ? "" : `(expected ${JSON.stringify(target)})`}`);
+    console.log(`  ${ok ? "✓" : "✗"} books.context.story_config.${k} = ${JSON.stringify(got)}`);
     if (!ok) vFail++;
   }
   for (const r of REQUIRED_FORBIDDEN) {
     const ok = vFb.some(x => String(x).trim() === r);
-    console.log(`  ${ok ? "✓" : "✗"} forbidden contains "${r}"`);
+    console.log(`  ${ok ? "✓" : "✗"} forbidden_settings contains "${r}"`);
     if (!ok) vFail++;
   }
-  console.log(`  • storyConfig.resolved_final_episode = ${vSc.resolved_final_episode ?? "(없음)"} (유지)`);
-  console.log(`  • storyConfig.episodeLength = ${vSc.episodeLength ?? "(없음)"} (유지)`);
-  console.log(`  • storyConfig.totalEpisodes = ${vSc.totalEpisodes ?? "(없음)"} (유지)`);
+  console.log(`  • books.context.story_config.resolved_final_episode = ${vSc.resolved_final_episode ?? "(없음)"} (유지)`);
+
+  // world_configs 검증
+  const wc = await pool.query(`SELECT genre, mood, background FROM world_configs WHERE book_id = $1`, [BOOK_ID]);
+  const wcRow = wc.rows[0] ?? {};
+  console.log(`  ${wcRow.genre === TARGET_STORY_CONFIG.genre ? "✓" : "✗"} world_configs.genre = ${JSON.stringify(wcRow.genre)}`);
+  console.log(`  ${wcRow.mood === TARGET_STORY_CONFIG.mood   ? "✓" : "✗"} world_configs.mood = ${JSON.stringify(wcRow.mood)}`);
+  if (wcRow.genre !== TARGET_STORY_CONFIG.genre) vFail++;
+  if (wcRow.mood !== TARGET_STORY_CONFIG.mood) vFail++;
+
+  // world_rules.absolute_forbidden 검증
+  const wr = await pool.query(`SELECT content FROM world_rules WHERE book_id = $1 AND rule_type = 'absolute_forbidden' AND is_active = true`, [BOOK_ID]);
+  const fbRows = wr.rows.map(r => r.content.trim());
+  for (const r of REQUIRED_FORBIDDEN) {
+    const ok = fbRows.some(x => x === r);
+    console.log(`  ${ok ? "✓" : "✗"} world_rules.absolute_forbidden contains "${r}"`);
+    if (!ok) vFail++;
+  }
 
   await pool.end();
   process.exit(vFail > 0 ? 1 : 0);
