@@ -1026,7 +1026,7 @@ export async function runCreativePlanner(
   sc: ExtractedStateConstraints,
   modelOverride?: string,
   routeSetOverride?: string,
-): Promise<{ plan: CreativePlan; fallback_used: boolean; raw_output: string }> {
+): Promise<{ plan: CreativePlan; fallback_used: boolean; raw_output: string; model_used: string; provider: string }> {
   const systemPrompt = buildPlannerSystemPrompt();
   const userPrompt = buildPlannerUserPrompt(ctx, sc);
 
@@ -1038,6 +1038,7 @@ export async function runCreativePlanner(
     && (route.provider !== getActiveProvider() || route.model !== getPlannerModel());
 
   const model = modelOverride ?? (useRouter ? route!.model : getPlannerModel());
+  const provider = useRouter ? route!.provider : getActiveProvider();
 
   logInfo("pipeline:planner", "창의적 장면 계획 생성", {
     episode: ctx.episode_number,
@@ -1114,16 +1115,16 @@ export async function runCreativePlanner(
         state_updates: stateUpdates.length,
         emotional_beats: emotionalBeats.length,
       });
-      return { plan: parsed, fallback_used: false, raw_output: raw };
+      return { plan: parsed, fallback_used: false, raw_output: raw, model_used: model, provider };
     }
 
     logWarn("pipeline:planner", "JSON 파싱 실패 — fallback 사용", {
       raw_preview: raw.slice(0, 200),
     });
-    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true, raw_output: raw };
+    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true, raw_output: raw, model_used: model, provider };
 
   } catch (err) {
     logWarn("pipeline:planner", "플래너 LLM 오류 — fallback 사용", { error: String(err) });
-    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true, raw_output: "" };
+    return { plan: buildFallbackPlan(ctx, sc), fallback_used: true, raw_output: "", model_used: model, provider };
   }
 }

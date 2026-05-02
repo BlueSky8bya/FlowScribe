@@ -1,6 +1,6 @@
 {
-  "$schema_comment": "Phase 4.12 Model Routing Configuration. router는 ${ENV_VAR} 형태를 process.env에서 치환한다.",
-  "active_route": "baseline_local",
+  "$schema_comment": "Phase 4.12 Model Routing Configuration. router는 ${ENV_VAR} 형태를 process.env에서 치환한다. R5B-4d (2026-05-02): production active_route를 openai_renderer로 전환 — 100ep TEST2G actual PASS 입증. baseline_local은 fallback.",
+  "active_route": "openai_renderer",
   "fallback_route": "baseline_local",
 
   "route_sets": {

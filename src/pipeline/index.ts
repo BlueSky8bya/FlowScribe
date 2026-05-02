@@ -29,7 +29,8 @@ import { runCreativePlanner, countMeaningfulBeatDeltas, _isMeaningfulDelta, type
 import { resolveEntity, type EntityResolution } from "../lib/entity_resolver.js";
 import { checkEpisodeDelta, type EpisodeDeltaCheckResult } from "../services/episode_delta_validator.js";
 import { detectMeaningfulAppearance, isUpdateAllowed } from "../lib/meaningful_appearance.js";
-import { checkNarrativeRepetition, RETRY_INSTRUCTION as NARRATIVE_RETRY_INSTRUCTION, type PriorEpisode, type NarrativeRepetitionResult } from "../lib/narrative_repetition_guard.js";
+// R5B-4d — RETRY_INSTRUCTION 미사용 (runtime retry 제거됨, audit-only).
+import { checkNarrativeRepetition, type PriorEpisode, type NarrativeRepetitionResult } from "../lib/narrative_repetition_guard.js";
 import { pool as _dbPool } from "../lib/db.js";
 
 /**
@@ -156,7 +157,7 @@ export async function runPlannerPipeline(
   notify("플래너가 장면 비트와 인물 감정선을 설계하는 중...");
   phase("planner_start");
   const t_plan0 = Date.now();
-  const { plan: creativePlan, fallback_used, raw_output } = await runCreativePlanner(ctx, stateConstraints, plannerModelOverride, routeSetOverride);
+  const { plan: creativePlan, fallback_used, raw_output, model_used: plannerModelUsed, provider: plannerProvider } = await runCreativePlanner(ctx, stateConstraints, plannerModelOverride, routeSetOverride);
   const planner_elapsed_ms = Date.now() - t_plan0;
   phase("planner_done", { elapsed_ms: planner_elapsed_ms, fallback_used });
   tracer?.setPlannerTrace({
@@ -164,7 +165,9 @@ export async function runPlannerPipeline(
     parsed_plan: fallback_used ? null : creativePlan as unknown as import("../types/planner.js").ScenePlan,
     fallback_used,
     elapsed_ms: planner_elapsed_ms,
-    model_used: plannerModelOverride ?? (await import("../lib/llm.js")).getPlannerModel(),
+    // R5B-4d — router-resolved 실제 model/provider 기록 (이전 버그: legacy getPlannerModel() 반환값으로 잘못 기록)
+    model_used: plannerModelUsed,
+    provider:   plannerProvider,
     input_contract: {
       // Narrative
       target_length:      stateConstraints.target_length,
@@ -345,14 +348,12 @@ export async function runPlannerPipeline(
 
     generatedText = sanitized.text;
 
-    // ── R5B-3.5: narrative cliché runtime guard (post-gen, pre-storage) ──
-    //   최근 N=3화 본문과 새 본문 narrative 수준 비교. severe(exact dup ≥1, adjacent
-    //   full sim ≥0.85, closing scene sim ≥0.65)면 retry 1회. retry 시 renderer system
-    //   prompt 끝에 RETRY_INSTRUCTION을 append하고 temperature 약간 상향.
-    //   hybrid streaming 중에는 chunks가 이미 client에 흘렀으므로 retry 안 함 (UX 안전).
+    // ── R5B-3.5: narrative cliché audit guard (audit-only, no runtime retry) ──
+    //   최근 N=3화 본문과 새 본문 narrative 수준 비교 후 결과만 trace에 기록.
+    //   R5B-4a/4b/4c에서 OpenAI renderer가 RETRY=0를 입증 — runtime retry 의존 불필요.
+    //   R5B-4d 이후로 audit-only / trace visibility 용도로 격하.
+    //   결과는 audit_narrative_repetition_guard.mjs에서 활용.
     let _narrativeRepCheck: NarrativeRepetitionResult | undefined;
-    let _narrativeRetryAttempted = false;
-    let _narrativeRetrySucceeded = false;
     if (generatedText && ctx.episode_number >= 2) {
       try {
         const _recentRows = await _dbPool.query(
@@ -366,46 +367,19 @@ export async function runPlannerPipeline(
           content: r.content ?? "",
         }));
         _narrativeRepCheck = checkNarrativeRepetition(generatedText, _recent);
-        if (_narrativeRepCheck.verdict === "RETRY" && !onRendererChunk) {
-          _narrativeRetryAttempted = true;
-          logWarn("pipeline:r5b3_5", "narrative cliché 반복 검출 — renderer retry 시도", {
+        if (_narrativeRepCheck.verdict === "RETRY") {
+          // 시각성만 확보 — retry는 트리거하지 않음 (audit-only)
+          logWarn("pipeline:r5b3_5_audit", "narrative cliché 반복 검출 (audit-only — 본문은 그대로 사용)", {
             episode: ctx.episode_number,
             exact_duplicate_count: _narrativeRepCheck.exact_duplicate_count,
             adjacent_full_similarity: _narrativeRepCheck.adjacent_full_similarity.toFixed(3),
             closing_scene_similarity: _narrativeRepCheck.closing_scene_similarity.toFixed(3),
             issues: _narrativeRepCheck.issues.slice(0, 5),
           });
-          try {
-            const retryResult = await renderFromPlanWithTrace(
-              scenePlan, ctx, rendererModelOverride, routeSetOverride, undefined,
-              /*temperatureOverride*/ 0.92, /*extraSystem*/ NARRATIVE_RETRY_INSTRUCTION,
-            );
-            const retrySanitized = sanitizeGeneratedBody(retryResult.text);
-            const retryCheck = checkNarrativeRepetition(retrySanitized.text, _recent);
-            if (retryCheck.verdict !== "RETRY") {
-              _narrativeRetrySucceeded = true;
-              rawRenderedText = retryResult.text;
-              sanitized = retrySanitized;
-              generatedText = retrySanitized.text;
-              _narrativeRepCheck = retryCheck;
-              logInfo("pipeline:r5b3_5", "narrative retry 성공 — diversified output 사용", {
-                episode: ctx.episode_number,
-                retry_max_sim: retryCheck.max_similarity.toFixed(3),
-                retry_verdict: retryCheck.verdict,
-              });
-            } else {
-              logWarn("pipeline:r5b3_5", "narrative retry도 반복 — 첫 결과 그대로 사용", {
-                episode: ctx.episode_number,
-                retry_max_sim: retryCheck.max_similarity.toFixed(3),
-              });
-            }
-          } catch (retryErr) {
-            logWarn("pipeline:r5b3_5", "narrative retry 실행 실패 — 첫 결과 사용", { error: String(retryErr) });
-          }
         }
       } catch (guardErr) {
         // guard 실패는 generation 자체를 막지 않음
-        logWarn("pipeline:r5b3_5", "narrative guard 검사 실패 (skip)", { error: String(guardErr) });
+        logWarn("pipeline:r5b3_5_audit", "narrative guard 검사 실패 (skip)", { error: String(guardErr) });
       }
     }
 
@@ -415,6 +389,7 @@ export async function runPlannerPipeline(
       generated_text: rawRenderedText,
       elapsed_ms:     renderResult.elapsed_ms,
       model_used:     renderResult.model_used,
+      provider:       renderResult.provider,
     });
     // Phase 4.20 R5A-C — Fix F: trace에 contamination 메타 기록 (regen contract usable filter용).
     if (_foreignContamCount > 0 || _retryAttempted) {
@@ -424,7 +399,9 @@ export async function runPlannerPipeline(
         retry_succeeded: _retrySucceeded,
       });
     }
-    // R5B-3.5: trace에 narrative repetition check 기록
+    // R5B-3.5 → R5B-4d: trace에 narrative repetition check 기록 (audit-only)
+    //   retry는 더 이상 트리거하지 않으므로 retry_attempted/succeeded는 항상 false 기록.
+    //   기존 schema 호환을 위해 필드는 유지.
     if (_narrativeRepCheck) {
       (tracer as any)?.setNarrativeRepetitionCheck?.({
         verdict: _narrativeRepCheck.verdict,
@@ -433,8 +410,8 @@ export async function runPlannerPipeline(
         adjacent_full_similarity: _narrativeRepCheck.adjacent_full_similarity,
         closing_scene_similarity: _narrativeRepCheck.closing_scene_similarity,
         issues: _narrativeRepCheck.issues,
-        retry_attempted: _narrativeRetryAttempted,
-        retry_succeeded: _narrativeRetrySucceeded,
+        retry_attempted: false,
+        retry_succeeded: false,
       });
     }
   } catch (err) {

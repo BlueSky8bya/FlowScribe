@@ -19,7 +19,8 @@ export interface PlannerTrace {
   fallback_used: boolean;
   fallback_reason?: string;
   elapsed_ms: number;
-  model_used?: string;            // A/B 실험용 — 실제 사용 모델명
+  model_used?: string;            // A/B 실험용 — 실제 사용 모델명 (router-resolved 또는 override)
+  provider?: string;              // R5B-4d — 실제 호출된 provider (openai/deepseek/gemini/ollama)
   /** planner가 실제로 참조한 계약 — 학습 데이터 필터링/분석용 */
   input_contract?: {
     // Narrative contract
@@ -61,6 +62,7 @@ export interface RendererTrace {
   generated_text: string;
   elapsed_ms: number;
   model_used?: string;            // A/B 실험용 — 실제 사용 모델명
+  provider?: string;              // R5B-4d — 실제 호출된 provider
 }
 
 export interface RevisionIterationTrace {

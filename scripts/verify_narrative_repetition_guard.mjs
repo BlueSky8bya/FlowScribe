@@ -100,25 +100,24 @@ okIf("retry instruction 6개 변경 옵션 포함",
   /대응 방식/.test(RETRY_INSTRUCTION) &&
   /공간 활용/.test(RETRY_INSTRUCTION));
 
-console.log("\n── [G] pipeline integration ──");
+console.log("\n── [G] pipeline integration (R5B-4d: audit-only) ──");
 {
   const pipeline = readFileSync("src/pipeline/index.ts", "utf8");
   okIf("checkNarrativeRepetition import",
     /import\s*{\s*checkNarrativeRepetition[\s\S]{0,200}narrative_repetition_guard\.js"/.test(pipeline));
-  okIf("R5B-3.5 guard 호출 (sanitize 후, pre-storage)",
-    /R5B-3\.5: narrative cliché runtime guard/.test(pipeline) &&
+  okIf("R5B-3.5 audit guard 호출 (sanitize 후, audit-only)",
+    /R5B-3\.5: narrative cliché audit guard/.test(pipeline) &&
     /checkNarrativeRepetition\(generatedText/.test(pipeline));
-  okIf("verdict==='RETRY' 시 retry 시도",
-    /_narrativeRepCheck\.verdict\s*===\s*"RETRY"[\s\S]{0,200}_narrativeRetryAttempted\s*=\s*true/.test(pipeline));
-  okIf("retry 시 NARRATIVE_RETRY_INSTRUCTION + temp override 0.92",
-    /NARRATIVE_RETRY_INSTRUCTION[\s\S]{0,80}0\.92|0\.92[\s\S]{0,80}NARRATIVE_RETRY_INSTRUCTION/.test(pipeline));
-  okIf("hybrid streaming 중에는 retry skip (UX 안전)",
-    /!onRendererChunk/.test(pipeline));
-  okIf("retry 결과 sanitize + 재검사",
-    /retrySanitized[\s\S]{0,200}checkNarrativeRepetition\(retrySanitized\.text/.test(pipeline));
-  okIf("retry 1회만 (재귀 retry 없음)",
-    /\/\/ retry 1회만/.test(pipeline) || (pipeline.match(/_narrativeRetryAttempted\s*=\s*true/g) ?? []).length === 1);
-  okIf("trace에 narrative_repetition_check 기록",
+  okIf("RETRY verdict 시 audit log만 (retry 트리거 없음)",
+    /pipeline:r5b3_5_audit/.test(pipeline) &&
+    /audit-only/i.test(pipeline));
+  okIf("RETRY_INSTRUCTION import 제거 (runtime retry 사용 안 함)",
+    !/RETRY_INSTRUCTION as NARRATIVE_RETRY_INSTRUCTION/.test(pipeline));
+  okIf("renderer retry 호출 없음 (R5B-3.5 path)",
+    !/renderFromPlanWithTrace[\s\S]{0,400}NARRATIVE_RETRY_INSTRUCTION/.test(pipeline));
+  okIf("guard 실패 시에도 generation 막지 않음",
+    /narrative guard 검사 실패 \(skip\)/.test(pipeline));
+  okIf("trace에 narrative_repetition_check 기록 (audit visibility)",
     /setNarrativeRepetitionCheck/.test(pipeline));
 }
 

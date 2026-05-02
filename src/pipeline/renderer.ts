@@ -261,6 +261,7 @@ export interface RenderResult {
   system_prompt: string;
   user_prompt: string;
   model_used: string;
+  provider: string;        // R5B-4d — 실제 호출된 provider
   elapsed_ms: number;
 }
 
@@ -295,11 +296,12 @@ export async function renderFromPlanWithTrace(
 
   const t0 = Date.now();
   const model = modelOverride ?? (useRouter ? route!.model : getRendererModel());
+  const provider = useRouter ? route!.provider : getActiveProvider();
 
   logInfo("pipeline:renderer", "렌더링 시작", {
     episode: ctx.episode_number,
     model,
-    provider: useRouter ? route!.provider : getActiveProvider(),
+    provider,
     target_length: plan.target_length,
     via: useRouter ? "router" : "legacy",
     streaming: !!onChunk,
@@ -382,6 +384,7 @@ export async function renderFromPlanWithTrace(
     system_prompt: systemPrompt,
     user_prompt:   userPrompt,
     model_used:    model,
+    provider,
     elapsed_ms:    Date.now() - t0,
   };
 }
