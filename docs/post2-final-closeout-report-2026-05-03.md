@@ -1,10 +1,10 @@
-# POST-2 — Final Closeout Report (Draft)
+# POST-2 — Final Closeout Report
 
 **날짜**: 2026-05-03
 **Phase**: POST-2 (UX Policy Migration)
 **브랜치**: `checkpoint/phase1-launch-prep`
 **HEAD before phase**: `0e9ed73` (POST-1 closeout)
-**Verdict**: **CLOSE pending** — S13 browser 확인만 남음. 회신 시 KEEP 또는 reopen 결정.
+**Verdict**: ✅ **CLOSED — S13 browser verified, P0 blocker 0, KEEP 확정**
 
 ---
 
@@ -18,9 +18,20 @@
 | V1 (session_guard refresh) | ✓ 14/14 PASS |
 | V2 (capture_title_format 신규) | ✓ 8/8 PASS |
 | V3 (reading_mode_position) | 보류 (사장 명시) |
-| S13 (세계관 뷰어) | **browser 확인 대기** — 본 보고서 §6 checklist |
+| **S13 (세계관 뷰어)** | ✅ **5/5 PASS — KEEP 확정** |
 | 회귀 발생 | 0건 |
-| main push 차단 사유 | 없음 (S13 회신 후 reopen 가능성만 남음) |
+| main push 차단 사유 | 없음 |
+
+### S13 Browser 결과 (사장 confirm 2026-05-03)
+```
+S13.1 [PASS] 배경/세계관 섹션 표시 + 입력값 정상
+S13.2 [PASS] 장르/분위기 섹션 + settingVals/moodVals 칩 정상
+S13.3 [PASS] POV/스타일/연출 고정 + storyConfig 값 정상
+S13.4 [PASS] 빈 항목 표시 자연스러움
+S13.5 [PASS] 책 전환 시 이전 책 데이터 미잔존
+```
+
+P0/P1 발견 0건. 코드 수정 없이 KEEP 확정.
 
 ---
 
@@ -138,48 +149,111 @@ console error/warning capture (있으면):
 
 ---
 
-## 7. POST-2 closeout 가능 여부
+## 7. POST-2 closeout 확정
 
-**부분 가능**.
+**CLOSED ✅**
 
-- Q1/Q2/Q3 KEEP confirm + V1/V2 verify + 회귀 0 = closeout 준비 완료
-- S13만 browser 회신 대기. 회신 후 다음 두 path:
-  - 5건 모두 PASS → 본 보고서를 그대로 closeout 확정 (추가 commit 0)
-  - WARN/FAIL → S13 reopen, 별도 fix commit + closeout report 갱신
+조건 모두 충족:
+- Q1/Q2/Q3 KEEP confirm (코드 변경 0)
+- Q4 S13 5/5 PASS browser verified (코드 변경 0)
+- Q5 V1 + V2 진행 완료 (V3 보류)
+- 회귀 0건
+- 전체 verify suite PASS
+- leftover 2건 staged 0건 (전체 phase 동안)
 
-main push는 S13 PASS 회신 후 일괄 진행 권고 (S13 reopen이 없을 가능성 높음 — POST-1 modal/UI 흐름 안정).
+main push 가능. 권고: 본 closeout 최종화 commit 후 fast-forward push.
 
 ---
 
-## 8. POST-2 변경 Commit 목록 (예상)
+## 8. POST-2 변경 Commit 목록
 
 | Commit | 영역 | 요지 |
 |---|---|---|
-| `98350ba` (이미 commit) | docs | POST-2 inventory + 사장 결정 항목 정리 |
-| 본 작업 (예정) | test+docs | V1 refresh + V2 신규 + inventory 결정 반영 + closeout draft |
+| `98350ba` | docs | POST-2 inventory + 사장 결정 항목 정리 (read-only) |
+| `4b19ef1` | test+docs | V1 session_guard refresh + V2 capture_title 신규 + inventory 결정 반영 + closeout draft + S13 checklist |
+| (본 closeout 최종화) | docs | S13 PASS 반영, Verdict CLOSED 확정 |
 
-총 2 commits + (S13 reopen 시 추가).
+총 3 commits in POST-2. UI 코드 / route / prompt / DeepSeek / DB schema 변경 0건.
 
 ---
 
-## 9. POST-3/POST-4로 이관 (현재 phase 미진행)
+## 9. POST-4 이관 backlog
 
-| 항목 | 이관 phase |
+POST-2에서 미진행, 별도 phase로 처리:
+
+| 항목 | 우선순위 |
 |---|---|
-| V3 reading_mode_position preserve verify | POST-3 또는 별도 small phase |
-| DeepSeek 클라이언트 cleanup | POST-4 |
-| `data/datasets/dpo_v*.jsonl` gitignore | POST-4 |
-| `_inferItemBadge` / `_capQlabel` 키워드 단순화 | POST-4 |
-| orphan rows 14,620 cleanup | 별도 phase |
-| `audit_item_vocab.mjs` detail 옵션 | POST-4 |
+| V3 reading_mode_position preserve verify (S4 KEEP 정책 contract 추가) | low — 별도 small phase 또는 POST-3.5 |
+| DeepSeek 클라이언트 잔존 코드 cleanup | POST-4 main |
+| `data/datasets/dpo_v*.jsonl` gitignore 검토 | POST-4 |
+| `_inferItemBadge` (server) / `_capQlabel` (client) 키워드 휴리스틱 단순화 — LLM/vocab 정착 후 점진 축소 | POST-4 |
+| orphan rows 14,620 cleanup (production 영향 0) | 별도 cleanup phase |
+| `audit_item_vocab.mjs` 카테고리별 detail 옵션 추가 | POST-4 |
 
 ---
 
-## 10. git status (closeout 시점 예상)
+## 10. main push 가능 여부
+
+**가능**.
+
+| 조건 | 상태 |
+|---|---|
+| P0 blocker 0건 | ✓ |
+| 사장 명시 P1/P2 모두 fixed 또는 KEEP confirmed | ✓ |
+| browser 검증 (S13) 통과 | ✓ |
+| 회귀 발생 verify | 0건 |
+| build PASS | ✓ |
+| route 변경 없음 | ✓ |
+| DeepSeek 정책 변경 없음 | ✓ |
+| DB migration 실행 0 | ✓ |
+| leftover 2건 staged 없음 | ✓ |
+
+POST-2의 모든 commit은 verify + docs만 stage. UI 코드 / `src/api` / `src/services` / route / prompt / DB schema **변경 0건**. main push는 fast-forward.
+
+---
+
+## 11. 다음 단계 추천
+
+### 옵션 A — main push 후 새 phase 시작 (권고)
+- POST-2 closeout 깔끔히 끝났고 누적 변경이 verify + docs로만 이뤄짐 → 부담 없는 fast-forward
+- main push 후 POST-4로 진입하거나, R6.x / R7 본 작업으로 전환
+
+### 옵션 B — POST-4 Source Routing Cleanup
+- DeepSeek 클라이언트 잔존 코드 제거
+- `model_routes.json` 추가 정리 (필요 시)
+- `_inferItemBadge` / `_capQlabel` 키워드 휴리스틱 점진 축소
+- orphan rows / dpo gitignore / audit detail 옵션
+
+### 옵션 C — R6.x / R7 본 작업 진입
+- POST-1/POST-2로 안정화됐으므로 story quality / regen / training pipeline 본 phase 가능
+- 다만 POST-4 cleanup이 production observability에 도움 됨 → POST-4 우선 권고
+
+### 권고 순서
+1. 사장 main push 승인 → fast-forward push
+2. POST-4 source routing cleanup (작은 단위 commits)
+3. 그 후 R6.x / R7 본 작업 (story quality / regen / training pipeline)
+
+---
+
+## 12. git status (closeout 시점)
 
 ```
-M .claude/scheduled_tasks.lock         (untouched, NOT staged)
-M scripts/cloud_dpo/launch_dpo.py      (untouched, NOT staged)
+M .claude/scheduled_tasks.lock         (untouched, NOT staged 전체 phase)
+M scripts/cloud_dpo/launch_dpo.py      (untouched, NOT staged 전체 phase)
 ```
 
-leftover 2건 untouched. 본 phase의 모든 commit은 verify + docs만 stage. UI 코드 / route / prompt / DeepSeek / DB schema 변경 0건.
+leftover 2건 staged 0건 — 사장 정책 100% 준수.
+
+---
+
+```
+POST-2 verdict:    CLOSED ✅
+P0 blocker:        NO
+KEEP confirmed:    Q1/Q2/Q3 + Q4(S13)
+verify added:      V1 refresh (14/14) + V2 신규 (8/8)
+회귀:              0건
+변경 Phase commits: 3 (98350ba, 4b19ef1, [closeout final])
+main push:         가능 (사장 승인 시 fast-forward)
+recommended next:  main push → POST-4 source routing cleanup
+                   → R6.x / R7 본 작업
+```
