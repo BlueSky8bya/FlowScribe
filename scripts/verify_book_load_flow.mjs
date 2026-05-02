@@ -29,16 +29,22 @@ check("_restoreCharsSafely 함수 존재",     authJs.includes("async function _
 check("_updateSidebarsSafely 함수 존재",   authJs.includes("async function _updateSidebarsSafely"));
 
 // ── selectBook 오케스트레이션 ─────────────────────────────
+// POST-3 (2026-05-02): 윈도우 길이 의존 정규식([\s\S]{0,N})은 selectBook 본문이 자라며 stale.
+// 함수 본문을 정확히 추출 후 includes로 호출 여부 검증 → 의도(orchestration 단계가 selectBook
+// 안에서 호출되는가)는 보존하면서 길이 변화에 강건.
+const _selectBookMatch = authJs.match(/async function selectBook\b[\s\S]*?(?=\n(?:async\s+)?function\s|\nclass\s|$)/);
+const selectBookBody = _selectBookMatch?.[0] ?? "";
+check("selectBook 함수 추출 성공", selectBookBody.length > 0);
 check("selectBook: _setActiveBook 호출",
-  authJs.match(/async function selectBook[\s\S]{0,500}_setActiveBook/));
+  selectBookBody.includes("_setActiveBook"));
 check("selectBook: _clearStorySurface 호출",
-  authJs.match(/async function selectBook[\s\S]{0,600}_clearStorySurface/));
+  selectBookBody.includes("_clearStorySurface"));
 check("selectBook: _loadEpisodes 호출",
-  authJs.match(/async function selectBook[\s\S]{0,700}_loadEpisodes/));
+  selectBookBody.includes("_loadEpisodes"));
 check("selectBook: _renderLatestEpisode 호출",
-  authJs.match(/async function selectBook[\s\S]{0,800}_renderLatestEpisode/));
+  selectBookBody.includes("_renderLatestEpisode"));
 check("selectBook: _restoreContextSafely 호출",
-  authJs.match(/async function selectBook[\s\S]{0,900}_restoreContextSafely/));
+  selectBookBody.includes("_restoreContextSafely"));
 check("selectBook: [selectBook] debug 로그",
   authJs.includes('[selectBook] start'));
 
@@ -89,7 +95,7 @@ check("_renderLatestEpisode: _assertEpisodeRendered 호출",
 check("_renderLatestEpisode: updateEpisodeUI 호출",
   authJs.match(/function _renderLatestEpisode[\s\S]{0,1400}updateEpisodeUI/));
 check("selectBook: updateEpisodeUI 최종 무조건 호출",
-  authJs.match(/async function selectBook[\s\S]{0,1200}updateEpisodeUI/));
+  selectBookBody.includes("updateEpisodeUI"));
 check("_clearStorySurface: bookList 건드리지 않음 (outEl 로컬 참조)",
   authJs.match(/function _clearStorySurface[\s\S]{0,400}getElementById.*"output"/));
 

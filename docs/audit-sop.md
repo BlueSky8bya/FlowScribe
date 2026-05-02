@@ -107,37 +107,81 @@ cleanup 정책: 사용자 입력(books.context, world_configs, world_rules, cano
 - ❌ 100/50/30화 actual run을 "verify"로 위장
 - ❌ 같은 영역의 verify/audit를 중복 생성 (기존 검색 후)
 
-## 8. Legacy verify (regex 진화 미반영 — 실제 기능은 정상)
+## 8. Verify suite 분류 (POST-3 갱신 — 2026-05-02)
 
-verify는 코드 grep / regex 기반이라 코드가 진화하면 정규식이 stale해지는 경우가 있다.
-아래 verify는 **실제 기능은 정상**이지만 정규식이 옛 패턴을 검사하므로 **부분 실패가 발생한다**.
-PR merge 전 게이트에서 무시해도 되는 항목으로 분류한다 (FINAL phase 2026-05-02 시점 확인).
+verify suite를 사용 시점/목적에 따라 분류. legacy로 남아있던 3개는 POST-3에서 갱신 완료, 모두 **required**로 복귀.
 
-### 8.1 분류된 legacy verify
+### 8.1 Required before merge (PR / main merge 차단 기준)
 
-| Verify | 실패 항목 | 원인 (정규식 stale) | 실제 코드 상태 |
-|---|---|---|---|
-| `verify_book_load_flow` | 6 fail (`selectBook: _setActiveBook 호출` 외 5개) | 정규식 `/async function selectBook[\s\S]{0,500}_setActiveBook/` 등이 0~500자 윈도우 사용. `selectBook()` 본문이 시간이 지나며 늘어나(active-gen 복귀 처리 등) 첫 호출까지 600+자가 됨. | `public/js/auth.js:759-810` — `_setActiveBook(777)` → `_clearStorySurface(778)` → `_loadEpisodes(781)` → `_renderLatestEpisode(794)` → `_restoreContextSafely(798)` → `updateEpisodeUI(803, final 무조건 호출)` 모두 정상 실행. |
-| `verify_item_location_ledger` | 7 fail (`이름 변경 금지 지시`, `condition으로 기록 지시`, `스킬 제외 지시`, `이름 변경 금지 섹션`, `축약 금지 지시`, `condition으로 처리 지시`, `스킬 묘사 금지`) | verify가 옛 한국어 문구를 `.includes()`로 정확 매치. 현재 prompt는 동일 의도를 다른 문구로 표현. | `src/pipeline/planner.ts:364-365` — "이름(name): 사용자 원본 그대로 (축약·변경 안 함)" / "상태 변화는 condition에 기록" / "스킬·능력·특성·마법·패시브는 items에 들어가지 않는다 — 완전 제외". `src/pipeline/renderer.ts:225` — "위 [등장인물]의 소지품 이름을 그대로 사용한다 — 축약·개명·확장 안 함" / "스킬·능력·마법·특성은 제외". 모든 정책 보존. |
-| `verify_regeneration_divergence_contract` | 2 fail (`7. hint_min_divergent_axes 자동 산정 (attempt_count 기반)`, `17. renderer.ts: regen 시 temperature 상향`) | check 7: 옛 정규식 `/attemptCount\s*>=\s*4/` 검사. 현재는 `attemptCount >= 2`로 더 엄격하게 조정됨. check 17: 옛 변수명 `_temperatureRenderer = _regenContract` 검사. 현재는 `_temperatureRendererBase = _regenContract`로 분리됨 (Phase 4.20 R5A-C에서 `temperatureOverride` 지원 추가 시 분리). | `src/services/regen_divergence.ts:185` — `attemptCount >= 2 ? 3 : 2` (강화된 threshold). `src/pipeline/renderer.ts:317-323` — `_temperatureRendererBase = _regenContract ? Math.min(0.90, 0.85 + Math.min(_regenContract.attempt_count, 3) * 0.017) : 0.85;` → `_temperatureRenderer = typeof temperatureOverride === "number" ? temperatureOverride : _temperatureRendererBase;`. **attempt_count 기반 temperature 상향 logic은 동일 유지**, 변수명만 base/override 분리. R5B-4c 100ep / R6 60ep canary + regen 10회에서 모두 정상 divergence 입증. |
+코드 변경 PR을 main으로 merge하기 전 반드시 PASS해야 하는 verify.
 
-### 8.2 PR merge 게이트 정책
+| Verify | 영역 |
+|---|---|
+| `verify_route_integrity` | Routing config + 실제 LLM 응답 |
+| `verify_public_js_syntax` | 클라이언트 JS 문법 |
+| `verify_ui_logic` | UI 동작 정합성 |
+| `verify_sidebar_ui` | 사이드바 |
+| `verify_book_load_flow` | book ↔ story 분리 + selectBook 흐름 |
+| `verify_hybrid_streaming_contract` | hybrid streaming SSE contract |
+| `verify_episode_end_character_cards` | 본문 하단 인물 카드 |
+| `verify_episode_character_display_filter` | 등장 인물 노출 필터 |
+| `verify_item_description_length` | 소지품 설명 길이 |
+| `verify_state_taxonomy` | 감정/역할/관계 taxonomy 분리 |
+| `verify_emotion_label_normalization` | 감정 라벨 정규화 |
+| `verify_meaningful_appearance_guard` | R5B-1.8D meaningful appearance |
+| `verify_episode_end_state_alignment` | episode-end 상태 정합 |
+| `verify_item_location_ledger` | 소지품/위치 원장 정책 |
+| `verify_world_rule_integrity` | 세계관 절대 규칙 |
+| `verify_regeneration_divergence_contract` | 재생성 divergence contract |
+| `verify_regen_degradation_fix` | 재생성 누적 over-constraining 차단 |
+| `verify_narrative_repetition_guard` | R5B-3.5 narrative cliché audit |
+| `verify_duplicate_discovery_dedup` | R5B-3 duplicate discovery |
 
-- 위 3개 verify는 PR merge **block 사항이 아니다** (legacy로 분류).
-- 실제 기능 동작은 R5B-4c TEST2G 100ep + R6 multi-genre 60ep + regen 10회 + R5B-4d trace recording fix smoke 누적 evidence (172 generations, 0 fail)로 입증.
-- post-merge 별 phase에서 verify 정규식만 갱신 권고 (코드 변경 없이 verify script 수정).
+### 8.2 Required before generation run (서버 띄우기 전)
 
-### 8.3 갱신 권고 작업 (post-merge)
-
-```text
-verify_book_load_flow:        [\s\S]{0,500} → [\s\S]{0,1500} 또는 ".*?_setActiveBook" 같은 lazy match
-verify_item_location_ledger:   includes() string match → 의도 키워드 multiple OR regex (예: /이름.*원본.*그대로|이름.*축약.*변경/)
-verify_regeneration_divergence_contract:
-  check 7:  attemptCount >= 4 → attemptCount >= [0-9]+ (any threshold OK)
-  check 17: _temperatureRenderer = _regenContract → _temperatureRenderer(?:Base)?\s*=\s*_regenContract (base/override 분리 허용)
+```bash
+node scripts/verify_route_integrity.mjs              # ⭐ 라우트가 실제 LLM 호출 가능한지
 ```
 
-이 갱신은 **코드 수정 없이 verify script만** 수정하는 1~2시간 작업.
+### 8.3 Required before 30/50/100 actual run
+
+위 §8.1 전체 + 다음 audit (DB 검증):
+
+```bash
+node scripts/audit_world_rule_integrity.mjs --book-id <X>
+node scripts/audit_narrative_repetition_guard.mjs --book-id <X>
+node scripts/audit_duplicate_discovery_events.mjs --book-id <X>
+node scripts/audit_episode_end_item_state.mjs --book-id <X>
+```
+
+### 8.4 Diagnostic only (선택적, regression 확인 / 진단)
+
+| Verify | 사용 시점 |
+|---|---|
+| `verify_long_story_memory` | 장편 메모리 회귀 의심 시 |
+| `verify_story_continuity` | 화 사이 연속성 검증 |
+| `verify_story_memory_e2e` | E2E 메모리 |
+| `verify_alias_runtime_audit` | alias 충돌 의심 시 |
+| `verify_arc_summary_factuality` | arc summary 사실성 |
+| `verify_reader_immersion_audit` | 독자 몰입 점수 |
+| `verify_planner_parse_stability` | planner JSON parse 안정성 |
+| (기타 ~30개) | 영역별 1회성 진단 |
+
+### 8.5 Legacy / deprecated
+
+**현재 비어있음.** POST-3 (2026-05-02)에서 다음 3개를 갱신해 §8.1 required로 복귀시킴:
+
+| Verify | POST-3 갱신 내용 |
+|---|---|
+| `verify_book_load_flow` | `[\s\S]{0,N}` 윈도우 정규식 → `selectBook` 함수 본문 추출 후 `includes` 검사. 함수 본문이 길어져도 강건. **41/41 PASS**. |
+| `verify_item_location_ledger` | 옛 한국어 문구 `.includes()` 정확 매치 → 의도-기반 정규식 (`이름\(name\)[\s\S]{0,80}원본`, `상태\s*변화[\s\S]{0,40}condition`, `스킬[·\s]*능력[·\s]*특성[\s\S]{0,80}items[\s\S]{0,40}(?:들어가지\s*않\|절대\s*넣지\s*않\|완전\s*제외)`, `축약[·\s]*개명[·\s]*확장`, `\[소지품\][\s\S]{0,200}이름.{0,5}그대로\s*사용`, `상태\s*변화[\s\S]{0,40}묘사[\s\S]{0,40}(?:표현\|처리)`, `스킬[·\s]*능력[\s\S]{0,40}(?:제외\|소지품처럼.*묘사.*않)`). **70/70 PASS**. |
+| `verify_regeneration_divergence_contract` | check 7: `attemptCount >= 4` → `attemptCount >= \d+` (threshold 변동 허용, 현재 `>= 2`로 강화). check 16/17: `_temperaturePlanner/_temperatureRenderer = _regenContract` → `_temperaturePlanner(?:Base)?` / `_temperatureRenderer(?:Base)?` (Phase 4.20 R5A-C base/override 분리 허용). **20/20 PASS**. |
+
+### 8.6 갱신 원칙 (regression 방지)
+
+- **테스트를 통과시키기 위해 의미 없는 PASS로 만들지 말 것.** 의도-기반 정규식은 핵심 키워드를 반드시 포함해야 한다 (예: 위 §8.5 `이름.{0,5}그대로\s*사용`은 "이름"+"그대로 사용" 두 의도 단어 모두 강제).
+- **삭제만 하고 대체 검증 없는 것 금지.** 옛 키워드를 빼면 동일 의도를 매칭하는 새 정규식으로 대체.
+- 함수 본문 검증은 윈도우 길이 의존(`[\s\S]{0,N}`) 대신 함수 추출 후 includes 권고 (POST-3 selectBook 패턴 참조).
 
 ## 9. 디버깅 흐름
 

@@ -84,18 +84,28 @@ check("carry-forward에도 normalizeItems 적용", (() => {
 })());
 
 // ── 7. planner prompt 지시 ────────────────────────────────────
+// POST-3 (2026-05-02): 옛 .includes() 정확 매치는 prompt 문구가 동의어로 표현되며 stale.
+// 의도-기반 정규식으로 정책 보존 검증 (실제 키워드 + 의도 모두 잡음).
 section("planner prompt 소지품 원칙");
-check("이름 변경 금지 지시",         plannerSrc.includes("소지품 이름(name)은 사용자가 설정한 원본 이름"));
-check("condition으로 기록 지시",     plannerSrc.includes("소지품 상태 변화는 name이 아니라 condition"));
-check("스킬 제외 지시",              plannerSrc.includes("스킬·능력·특성·이능·마법 능력·패시브는 items에 절대 넣지 않는다"));
-check("예시 금지 패턴 포함",         plannerSrc.includes("손전등(방전)"));
+check("이름 변경 금지 지시 (이름은 사용자 원본 유지)",
+  /이름\s*\(name\)[\s\S]{0,80}원본/.test(plannerSrc));
+check("condition으로 기록 지시 (상태 변화 → condition)",
+  /상태\s*변화[\s\S]{0,40}condition/.test(plannerSrc));
+check("스킬 제외 지시 (스킬·능력·특성·마법·패시브는 items 제외)",
+  /스킬[·\s]*능력[·\s]*특성[\s\S]{0,80}items[\s\S]{0,40}(?:들어가지\s*않|절대\s*넣지\s*않|완전\s*제외)/.test(plannerSrc));
+check("예시 금지 패턴 포함 (손전등(방전) X 예)",
+  plannerSrc.includes("손전등(방전)"));
 
 // ── 8. renderer prompt 지시 ──────────────────────────────────
 section("renderer prompt 소지품 원칙");
-check("이름 변경 금지 섹션",         rendererSrc.includes("소지품 유지 — 이름 변경 금지"));
-check("축약 금지 지시",              rendererSrc.includes("축약·개명·확장 금지"));
-check("condition으로 처리 지시",     rendererSrc.includes("상태는 묘사(방전되었다, 파손되었다)로 처리한다"));
-check("스킬 묘사 금지",              rendererSrc.includes("스킬·능력·특성·패시브는 절대 소지품처럼 묘사하지 않는다"));
+check("이름 변경 금지 섹션 (소지품 이름 그대로 사용)",
+  /\[소지품\][\s\S]{0,200}이름.{0,5}그대로\s*사용/.test(rendererSrc));
+check("축약 금지 지시 (축약·개명·확장)",
+  /축약[·\s]*개명[·\s]*확장/.test(rendererSrc));
+check("condition으로 처리 지시 (상태 변화는 묘사로 표현)",
+  /상태\s*변화[\s\S]{0,40}묘사[\s\S]{0,40}(?:표현|처리)/.test(rendererSrc));
+check("스킬 묘사 금지 (소지품에 스킬·능력 제외)",
+  /스킬[·\s]*능력[\s\S]{0,40}(?:제외|소지품처럼.*묘사.*않)/.test(rendererSrc));
 
 // ── 9. trace_logger.ts 병합 ───────────────────────────────────
 section("trace_logger.ts 병합");

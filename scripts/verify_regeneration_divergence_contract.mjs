@@ -65,7 +65,9 @@ check(
 );
 check(
   "7. regen_divergence.ts: hint_min_divergent_axes 자동 산정 (attempt_count 기반)",
-  /attemptCount\s*>=\s*4/.test(regenDiv),
+  // POST-3 (2026-05-02): 옛 정규식 attemptCount >= 4는 threshold이 강화되며(>=2) stale.
+  // 의도: attempt_count에 따라 axes minimum이 자동 산정되는가 — threshold 값은 변동 허용.
+  /attemptCount\s*>=\s*\d+/.test(regenDiv),
   ""
 );
 
@@ -117,12 +119,14 @@ check(
 // 16-17. sampling temperature
 check(
   "16. planner.ts: regen 시 temperature 상향 (0.65 고정 아님)",
-  /_temperaturePlanner\s*=\s*_regenContract[\s\S]{0,80}attempt_count/.test(planner),
+  // POST-3: base/override 분리 변수명 허용 (_temperaturePlanner 또는 _temperaturePlannerBase).
+  /_temperaturePlanner(?:Base)?\s*=\s*_regenContract[\s\S]{0,80}attempt_count/.test(planner),
   ""
 );
 check(
   "17. renderer.ts: regen 시 temperature 상향",
-  /_temperatureRenderer\s*=\s*_regenContract[\s\S]{0,80}attempt_count/.test(renderer),
+  // POST-3: Phase 4.20 R5A-C에서 temperatureOverride 지원 추가하며 _temperatureRendererBase로 분리 — logic 동일.
+  /_temperatureRenderer(?:Base)?\s*=\s*_regenContract[\s\S]{0,80}attempt_count/.test(renderer),
   ""
 );
 
