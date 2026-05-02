@@ -835,14 +835,27 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
     }
     // POST-1 §P1-A — vocab 미등록 아이템을 모아 fire-and-forget 분류 큐잉.
     // 다음 char-states 호출 시 vocab hit하여 정상 카테고리 부여. 키워드 if문 추가 대신 LLM 분류 누적.
-    const missingForClassify = new Set<string>();
+    // reopen-2: owner/description/is_initial 컨텍스트도 prompt에 전달해 정확도 향상.
+    const missingForClassify = new Map<string, { name: string; description?: string | null; owner?: string | null; is_initial?: boolean }>();
     for (const s of charStates) {
+      const initialNames = new Set<string>(
+        (canonicalMap[s.character_name]?.initial_items ?? [])
+          .map((ci: any) => (typeof ci === "string" ? ci : ci?.name))
+          .filter((n: any) => typeof n === "string")
+      );
       s.items = (s.items ?? []).map((it: any) => {
         if (!it.name || (it.badge_label && it.category)) return it;
         const v = vocabMap[it.name];
         if (v) return { ...it, category: v.category, badge_label: v.badge_label };
         // vocab 미등록 → 분류 후보로 모음. 응답에는 _inferItemBadge fallback 그대로 사용.
-        missingForClassify.add(it.name);
+        if (!missingForClassify.has(it.name)) {
+          missingForClassify.set(it.name, {
+            name: it.name,
+            description: it.description ?? null,
+            owner: s.character_name ?? null,
+            is_initial: initialNames.has(it.name),
+          });
+        }
         const fb = _inferItemBadge(it.name);
         return { ...it, category: fb.category, badge_label: fb.badge_label };
       });
@@ -850,7 +863,7 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
     if (missingForClassify.size > 0) {
       classifyAndSaveItemCategories({
         book_id: bookId,
-        item_names: Array.from(missingForClassify),
+        items: Array.from(missingForClassify.values()),
       }).catch(() => { /* fire-and-forget — 응답에 영향 없음 */ });
     }
 
@@ -865,6 +878,7 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
       "전자": "전자 신호나 데이터를 처리하는 장비",
       "의복": "신체를 보호하거나 신분을 나타내는 의류",
       "식량": "체력과 지속력을 보충하는 식품",
+      "의료": "치료·응급처치·약품류",
       "귀중품": "가치 있는 물품이나 거래 수단",
       "악기": "음악을 연주하거나 신호를 보내는 도구",
       "탈것": "이동을 보조하는 수단",

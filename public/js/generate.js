@@ -18,12 +18,12 @@ async function _loadItemVocab(bId) {
     const res = await fetch(`/api/generate/item-vocab?book_id=${encodeURIComponent(bId)}`);
     if (!res.ok) return;
     const { vocab } = await res.json();
-    // category → color 매핑
+    // category → color 매핑. unknown category는 _CAT_COLOR_FALLBACK으로 처리.
     const CAT_COLOR = {
       무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
       문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
-      의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 악기:'#4070a0',
-      탈것:'#506070', 기타:'#888',
+      기기:'#3a6a80', 의복:'#7060a0', 식량:'#60a060', 의료:'#40a060',
+      귀중품:'#c08030', 악기:'#4070a0', 탈것:'#506070', 기타:'#888',
     };
     for (const [name, v] of Object.entries(vocab)) {
       _itemVocab[name] = {
@@ -921,20 +921,27 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
     //   1. server item.badge_label / item.category (LLM이 item_desc.ts에서 분류한 결과,
     //      char_states emit 시 함께 전달되거나 canonical_characters.initial_items에 보존)
     //   2. _capQlabel(displayName) — 안에 _itemVocab DB lookup + 키워드 fallback 포함
-    //   3. 그래도 없으면 ql=null → 배지 미표시
+    //   3. server "기타"인데 키워드도 못 잡으면 server label 그대로 표시 (neutral color)
+    //      — POST-1 §P1-A reopen-2 UI fallback 정책: 코드에 색상 정의 없는 카테고리도
+    //        라벨은 항상 표시. 배지 자체가 사라지는 상황 방지.
     let ql = null;
     if (!showGrade) {
+      // CAT_COLOR — server-emit 카테고리에 대한 색상표. 미정의 카테고리는 neutral 회색.
+      const CAT_COLOR = {
+        무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
+        문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
+        기기:'#3a6a80', 의복:'#7060a0', 식량:'#60a060', 의료:'#40a060',
+        귀중품:'#c08030', 악기:'#9060a0', 탈것:'#5080a0', 기타:'#888',
+      };
       const serverLabel = itemBadgeLabel ?? itemCategory;
       if (serverLabel && serverLabel !== '기타') {
-        const CAT_COLOR = {
-          무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
-          문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
-          기기:'#3a6a80', 의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030',
-          악기:'#9060a0', 탈것:'#5080a0', 기타:'#888',
-        };
         ql = { label: serverLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
       } else {
+        // server가 "기타"로 분류 또는 미제공 → 키워드 fallback 시도, 그래도 없으면 server label 표시.
         ql = _capQlabel(displayName);
+        if (!ql && serverLabel) {
+          ql = { label: serverLabel, color: CAT_COLOR[serverLabel] ?? '#888' };
+        }
       }
     }
     const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');

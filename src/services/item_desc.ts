@@ -98,6 +98,7 @@ const CATEGORY_BADGE: Record<string, string> = {
   기기:   "기기",   // Phase 4.19 — 스마트폰·태블릿·노트북·컴퓨터 등 디지털 디바이스
   의복:   "의복",
   식량:   "식량",
+  의료:   "의료",   // POST-1 §P1-A reopen-2 — 약품·치료 도구는 소모품과 분리.
   귀중품: "귀중품",
   악기:   "악기",
   탈것:   "탈것",
@@ -291,44 +292,109 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
 // - char-states 엔드포인트에서 vocab 미등록 dynamic 아이템을 모아 fire-and-forget.
 // - description은 절대 덮지 않음 (사용자 입력 보존 정책 + dynamic items는 stateExtractor 출력).
 // - item_vocab만 누적 — 다음 char-states 호출 시 vocab lookup이 hit해서 정상 카테고리 부여.
+//
+// reopen-2: 이름만으로 분류한 prompt가 약해 "합성 영양바"를 "도구"로 오분류한 사건 발생.
+// 책 컨텍스트(genre/background) + 카테고리 의미·기준을 prompt에 명시. owner / description /
+// is_initial도 옵션으로 받아 정확도 향상. classifyItemNamesViaLLM은 pure (DB write 없음)
+// — repair script가 import해 사용.
+
+export interface ClassifyOnlyItem {
+  name: string;
+  description?: string | null;
+  owner?: string | null;
+  is_initial?: boolean;  // canonical_characters.initial_items에 있으면 true, dynamic이면 false
+}
 export interface ClassifyOnlyJobData {
   book_id: string;
-  // 분류 대상 아이템 이름들. 인물/세계관 컨텍스트 없이 이름만으로 분류
-  // (정확도가 generateAndSaveItemDescriptions보다 약간 낮을 수 있으나, fallback 용도로 적절).
-  item_names: string[];
+  // 두 형태 중 하나. items가 정확도 우선.
+  item_names?: string[];
+  items?: ClassifyOnlyItem[];
 }
 
-const _CATEGORY_LIST = ["무기", "방어구", "도구", "소모품", "문서", "마법", "통신", "전자", "기기", "의복", "식량", "귀중품", "악기", "탈것", "기타"];
+const _CATEGORY_LIST = ["무기", "방어구", "도구", "소모품", "문서", "마법", "통신", "전자", "기기", "의복", "식량", "의료", "귀중품", "악기", "탈것", "기타"];
 const _CATEGORY_TO_BADGE: Record<string, string> = Object.fromEntries(_CATEGORY_LIST.map(c => [c, c]));
 
-export async function classifyAndSaveItemCategories(data: ClassifyOnlyJobData): Promise<void> {
-  const { book_id, item_names } = data;
-  const names = Array.from(new Set((item_names || []).filter(n => n && typeof n === "string"))).slice(0, 30);
-  if (!names.length) return;
+const _CATEGORY_GUIDE = `[카테고리 정의 — 이 의미를 따르세요]
+- 무기: 공격/방어 전투용 (검·총·폭탄·단검·창)
+- 방어구: 방어 보호 장비 (방패·갑옷·헬멧·방탄복)
+- 도구: 작업·수리·조작·측정·탐색용 비전투 물건 (망치·렌치·자물쇠·로프·손전등·스캐너)
+- 소모품: 음식·식수가 아닌 1회성 물품 (부적·손난로·화살·연막탄). 음식·식수는 절대 여기 아님.
+- 식량: 음식·물·영양 보충·생존용 식품 (영양바·단백질바·통조림·빵·전투식량·식수·에너지젤)
+- 의료: 치료·응급처치·약품 (붕대·주사기·포션·백신·진통제)
+- 문서: 기록/정보 매체 (책·지도·일지·수첩)
+- 마법: 마력 매개체 (마정석·룬·마법서·지팡이)
+- 통신: 정보 전달 장비 (무전기·라디오·신호기)
+- 전자: 디지털 신호 처리 (드론·컴퓨터·단말기·서버)
+- 기기: 개인 디지털 디바이스 (스마트폰·태블릿·노트북)
+- 의복: 신체 보호 의류 (가운·군복·외투·장갑)
+- 귀중품: 가치 있는 물품 (보석·화폐·거래 수단)
+- 악기: 음악·신호 도구
+- 탈것: 이동 수단 (말·차량·비행체)
+- 기타: 위 어느 것에도 명백히 속하지 않을 때만
 
-  // 이미 vocab에 있는 것은 제외 (idempotent)
-  let pending = names;
+[중요 분류 기준]
+- 음식·식수·영양 보충은 반드시 "식량". "도구"·"소모품"·"기타"로 보내지 마세요.
+- 약품·치료 도구는 "의료". "소모품"으로 보내지 마세요.
+- 컴퓨터·스마트폰·태블릿·노트북은 "기기".
+- 사용 목적이 명백하지 않을 때만 "기타".`;
+
+async function _fetchBookContext(book_id: string): Promise<{ genreLine: string; worldBackgroundLine: string }> {
+  let genreLine = "";
+  let worldBackgroundLine = "";
   try {
-    const existRes = await pool.query(
-      `SELECT name FROM item_vocab WHERE book_id = $1 AND name = ANY($2::text[])`,
-      [book_id, names]
-    );
-    const exist = new Set(existRes.rows.map(r => r.name));
-    pending = names.filter(n => !exist.has(n));
-  } catch { /* 조회 실패 시 모두 분류 시도 */ }
-  if (!pending.length) return;
+    const raw = await redis.get(`context:${book_id}`);
+    const ctx = raw ? JSON.parse(raw) : null;
+    if (ctx?.world_rules?.length) {
+      const rules: string[] = ctx.world_rules.map((r: any) => (typeof r === "string" ? r : r.content ?? "")).filter(Boolean);
+      genreLine = rules[0] ?? "";
+    }
+    if (ctx?.story_config?.background) worldBackgroundLine = String(ctx.story_config.background).slice(0, 200);
+  } catch { /* 컨텍스트 없어도 분류는 진행 */ }
+  return { genreLine, worldBackgroundLine };
+}
 
-  const itemLines = pending.map((n, i) => `${i + 1}. ${n}`).join("\n");
+/** 강화된 prompt로 LLM 분류만 수행 — DB write 없음. repair script + classifyAndSaveItemCategories가 공용. */
+export async function classifyItemNamesViaLLM(
+  data: ClassifyOnlyJobData
+): Promise<Array<{ name: string; category: string }>> {
+  const { book_id } = data;
+  // input 정규화: items > item_names
+  const itemsInput: ClassifyOnlyItem[] = Array.isArray(data.items)
+    ? data.items.filter(e => e && e.name && typeof e.name === "string")
+    : Array.isArray(data.item_names)
+      ? data.item_names.filter(n => n && typeof n === "string").map(n => ({ name: n }))
+      : [];
+  const dedup = new Map<string, ClassifyOnlyItem>();
+  for (const it of itemsInput) if (!dedup.has(it.name)) dedup.set(it.name, it);
+  const items = Array.from(dedup.values()).slice(0, 30);
+  if (!items.length) return [];
+
+  const { genreLine, worldBackgroundLine } = await _fetchBookContext(book_id);
+  const itemLines = items.map((it, i) => {
+    const tags: string[] = [];
+    if (it.owner) tags.push(`소유자: ${it.owner}`);
+    if (typeof it.is_initial === "boolean") tags.push(it.is_initial ? "초기 소지품" : "스토리 중 등장");
+    const tagPart = tags.length ? ` [${tags.join(", ")}]` : "";
+    const desc = it.description?.trim();
+    const descPart = desc ? `\n   설명: ${desc.slice(0, 120)}` : "";
+    return `${i + 1}. ${it.name}${tagPart}${descPart}`;
+  }).join("\n");
+
   const prompt = [
-    `다음 소지품 각각에 대해 카테고리만 분류해주세요.`,
-    `카테고리 옵션: ${_CATEGORY_LIST.join(", ")}`,
-    ``,
+    genreLine           ? `[세계관] ${genreLine}` : "",
+    worldBackgroundLine ? `[배경] ${worldBackgroundLine}` : "",
+    "",
+    "다음 소지품 각각의 카테고리를 다음 enum 중에서만 선택하세요.",
+    `허용 enum: ${_CATEGORY_LIST.join(", ")}`,
+    "",
+    _CATEGORY_GUIDE,
+    "",
     `반드시 JSON 배열로만 응답: [{"name":"소지품명","category":"카테고리"}]`,
     `다른 텍스트(설명, 코드블록 마커 등) 금지.`,
-    ``,
-    `[소지품 목록]`,
+    "",
+    "[소지품 목록]",
     itemLines,
-  ].join("\n");
+  ].filter(s => s !== "").join("\n");
 
   let parsed: Array<{ name: string; category: string }> = [];
   try {
@@ -336,26 +402,59 @@ export async function classifyAndSaveItemCategories(data: ClassifyOnlyJobData): 
     const resp = await client.chat.completions.create({
       model: getSuggestModel(),
       messages: [{ role: "user", content: prompt }],
-      temperature: 0.2, // 분류는 결정적
-      max_tokens: 800,
+      temperature: 0.2,
+      max_tokens: 1200,
     });
     const raw = resp.choices[0]?.message?.content?.trim() ?? "";
     const m = raw.match(/\[[\s\S]*\]/);
     if (!m) {
-      logWarn("service:item_desc:classify_only", "LLM 응답 JSON 없음", { book_id, names_n: pending.length, raw: raw.slice(0, 200) });
-      return;
+      logWarn("service:item_desc:classify_only", "LLM 응답 JSON 없음", { book_id, names_n: items.length, raw: raw.slice(0, 200) });
+      return [];
     }
     const arr = JSON.parse(m[0]);
     parsed = (Array.isArray(arr) ? arr : [])
       .filter(e => e && typeof e === "object" && e.name && e.category)
-      .map(e => ({ name: String(e.name), category: _CATEGORY_TO_BADGE[String(e.category)] ? String(e.category) : "기타" }));
+      .map(e => ({
+        name: String(e.name),
+        category: _CATEGORY_TO_BADGE[String(e.category)] ? String(e.category) : "기타",
+      }));
   } catch (err) {
-    logError("service:item_desc:classify_only", err, { book_id, names_n: pending.length });
-    return;
+    logError("service:item_desc:classify_only", err, { book_id, names_n: items.length });
+    return [];
   }
+  return parsed;
+}
+
+export async function classifyAndSaveItemCategories(data: ClassifyOnlyJobData): Promise<void> {
+  const { book_id } = data;
+  const allNames = (data.items ?? []).map(it => it.name)
+    .concat(data.item_names ?? []);
+  const uniqueNames = Array.from(new Set(allNames.filter(n => n && typeof n === "string")));
+  if (!uniqueNames.length) return;
+
+  // 이미 vocab에 있는 것은 제외 (idempotent)
+  let pending: Set<string>;
+  try {
+    const existRes = await pool.query(
+      `SELECT name FROM item_vocab WHERE book_id = $1 AND name = ANY($2::text[])`,
+      [book_id, uniqueNames]
+    );
+    const exist = new Set(existRes.rows.map(r => r.name));
+    pending = new Set(uniqueNames.filter(n => !exist.has(n)));
+  } catch {
+    pending = new Set(uniqueNames);
+  }
+  if (!pending.size) return;
+
+  // pending에 해당하는 input items만 추려서 LLM 호출
+  const filtered: ClassifyOnlyJobData = {
+    book_id,
+    items: (data.items ?? []).filter(it => pending.has(it.name)),
+    item_names: (data.item_names ?? []).filter(n => pending.has(n)),
+  };
+  const parsed = await classifyItemNamesViaLLM(filtered);
   if (!parsed.length) return;
 
-  // vocab 저장 — ON CONFLICT DO NOTHING (idempotent)
   try {
     for (const r of parsed) {
       const badgeLabel = _CATEGORY_TO_BADGE[r.category] ?? "기타";
@@ -367,7 +466,7 @@ export async function classifyAndSaveItemCategories(data: ClassifyOnlyJobData): 
       );
     }
     logInfo("service:item_desc:classify_only", "vocab 누적", {
-      book_id, classified: parsed.length, requested: pending.length,
+      book_id, classified: parsed.length, requested: pending.size,
     });
   } catch (err) {
     logError("service:item_desc:classify_only", err, { context: "vocab_save", book_id });
