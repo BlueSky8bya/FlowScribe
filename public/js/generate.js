@@ -794,6 +794,152 @@ function _physBadgesHtml(p) {
   }</div>`;
 }
 
+// ── 캡처+ 스타일 인물 카드 — 본문 하단 ep-end-card와 캡처 양쪽에서 공유 ──
+// POST-1 §S10 reopen — 단일 presentational renderer. inline-style 우선 (clipboard-safe),
+// 항상 펼침, toggle/chevron 없음. 외부 wrapper는 호출부에서 attach.
+const _CAP_GENDER_COLOR = { '남성': '#7090c8', '여성': '#c07090', '기타': '#70a878', '해당없음': 'var(--text4)' };
+const _CAP_GRADE_COLOR  = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
+const _CAP_PHYS_COLOR = {
+  'phys-normal':   { bg: 'rgba(34,197,94,.12)',   color: 'rgba(34,197,94,.9)',   border: 'rgba(34,197,94,.3)'  },
+  'phys-tired':    { bg: 'rgba(234,179,8,.12)',   color: 'rgba(234,179,8,.9)',   border: 'rgba(234,179,8,.3)'  },
+  'phys-hurt':     { bg: 'rgba(249,115,22,.12)',  color: 'rgba(249,115,22,.9)',  border: 'rgba(249,115,22,.3)' },
+  'phys-critical': { bg: 'rgba(239,68,68,.14)',   color: 'rgba(239,68,68,.95)',  border: 'rgba(239,68,68,.35)' },
+  'phys-special':  { bg: 'rgba(139,92,246,.12)',  color: 'rgba(139,92,246,.9)',  border: 'rgba(139,92,246,.3)' },
+  'phys-other':    { bg: 'rgba(128,128,128,.08)', color: 'rgba(180,180,180,.9)', border: 'rgba(128,128,128,.2)'},
+};
+const _CAP_EMOT_COLOR = {
+  'emotion-positive': { bg: 'rgba(99,179,104,.12)',  color: 'rgba(99,179,104,.9)',  border: 'rgba(99,179,104,.3)'  },
+  'emotion-tense':    { bg: 'rgba(245,158,11,.12)',  color: 'rgba(245,158,11,.9)',  border: 'rgba(245,158,11,.3)'  },
+  'emotion-angry':    { bg: 'rgba(239,68,68,.12)',   color: 'rgba(239,68,68,.9)',   border: 'rgba(239,68,68,.3)'   },
+  'emotion-sad':      { bg: 'rgba(167,139,250,.12)', color: 'rgba(167,139,250,.9)', border: 'rgba(167,139,250,.3)' },
+  'emotion-neutral':  { bg: 'rgba(128,128,128,.08)', color: 'rgba(180,180,180,.9)', border: 'rgba(128,128,128,.2)' },
+  'emotion-unknown':  { bg: 'rgba(128,128,128,.06)', color: 'rgba(160,160,160,.7)', border: 'rgba(128,128,128,.15)'},
+};
+const _CAP_QLABEL_DESC = {
+  '위험':'위험한 폭발물 또는 유해 물질',
+  '무기':'전투에 사용하는 무기',
+  '방어':'방어 및 보호용 장비',
+  '의료':'치료 및 의료에 사용하는 도구',
+  '정보':'정보 저장 및 처리 장치',
+  '의식':'의식 및 제례에 사용하는 도구',
+  '영적':'영적 존재와 관련된 도구',
+  '음향':'소리를 감지하거나 발생시키는 장치',
+  '기계':'기계식 보조 장치',
+  '군용':'군사 목적의 장비',
+  '장비':'전문 기술 장비',
+  '기기':'개인용 디지털 디바이스(스마트폰·태블릿·노트북 등)',
+  '도구':'범용 작업 도구',
+  '고급':'고급 또는 특수 제작 장비',
+  '파손':'손상된 장비',
+  '낡음':'오래되거나 노후화된 물품',
+};
+function _capQlabel(name) {
+  const t = name.toLowerCase();
+  if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
+  if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프|대거|블레이드|도\b/.test(t)) return { label:'무기', color:'#a04060' };
+  if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
+  if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
+  if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
+  if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
+  if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
+  if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
+  if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
+  if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
+  if (/스마트폰|휴대폰|핸드폰|태블릿|노트북|패드|아이폰|갤럭시|아이패드|랩탑|랩톱|폰\b/.test(t)) return { label:'기기', color:'#3a6a80' };
+  if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크|안대|렌즈|고글|바이저/.test(t)) return { label:'장비', color:'#307080' };
+  if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이|테더|케이블|와이어|줄|묶/.test(t)) return { label:'도구', color:'#607040' };
+  if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
+  if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
+  if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
+  if (typeof _itemVocab !== 'undefined' && _itemVocab[name]) return { label: _itemVocab[name].badge_label, color: _itemVocab[name].color };
+  return null;
+}
+function _capBadge(text, colors) {
+  return `<span style="display:inline-block;border-radius:8px;padding:.06em .5em;font-size:.8em;font-weight:500;line-height:1.5;white-space:nowrap;background:${colors.bg};color:${colors.color};border:1px solid ${colors.border};">${text}</span>`;
+}
+function _capPhysBadgesHtml(p) {
+  const its = _splitPhysState(p || '정상');
+  if (its.length === 1) return _capBadge(its[0], _CAP_PHYS_COLOR[_physClass(its[0])] ?? _CAP_PHYS_COLOR['phys-other']);
+  return `<span style="display:flex;flex-wrap:wrap;gap:3px 4px;align-items:flex-start;">${
+    its.map(item => _capBadge(item, _CAP_PHYS_COLOR[_physClass(item)] ?? _CAP_PHYS_COLOR['phys-other'])).join('')
+  }</span>`;
+}
+function _capEmotBadgesHtml(e) {
+  const keywords = _splitEmotState(e);
+  return `<span style="display:inline-flex;flex-wrap:wrap;gap:3px 4px;">${
+    keywords.map(k => {
+      const ec = _CAP_EMOT_COLOR[_emotionClass(k)] ?? _CAP_EMOT_COLOR['emotion-neutral'];
+      return _capBadge(k, ec);
+    }).join('')
+  }</span>`;
+}
+
+// 캡처+ 스타일 인물 카드 — 본문 하단 ep-end + 캡처 양쪽 공유.
+// opts.extraClass: 추가 wrapper class (예: 'scene-char-item ep-end-card')
+// opts.dataChar:   true이면 data-char 속성 추가 (출력 동기화)
+function _buildCapStyleCharCardHtml(s, opts = {}) {
+  const gColor = _CAP_GENDER_COLOR[s.gender] ?? 'var(--text4)';
+  const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
+  const nameDisplay = s.is_new_character
+    ? `${s.character_name} <span class="scene-char-new-tag">???</span>`
+    : s.character_name;
+
+  const isFantasyGenre = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
+
+  const stateRow = (lbl, valHtml) =>
+    `<div style="display:flex;gap:.35rem;font-size:.78rem;margin-top:3px;align-items:flex-start;">
+      <span style="color:var(--text4);min-width:1.6rem;flex-shrink:0;">${lbl}</span>
+      <span>${valHtml}</span>
+    </div>`;
+
+  const _capDescFallback = name => {
+    const ql = _capQlabel(name);
+    return (ql && _CAP_QLABEL_DESC[ql.label]) ?? null;
+  };
+
+  const itemsHtml = (s.items ?? []).map(it => {
+    const rawName    = typeof it === 'string' ? it : (it.name ?? '');
+    const grade      = typeof it === 'object' ? it.grade       : null;
+    const cond       = typeof it === 'object' ? it.condition   : null;
+    const desc       = typeof it === 'object' ? it.description : null;
+    const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
+    const _pm = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
+    let displayName = rawName, inferredDesc = null;
+    if (_pm && !/^[SABCD]$|^[SABCD][급등]\b/.test(_pm[2].trim()) && /있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(_pm[2])) {
+      displayName = _pm[1].trim(); inferredDesc = _pm[2].trim();
+    }
+    const effectiveDesc = desc || inferredDesc || _capDescFallback(displayName);
+    const showGrade = isFantasyGenre && grade;
+    const gc2 = showGrade ? (_CAP_GRADE_COLOR[grade] ?? '#888') : null;
+    const ql  = !showGrade ? _capQlabel(displayName) : null;
+    const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
+    return `<div class="cap-item-row" style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
+      <div style="font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3rem;">
+        ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
+        ${displayName}
+      </div>
+      ${cond       ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">상태:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${cond}</span></div>` : ''}
+      ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">설명:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${effectiveDesc}</span></div>` : ''}
+      ${hiddenNote ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">위치:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${hiddenNote}</span></div>` : ''}
+    </div>`;
+  }).join('');
+
+  const rows = [
+    stateRow('감정', _capEmotBadgesHtml(s.emotional_state)),
+    stateRow('신체', _capPhysBadgesHtml(s.physical_state || '정상')),
+    (s.items?.length
+      ? `<div style="margin-top:4px;"><div style="font-size:.72rem;color:var(--text4);">소지</div>${itemsHtml}</div>`
+      : stateRow('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>')),
+  ].join('');
+
+  const cls       = `cap-char-card${opts.extraClass ? ' ' + opts.extraClass : ''}`;
+  const dataAttr  = opts.dataChar ? ` data-char="${s.character_name}"` : '';
+  return `<div class="${cls}"${dataAttr} style="background:var(--bg2);border-radius:10px;padding:.75rem 1rem;border:1px solid var(--border);">
+    <div style="font-size:.86rem;font-weight:700;color:${gColor};margin-bottom:.5rem;">${nameDisplay}${gLabel ? ` <span style="font-size:.7rem;opacity:.6;font-weight:400;">${gLabel}</span>` : ''}</div>
+    ${rows}
+  </div>`;
+}
+
 // Phase 4.20 R5A — 등장 인물 표시 정책. server appeared_in_episode 우선, fallback은 본문 substring + 명시 미등장 제외.
 function _isAppearedForDisplay(s, outputText) {
   if (!s || !s.character_name) return false;
@@ -874,8 +1020,8 @@ function renderEpisodeEndCharCards(charStates) {
     const html = _buildSceneCharDetailedCardHtml(s);
     // 3-col layout에서 마지막 카드가 row의 첫 cell에만 위치하면 빈 column이 우측에 보임 → 가운데로.
     if (n >= 3 && (idx === n - 1) && (n % 3 === 1)) {
-      // 마지막 단독 카드 → 2번째 column에 배치
-      return html.replace('class="scene-char-item', 'style="grid-column:2;" class="scene-char-item');
+      // 마지막 단독 카드 → 2번째 column에 배치 (POST-1 §S10 reopen: cap-char-card wrapper 기준)
+      return html.replace('class="cap-char-card', 'style="grid-column:2;" class="cap-char-card');
     }
     return html;
   }).join('');
@@ -887,162 +1033,14 @@ function renderEpisodeEndCharCards(charStates) {
   wrap.hidden = false;
 }
 
-// Phase 4.19 — 사이드바 detailed 카드 빌더 (한 인물 → HTML).
-// 사이드바 legacy 사용처와 본문 하단 ep-end 카드 양쪽에서 재사용한다.
+// POST-1 §S10 reopen — 본문 하단 ep-end-card는 캡처와 동일 presentational renderer 사용.
+// _buildCapStyleCharCardHtml에 verify-호환 wrapper class만 추가로 부여.
+// 항상 펼침, toggle/chevron 없음, 소지품 상세(상태·설명·위치) 기본 노출.
 function _buildSceneCharDetailedCardHtml(s) {
-  const gColor = _GENDER_COLOR[s.gender] ?? 'var(--text4)';
-  const gLabel = s.gender && s.gender !== '해당없음' ? s.gender : '';
-  const nameDisplay = s.is_new_character
-    ? `${s.character_name} <span class="scene-char-new-tag">???</span>`
-    : s.character_name;
-
-  const row = (label, valHtml) =>
-    `<div class="scene-char-detail"><span class="detail-label">${label}:</span><div class="detail-val">${valHtml}</div></div>`;
-
-  const FANTASY_GENRES = /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i;
-  const isFantasyGenre = (typeof settingVals !== 'undefined' && settingVals.some(v => FANTASY_GENRES.test(v)));
-
-  const _qlabel = n => {
-    const t = n.toLowerCase();
-    if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
-    if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프|대거|블레이드|도\b/.test(t)) return { label:'무기', color:'#a04060' };
-    if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
-    if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
-    if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
-    if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
-    if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
-    if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
-    if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
-    if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
-    // Phase 4.19 — 스마트폰·태블릿·노트북 등 디지털 디바이스는 "기기"로 우선 분류
-    if (/스마트폰|휴대폰|핸드폰|태블릿|노트북|패드|아이폰|갤럭시|아이패드|랩탑|랩톱|폰\b/.test(t)) return { label:'기기', color:'#3a6a80' };
-    if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크|안대|렌즈|고글|바이저/.test(t)) return { label:'장비', color:'#307080' };
-    if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이|테더|케이블|와이어|줄|묶/.test(t)) return { label:'도구', color:'#607040' };
-    if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
-    if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
-    if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-    if (_itemVocab[n]) return { label: _itemVocab[n].badge_label, color: _itemVocab[n].color };
-    return null;
-  };
-  const _QLABEL_DESC = {
-    '위험':'위험한 폭발물 또는 유해 물질',
-    '무기':'전투에 사용하는 무기',
-    '방어':'방어 및 보호용 장비',
-    '의료':'치료 및 의료에 사용하는 도구',
-    '정보':'정보 저장 및 처리 장치',
-    '의식':'의식 및 제례에 사용하는 도구',
-    '영적':'영적 존재와 관련된 도구',
-    '음향':'소리를 감지하거나 발생시키는 장치',
-    '기계':'기계식 보조 장치',
-    '군용':'군사 목적의 장비',
-    '장비':'전문 기술 장비',
-    '기기':'개인용 디지털 디바이스(스마트폰·태블릿·노트북 등)',
-    '도구':'범용 작업 도구',
-    '고급':'고급 또는 특수 제작 장비',
-    '파손':'손상된 장비',
-    '낡음':'오래되거나 노후화된 물품',
-  };
-  const _itemDescFallback = name => {
-    const ql = _qlabel(name);
-    return (ql && _QLABEL_DESC[ql.label]) ?? null;
-  };
-  const _qlabelBadgeHtml = (ql) => ql
-    ? `<span class="item-quality" style="font-size:.7em;font-weight:600;border-radius:3px;padding:.1em .32em;flex-shrink:0;letter-spacing:.04em;color:${ql.color};border:1px solid ${ql.color}44;background:${ql.color}18;">${ql.label}</span>`
-    : '';
-  const _parseItemName = (rawName) => {
-    const m = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-    if (!m) return { displayName: rawName, inferredDesc: null };
-    const inside = m[2];
-    if (/^[SABCD]$|^[SABCD][급등]\b/.test(inside.trim())) return { displayName: rawName, inferredDesc: null };
-    if (/있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(inside)) {
-      return { displayName: m[1].trim(), inferredDesc: inside.trim() };
-    }
-    return { displayName: rawName, inferredDesc: null };
-  };
-
-  const itemsRow = (() => {
-    if (!s.items?.length) {
-      return row('소지', '<span style="color:var(--text4);font-style:italic;">빈손</span>');
-    }
-    const itemCards = s.items.map((it) => {
-      const rawName = typeof it === 'string' ? it : (it.name ?? '');
-      const grade      = typeof it === 'object' ? it.grade       : null;
-      const cond       = typeof it === 'object' ? it.condition   : null;
-      const desc       = typeof it === 'object' ? it.description : null;
-      const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
-      const itemBadgeLabel = typeof it === 'object' ? (it.badge_label ?? null) : null;
-      const itemCategory   = typeof it === 'object' ? (it.category   ?? null) : null;
-      const { displayName, inferredDesc } = _parseItemName(rawName);
-      const _BADGE_DESC = {
-        '전자':'전자 신호나 데이터를 다루는 장비',
-        '도구':'작업이나 탐색에 쓰이는 실용 도구',
-        '무기':'위협에 대응하기 위한 전투 장비',
-        '방어구':'위험으로부터 사용자를 보호하는 장비',
-        '소모품':'필요한 순간 사용하는 소모성 물품',
-        '문서':'기록이나 분석에 활용되는 정보 장치',
-        '마법':'마력을 담거나 발현하는 도구',
-        '통신':'전파나 신호를 통해 정보를 전달하는 장비',
-        '기기':'개인용 디지털 디바이스(스마트폰·태블릿·노트북 등)',
-        '기타':'인물이 상황에 따라 활용하는 소지품',
-      };
-      const badgeDescFallback = (itemBadgeLabel && _BADGE_DESC[itemBadgeLabel])
-        || (itemCategory && _BADGE_DESC[itemCategory]) || null;
-      const effectiveDesc = desc || inferredDesc || _itemDescFallback(displayName) || badgeDescFallback || cond && `상태: ${cond}` || null;
-      const gradeAttr = (isFantasyGenre && grade) ? ` data-grade="${grade}"` : '';
-      // Phase 4.19 — 배지는 키워드 기반(_qlabel)을 우선 사용. vocab의 LLM 분류는
-      // 잘못된 케이스(예: 갤럭시→문서)가 누적될 수 있어 키워드 매칭이 가능하면 그것을 신뢰.
-      const _qlabelFromItem = (n) => {
-        const kw = _qlabel(n);
-        if (kw) return kw;
-        if (itemBadgeLabel) {
-          const CAT_COLOR = {
-            무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
-            문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
-            기기:'#3a6a80',
-            의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030', 기타:'#888',
-          };
-          return { label: itemBadgeLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
-        }
-        return null;
-      };
-      const gradeHtml = (isFantasyGenre && grade)
-        ? `<span class="item-grade item-grade-${grade}">${grade}</span>`
-        : _qlabelBadgeHtml(_qlabelFromItem(displayName));
-      const bodyRows = [
-        cond       ? `<div class="item-card-row"><span class="item-card-lbl">상태</span><span class="item-card-val">${cond}</span></div>` : '',
-        effectiveDesc ? `<div class="item-card-row"><span class="item-card-lbl">설명</span><span class="item-card-val">${effectiveDesc}</span></div>` : '',
-        hiddenNote ? `<div class="item-card-row"><span class="item-card-lbl">위치</span><span class="item-card-val">${hiddenNote}</span></div>` : '',
-      ].filter(Boolean).join('');
-      const hasDetail = !!bodyRows;
-      const name = displayName;
-      return `<div class="item-card${hasDetail ? ' item-card-expandable collapsed' : ''}"${gradeAttr}${hasDetail ? ' onclick="toggleItemCard(this)"' : ''}>
-        <div class="item-card-header">${gradeHtml}<span class="item-card-name">${name}</span>${hasDetail ? '<span class="item-card-arrow">▾</span>' : ''}</div>
-        ${hasDetail ? `<div class="item-card-body">${bodyRows}</div>` : ''}
-      </div>`;
-    }).join('');
-    return `<div class="scene-char-detail scene-char-items-row"><span class="detail-label">소지:</span><div class="item-cards-wrap">${itemCards}</div></div>`;
-  })();
-
-  const dataRows = [
-    row('감정', `<div class="emot-badge-wrap">${_emotBadgesHtml(s.emotional_state)}</div>`),
-    row('신체', _physBadgesHtml(s.physical_state || '정상')),
-    itemsRow,
-  ].filter(Boolean);
-  const expandedRows = dataRows.length
-    ? dataRows.join('')
-    : `<div class="scene-char-detail" style="color:var(--text4);font-style:italic;font-size:.75em;">이번 화 상태 미기록</div>`;
-
-  // R5B-1.8C UI: 본문 하단 카드는 _기본 open_, capture+ 스타일 계열 시각 톤.
-  //   - wrapper: collapse 클래스 없음 (기본 펼침). 헤더 클릭 시 toggleCharCard로 접기 가능.
-  //   - 항목 (.item-card-expandable): 기존대로 description collapsed 기본, 클릭으로 펼침.
-  return `<div class="scene-char-item ep-end-card" data-char="${s.character_name}">
-    <div class="scene-char-header" onclick="toggleCharCard(this)">
-      <span class="scene-char-name" style="color:${gColor}">${nameDisplay}</span>
-      ${gLabel ? `<span class="scene-char-gender" style="color:${gColor};font-size:.72em;opacity:.7">${gLabel}</span>` : ''}
-      <span class="scene-char-expand-icon">▾</span>
-    </div>
-    <div class="scene-char-expanded">${expandedRows}</div>
-  </div>`;
+  return _buildCapStyleCharCardHtml(s, {
+    extraClass: 'scene-char-item ep-end-card',
+    dataChar:   true,
+  });
 }
 
 // Phase 4.19 — legacy 확장형 사이드바 본문은 _buildSceneCharDetailedCardHtml로 위임.
@@ -1850,140 +1848,15 @@ async function captureEpisode(mode = 'body') {
       s.visibility_state !== 'absent' || outputText.includes(s.character_name)
     );
     if (appearing.length) {
-      const GENDER_COLOR = { '남성': '#7090c8', '여성': '#c07090', '기타': '#70a878', '해당없음': 'var(--text4)' };
-      const GRADE_COLOR  = { S:'#d4a000', A:'#9b5de0', B:'#3b82c8', C:'#2e8a55', D:'#888' };
       const divider = document.createElement('div');
       // charsOnly 모드는 본문이 없으니 separator 없이 위쪽 여백만 약간
       divider.style.cssText = charsOnly
         ? 'margin-top:0;padding-top:0;'
         : 'margin-top:2.5rem;padding-top:1.5rem;border-top:1px solid rgba(168,152,128,.2);';
-      // severity → inline color (캡처는 CSS class 미적용, inline style 필요)
-      const PHYS_COLOR = {
-        'phys-normal':   { bg: 'rgba(34,197,94,.12)',   color: 'rgba(34,197,94,.9)',   border: 'rgba(34,197,94,.3)'  },
-        'phys-tired':    { bg: 'rgba(234,179,8,.12)',   color: 'rgba(234,179,8,.9)',   border: 'rgba(234,179,8,.3)'  },
-        'phys-hurt':     { bg: 'rgba(249,115,22,.12)',  color: 'rgba(249,115,22,.9)',  border: 'rgba(249,115,22,.3)' },
-        'phys-critical': { bg: 'rgba(239,68,68,.14)',   color: 'rgba(239,68,68,.95)',  border: 'rgba(239,68,68,.35)' },
-        'phys-special':  { bg: 'rgba(139,92,246,.12)',  color: 'rgba(139,92,246,.9)',  border: 'rgba(139,92,246,.3)' },
-        'phys-other':    { bg: 'rgba(128,128,128,.08)', color: 'rgba(180,180,180,.9)', border: 'rgba(128,128,128,.2)'},
-      };
-      const EMOT_COLOR = {
-        'emotion-positive': { bg: 'rgba(99,179,104,.12)',  color: 'rgba(99,179,104,.9)',  border: 'rgba(99,179,104,.3)'  },
-        'emotion-tense':    { bg: 'rgba(245,158,11,.12)',  color: 'rgba(245,158,11,.9)',  border: 'rgba(245,158,11,.3)'  },
-        'emotion-angry':    { bg: 'rgba(239,68,68,.12)',   color: 'rgba(239,68,68,.9)',   border: 'rgba(239,68,68,.3)'   },
-        'emotion-sad':      { bg: 'rgba(167,139,250,.12)', color: 'rgba(167,139,250,.9)', border: 'rgba(167,139,250,.3)' },
-        'emotion-neutral':  { bg: 'rgba(128,128,128,.08)', color: 'rgba(180,180,180,.9)', border: 'rgba(128,128,128,.2)' },
-        'emotion-unknown':  { bg: 'rgba(128,128,128,.06)', color: 'rgba(160,160,160,.7)', border: 'rgba(128,128,128,.15)'},
-      };
-      const _capBadge = (text, colors) =>
-        `<span style="display:inline-block;border-radius:8px;padding:.06em .5em;font-size:.8em;font-weight:500;line-height:1.5;white-space:nowrap;background:${colors.bg};color:${colors.color};border:1px solid ${colors.border};">${text}</span>`;
-      const _capPhysBadges = (p) => {
-        const its = _splitPhysState(p || '정상');
-        if (its.length === 1) return _capBadge(its[0], PHYS_COLOR[_physClass(its[0])] ?? PHYS_COLOR['phys-other']);
-        return `<span style="display:flex;flex-wrap:wrap;gap:3px 4px;align-items:flex-start;">${
-          its.map(item => _capBadge(item, PHYS_COLOR[_physClass(item)] ?? PHYS_COLOR['phys-other'])).join('')
-        }</span>`;
-      };
+      // POST-1 §S10 reopen — 캡처 카드도 본문 하단과 동일 shared renderer (_buildCapStyleCharCardHtml).
       divider.innerHTML = `<div style="font-size:.75rem;color:var(--text4);letter-spacing:.08em;margin-bottom:1rem;">등장 인물</div>
         <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:.75rem;">
-          ${appearing.map(s => {
-            const gc = GENDER_COLOR[s.gender] ?? 'var(--text4)';
-            const emotClass = _emotionClass(s.emotional_state);
-            const emotColors = EMOT_COLOR[emotClass] ?? EMOT_COLOR['emotion-neutral'];
-            const stateRow = (lbl, valHtml) =>
-              `<div style="display:flex;gap:.35rem;font-size:.78rem;margin-top:3px;align-items:flex-start;">
-                <span style="color:var(--text4);min-width:1.6rem;flex-shrink:0;">${lbl}</span>
-                <span>${valHtml}</span>
-              </div>`;
-            const QLABEL_CAP = n => {
-              const t = n.toLowerCase();
-              if (/폭탄|수류탄|지뢰|독가스|방사|폭발물|화염/.test(t)) return { label:'위험', color:'#c06040' };
-              if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|나이프/.test(t)) return { label:'무기', color:'#a04060' };
-              if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
-              if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
-              if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿/.test(t)) return { label:'정보', color:'#5060a0' };
-              if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
-              if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
-              if (/청음기|청음|음향기|공명기|청진기|방울|심벌|타악기|현악기/.test(t)) return { label:'음향', color:'#4070a0' };
-              if (/의수|의족|기계팔|보조지체|의체/.test(t)) return { label:'기계', color:'#507080' };
-              if (/군용|군사|군장|군복|군비|탄약|포탄/.test(t)) return { label:'군용', color:'#5080a0' };
-              if (/장비|기기|장치|기계|전자|통신|송신|수신|센서|드론|로봇|컴퓨터|단말|스캐너|배양기|정화기|필터|마스크/.test(t)) return { label:'장비', color:'#307080' };
-              if (/도구|공구|렌치|망치|드라이버|열쇠|자물쇠|가방|배낭|상자|음차|진동|로프|줄|채집|지팡이/.test(t)) return { label:'도구', color:'#607040' };
-              if (/고급|특제|개조|정밀|희귀|커스텀|첨단|특수/.test(t)) return { label:'고급', color:'#5080c8' };
-              if (/파손|손상|고장|불량|망가|반파|부서/.test(t)) return { label:'파손', color:'#888' };
-              if (/낡은|낡아|오래된|아날로그|노후|녹슨|구식/.test(t)) return { label:'낡음', color:'#8a7a50' };
-              return null;
-            };
-            // hover card도 동일 카테고리 매핑 사용 (QLABEL_CAP 기반)
-            const _CAP_DESC = {
-              '위험':'위험한 폭발물 또는 유해 물질',
-              '무기':'전투에 사용하는 무기',
-              '방어':'방어 및 보호용 장비',
-              '의료':'치료 및 의료에 사용하는 도구',
-              '정보':'정보 저장 및 처리 장치',
-              '의식':'의식 및 제례에 사용하는 도구',
-              '영적':'영적 존재와 관련된 도구',
-              '음향':'소리를 감지하거나 발생시키는 장치',
-              '기계':'기계식 보조 장치',
-              '군용':'군사 목적의 장비',
-              '장비':'전문 기술 장비',
-              '도구':'범용 작업 도구',
-              '고급':'고급 또는 특수 제작 장비',
-              '파손':'손상된 장비',
-              '낡음':'오래되거나 노후화된 물품',
-            };
-            const _capDescFallback = name => {
-              const ql = QLABEL_CAP(name);
-              return (ql && _CAP_DESC[ql.label]) ?? null;
-            };
-            const isFantasyCap = (typeof settingVals !== 'undefined' && settingVals.some(v => /판타지|이세계|무협|헌터|게임|마법|던전|신화|RPG|다크/i.test(v)));
-            const itemsHtml = (s.items ?? []).map(it => {
-              const rawName    = typeof it === 'string' ? it : (it.name ?? '');
-              const grade      = typeof it === 'object' ? it.grade       : null;
-              const cond       = typeof it === 'object' ? it.condition   : null;
-              const desc       = typeof it === 'object' ? it.description : null;
-              const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
-              // 이름에서 상태 설명 파싱 (구조화 필드 없을 때만)
-              const _pm = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
-              let displayName = rawName, inferredDesc = null;
-              if (_pm && !/^[SABCD]$|^[SABCD][급등]\b/.test(_pm[2].trim()) && /있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(_pm[2])) {
-                displayName = _pm[1].trim(); inferredDesc = _pm[2].trim();
-              }
-              const effectiveDesc = desc || inferredDesc || _capDescFallback(displayName);
-              const showGrade = isFantasyCap && grade;
-              const gc2 = showGrade ? GRADE_COLOR[grade] ?? '#888' : null;
-              const ql  = !showGrade ? QLABEL_CAP(displayName) : null;
-              const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
-              return `<div class="cap-item-row" style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
-                <div style="font-size:.78rem;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3rem;">
-                  ${showGrade ? `<span style="font-size:.67rem;font-weight:700;color:${gc2};border:1px solid ${gc2};border-radius:3px;padding:0 .25rem;">${grade}</span>` : (ql ? `<span style="font-size:.67rem;font-weight:600;color:${ql.color};border:1px solid ${ql.color}44;border-radius:3px;padding:0 .25rem;background:${ql.color}18;">${ql.label}</span>` : '')}
-                  ${displayName}
-                </div>
-                ${cond       ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">상태:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${cond}</span></div>` : ''}
-                ${effectiveDesc ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">설명:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${effectiveDesc}</span></div>` : ''}
-                ${hiddenNote ? `<div style="font-size:.72rem;display:flex;gap:.4rem;align-items:flex-start;"><span style="color:var(--text4);letter-spacing:.04em;white-space:nowrap;flex-shrink:0;">위치:</span><span style="color:var(--text2);font-size:.95em;word-break:keep-all;overflow-wrap:break-word;">${hiddenNote}</span></div>` : ''}
-              </div>`;
-            }).join('');
-            const _capEmotBadges = (e) => {
-              const keywords = _splitEmotState(e);
-              return `<span style="display:inline-flex;flex-wrap:wrap;gap:3px 4px;">${
-                keywords.map(k => {
-                  const ec = EMOT_COLOR[_emotionClass(k)] ?? EMOT_COLOR['emotion-neutral'];
-                  return _capBadge(k, ec);
-                }).join('')
-              }</span>`;
-            };
-            const rows = [
-              stateRow('감정', _capEmotBadges(s.emotional_state)),
-              stateRow('신체', _capPhysBadges(s.physical_state || '정상')),
-              (s.items?.length
-                ? `<div style="margin-top:4px;"><div style="font-size:.72rem;color:var(--text4);">소지</div>${itemsHtml}</div>`
-                : stateRow('소지', '빈손')),
-            ].join('');
-            return `<div class="cap-char-card" style="background:var(--bg2);border-radius:10px;padding:.75rem 1rem;border:1px solid var(--border);">
-              <div style="font-size:.86rem;font-weight:700;color:${gc};margin-bottom:.5rem;">${s.character_name}${s.gender && s.gender !== '해당없음' ? ` <span style="font-size:.7rem;opacity:.6">${s.gender}</span>` : ''}</div>
-              ${rows}
-            </div>`;
-          }).join('')}
+          ${appearing.map(s => _buildCapStyleCharCardHtml(s)).join('')}
         </div>`;
       wrap.appendChild(divider);
     }

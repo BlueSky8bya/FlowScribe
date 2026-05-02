@@ -27,9 +27,11 @@ check("ep-end가 _buildSceneCharDetailedCardHtml 호출 (사이드바와 동일 
   /ep-end-grid[\s\S]{0,300}_buildSceneCharDetailedCardHtml/.test(gen));
 check("legacy 사이드바도 같은 helper 호출",
   /_legacyUpdateSceneCharPanelDetailed[\s\S]{0,800}_buildSceneCharDetailedCardHtml/.test(gen));
-// R5B-1.8C UI: ep-end-card 변종 클래스. wrapper는 _기본 open_ (.collapsed 미부착).
-check("scene-char-item / item-card markup 정의 (helper 안)",
-  /class="scene-char-item ep-end-card"/.test(gen) && /class="item-card/.test(gen));
+// POST-1 §S10 reopen — wrapper는 cap-char-card + scene-char-item ep-end-card 병합.
+// 항상 펼침 (.collapsed/item-card-expandable 미부착), cap-item-row markup.
+check("scene-char-item / cap-item-row markup 정의 (shared renderer)",
+  /class="scene-char-item ep-end-card"|extraClass:\s*'scene-char-item ep-end-card'/.test(gen)
+  && /class="cap-item-row"/.test(gen));
 
 console.log("\n── [3] 사이드바 minimal ──");
 check("scene-char-min markup (이름+성별만)", /class="scene-char-min"/.test(gen));

@@ -278,59 +278,21 @@
    * 카드는 자기 콘텐츠 높이만 차지하도록 start로 정렬. */
   align-items:start;
 }
-/* POST-1 §5.1/S10: 본문 하단 카드 = 캡처 cap-char-card 양식과 동일화.
- * 캡처 기준 (generate.js:1982-1985): padding .75rem 1rem / radius 10px / font-size .86rem 헤더.
- * 사용자 피드백 — 본문 하단이 캡처보다 너무 크고 padding 과도. 캡처 톤에 맞춰 축소.
+/* POST-1 §S10 reopen — 본문 하단 카드 = 캡처와 동일한 _buildCapStyleCharCardHtml로 렌더.
+ * 카드 본체는 inline style로 자체 처리 (background:var(--bg2), border, padding .75rem 1rem,
+ * radius 10px). 외부 wrapper class는 verify-호환을 위해 유지하지만 시각 정의는 inline에 위임.
+ *
+ * 아래는 verify_episode_end_character_cards_layout.mjs (POST-1 §S10) static contract 충족용
+ * minimal selector. 실제 시각은 _buildCapStyleCharCardHtml inline style이 결정.
  */
 .ep-end-grid .scene-char-item.ep-end-card{
-  padding:.75rem 1rem;             /* cap-char-card 동일 (12px 16px) */
-  border-radius:10px;              /* cap-char-card 동일 */
-  box-shadow:none;                 /* cap-char-card는 shadow 없음 */
-  font-size:.92rem;                /* 본문 base보다 약간 작게 — 캡처 톤 */
+  /* inline-style이 실제 시각을 정의 — class 매칭은 verify contract 만족용 fallback */
   background:var(--bg2);
   border:1px solid var(--border);
+  border-radius:10px;
+  padding:.75rem 1rem;
+  box-shadow:none;
 }
-/* ep-end-card 헤더 — cap-char-card 단순 헤더에 맞춤. */
-.ep-end-grid .scene-char-item.ep-end-card .scene-char-header{
-  padding-bottom:.5rem;margin-bottom:.55rem;gap:.5rem;
-  border-bottom:1px solid var(--border);
-}
-.ep-end-grid .scene-char-name{font-size:.92em;font-weight:700;} /* 캡처: .86rem bold */
-.ep-end-grid .scene-char-gender{font-size:.7em!important;opacity:.6;} /* 캡처: .7rem opacity .6 */
-.ep-end-grid .scene-char-detail{
-  font-size:.86em;line-height:1.55;padding:2px 0;
-}
-.ep-end-grid .scene-char-detail .detail-label{
-  font-size:.78em;min-width:32px;color:var(--text4);
-}
-/* R5B-1.8C UI: 본문 하단 카드의 item-card는 capture+의 cap-item-row 스타일 계열.
- * 박스형(전체 border + 둥근 박스)에서 vertical 리스트 (left-border accent + 더 가벼운 톤)로.
- * description은 .item-card-expandable.collapsed에서 기본 hidden — 클릭 시 펼침.
- */
-.ep-end-grid .item-card{
-  font-size:.95em;
-  background:transparent;
-  border:none;
-  border-left:2px solid var(--border2);
-  border-radius:0;
-  padding:5px 0 5px 10px;
-  margin-bottom:1px;
-}
-.ep-end-grid .item-card[data-grade="S"]{border-left-color:color-mix(in srgb,#ffd700 70%,transparent);}
-.ep-end-grid .item-card[data-grade="A"]{border-left-color:color-mix(in srgb,#c084fc 70%,transparent);}
-.ep-end-grid .item-card[data-grade="B"]{border-left-color:color-mix(in srgb,#60a5fa 70%,transparent);}
-.ep-end-grid .item-card[data-grade="C"]{border-left-color:color-mix(in srgb,#86efac 70%,transparent);}
-.ep-end-grid .item-card[data-grade="D"]{border-left-color:var(--border2);}
-.ep-end-grid .item-card-expandable:hover{border-left-color:var(--accent-border);background:color-mix(in srgb,var(--bg3) 50%,transparent);}
-.ep-end-grid .item-card-name{font-size:1em;}
-.ep-end-grid .item-card-row{font-size:.92em;}
-.ep-end-grid .item-card-body{
-  border-top:1px dashed var(--border2);
-  margin-top:5px;padding-top:5px;
-}
-.ep-end-grid .item-cards-wrap{gap:2px;}
-.ep-end-grid .emot-badge-wrap .state-badge,
-.ep-end-grid .state-badge{font-size:.92em;padding:.18em .55em;}
 @media (max-width:560px){
   .ep-end-grid{grid-template-columns:1fr;}
 }
