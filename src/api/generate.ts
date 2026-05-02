@@ -836,6 +836,9 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
     // POST-1 §P1-A — vocab 미등록 아이템을 모아 fire-and-forget 분류 큐잉.
     // 다음 char-states 호출 시 vocab hit하여 정상 카테고리 부여. 키워드 if문 추가 대신 LLM 분류 누적.
     // reopen-2: owner/description/is_initial 컨텍스트도 prompt에 전달해 정확도 향상.
+    // reopen-3 (C-lite): vocab.category가 "기타"가 아니면 canonical it.category보다 우선.
+    //   canonical(initial_items)에 박힌 잘못된 LLM 분류가 vocab의 정확한 분류를 덮는 source
+    //   priority 문제 해결. category/badge_label만 vocab 우선, 다른 필드는 그대로.
     const missingForClassify = new Map<string, { name: string; description?: string | null; owner?: string | null; is_initial?: boolean }>();
     for (const s of charStates) {
       const initialNames = new Set<string>(
@@ -844,10 +847,45 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
           .filter((n: any) => typeof n === "string")
       );
       s.items = (s.items ?? []).map((it: any) => {
-        if (!it.name || (it.badge_label && it.category)) return it;
+        if (!it.name) return it;
         const v = vocabMap[it.name];
-        if (v) return { ...it, category: v.category, badge_label: v.badge_label };
-        // vocab 미등록 → 분류 후보로 모음. 응답에는 _inferItemBadge fallback 그대로 사용.
+
+        // vocab category가 구체적("기타" 아님)이면 우선 — canonical/it.category 무시.
+        if (v && v.category && v.category !== "기타") {
+          return { ...it, category: v.category, badge_label: v.badge_label };
+        }
+
+        // canonical 또는 dynamic merge 단계에서 이미 category가 들어있는 경우.
+        if (it.badge_label && it.category) {
+          // vocab 없거나 vocab "기타"라도 it.category가 더 구체적이면 it 유지.
+          // 단 vocab miss라면 강화 prompt로 분류 큐잉 (다음 호출 시 vocab hit하여 정정).
+          // vocab "기타"인 경우도 큐잉 — 강화 prompt가 더 정확한 카테고리 줄 수 있음.
+          if (!v || v.category === "기타") {
+            if (!missingForClassify.has(it.name)) {
+              missingForClassify.set(it.name, {
+                name: it.name,
+                description: it.description ?? null,
+                owner: s.character_name ?? null,
+                is_initial: initialNames.has(it.name),
+              });
+            }
+          }
+          return it;
+        }
+
+        // it.category도 없음 — vocab도 없거나 "기타". _inferItemBadge fallback + 큐잉.
+        if (v && v.category) {
+          // vocab "기타"라도 일단 표시 (배지 미표시 방지)
+          if (!missingForClassify.has(it.name)) {
+            missingForClassify.set(it.name, {
+              name: it.name,
+              description: it.description ?? null,
+              owner: s.character_name ?? null,
+              is_initial: initialNames.has(it.name),
+            });
+          }
+          return { ...it, category: v.category, badge_label: v.badge_label };
+        }
         if (!missingForClassify.has(it.name)) {
           missingForClassify.set(it.name, {
             name: it.name,

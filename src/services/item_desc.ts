@@ -167,7 +167,11 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
     "   - 예: \"어두운 곳을 비추는 휴대용 조명이다.\" / \"통신과 기록 확인에 쓰는 개인 스마트폰이다.\"",
     "   - 복문·여러 문장 금지. 40자를 넘기지 않도록.",
     "",
-    `2. category: ${categoryList} 중 하나 (해당 없으면 "기타")`,
+    `2. category: 다음 enum 중 하나로만 분류 (${categoryList}).`,
+    "",
+    // POST-1 §P1-A reopen-3 — classifyItemNamesViaLLM과 동일 분류 기준 사용.
+    // initial item 분류와 dynamic item 분류가 같은 guide를 따라야 vocab/canonical 충돌 방지.
+    _CATEGORY_GUIDE,
     "",
     `반드시 JSON 배열 형식으로만 응답하세요: [{"name":"소지품명","description":"설명","category":"유형"}]`,
     "다른 텍스트(설명, 코드블록 마커 등)는 출력하지 마세요.",

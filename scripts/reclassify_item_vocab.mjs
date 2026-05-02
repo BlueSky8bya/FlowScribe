@@ -1,8 +1,9 @@
 /**
- * reclassify_item_vocab.mjs — POST-1 §P1-A reopen
+ * reclassify_item_vocab.mjs — POST-1 §P1-A reopen-3 (C-lite)
  *
- * item_vocab DB에 잘못 저장된 카테고리를 강화된 prompt로 재분류.
- * INSERT ... ON CONFLICT DO NOTHING 정책 때문에 prompt만 고쳐도 기존 행은 갱신 안 됨.
+ * item_vocab + canonical_characters.initial_items 두 source의 잘못된 카테고리를
+ * 강화된 prompt(classifyItemNamesViaLLM)로 함께 재분류.
+ *
  * 본 script는 명시적 --apply 없이는 dry-run only — 절대 DB write 안 함.
  *
  * 사용법:
@@ -12,21 +13,20 @@
  *   # 단일 아이템만 dry-run
  *   node scripts/reclassify_item_vocab.mjs --book-id <book_id> --item-name "합성 영양바"
  *
- *   # 실제 UPDATE 적용
- *   node scripts/reclassify_item_vocab.mjs --book-id <book_id> --apply
+ *   # 실제 UPDATE 적용 (item_vocab + canonical 둘 다)
  *   node scripts/reclassify_item_vocab.mjs --book-id <book_id> --item-name "합성 영양바" --apply
  *
  * 동작:
- *   1. item_vocab에서 대상 행 조회 (현재 category 포함)
- *   2. classifyItemNamesViaLLM (dist 빌드 산출)에 owner/description/is_initial 컨텍스트 함께 전달
- *   3. 새 분류 결과를 현재 category와 비교
- *   4. dry-run: 변경 후보를 표 형식으로 출력만
- *   5. --apply: 변경되는 행만 UPDATE (delta 없으면 skip)
+ *   1. item_vocab + canonical_characters.initial_items 둘 다에서 대상 행 조회
+ *   2. classifyItemNamesViaLLM (dist 빌드)에 owner/description/is_initial 컨텍스트 전달
+ *   3. dry-run: 각 source별 (current → new) delta 출력
+ *   4. --apply: 트랜잭션 안에서 vocab UPDATE + canonical jsonb_set, 실패 시 ROLLBACK
  *
  * 안전:
  *   - book_id 미입력 시 즉시 종료
  *   - --apply 없으면 어떤 INSERT/UPDATE/DELETE도 수행 안 함
  *   - 트랜잭션 사용 — 부분 실패 시 rollback
+ *   - id/created_at 보존 (UPDATE 우선)
  */
 
 import pg from "pg";
@@ -69,7 +69,7 @@ async function main() {
   }
   console.log(`title: ${bookRes.rows[0].title}`);
 
-  // 1. 대상 vocab 행 조회
+  // 1. item_vocab 대상 행
   const vocabRes = ITEM_NAME
     ? await pool.query(
         "SELECT name, category, badge_label FROM item_vocab WHERE book_id = $1 AND name = $2",
@@ -79,98 +79,121 @@ async function main() {
         "SELECT name, category, badge_label FROM item_vocab WHERE book_id = $1 ORDER BY name",
         [BOOK_ID]
       );
-  if (!vocabRes.rows.length) {
-    console.log(`\n대상 vocab 행 없음. ${ITEM_NAME ? '(item-name 매칭 없음)' : '(이 책에 vocab 등록 0건)'}`);
-    return;
-  }
-  console.log(`\n대상 vocab 행: ${vocabRes.rows.length}건`);
+  const vocabByName = new Map();
+  for (const r of vocabRes.rows) vocabByName.set(r.name, { category: r.category, badge_label: r.badge_label });
 
-  // 2. canonical_characters에서 owner / description / is_initial 정보 fetch
-  //    아이템 이름 → owner 매핑 (canonical_characters.initial_items)
-  //    아이템 이름 → description 매핑 (initial_items의 description)
+  // 2. canonical_characters.initial_items에서 같은 이름의 row + owner 매핑
   const canonRes = await pool.query(
     "SELECT name AS owner, COALESCE(initial_items, '[]'::jsonb) AS initial_items FROM canonical_characters WHERE book_id = $1",
     [BOOK_ID]
   );
-  const ownerByItem = new Map();
-  const descByItem  = new Map();
+  // canonByName: item name → [{owner, current_category, current_badge, description}]
+  const canonByName = new Map();
   for (const r of canonRes.rows) {
     const items = Array.isArray(r.initial_items) ? r.initial_items
                 : (typeof r.initial_items === "string" ? JSON.parse(r.initial_items) : []);
     for (const it of items) {
       const nm = typeof it === "string" ? it : it?.name;
       if (!nm) continue;
-      if (!ownerByItem.has(nm)) ownerByItem.set(nm, r.owner);
-      if (!descByItem.has(nm) && it?.description) descByItem.set(nm, it.description);
+      if (ITEM_NAME && nm !== ITEM_NAME) continue;
+      const arr = canonByName.get(nm) ?? [];
+      arr.push({
+        owner: r.owner,
+        current_category: typeof it === "object" ? (it.category ?? null) : null,
+        current_badge:    typeof it === "object" ? (it.badge_label ?? null) : null,
+        description:      typeof it === "object" ? (it.description ?? null) : null,
+      });
+      canonByName.set(nm, arr);
     }
   }
-  // dynamic states에서도 owner 보강 (canonical에 없는 dynamic 아이템)
+
+  // 3. dynamic_states에서 description / owner 보강 (canonical에 없는 dynamic-only)
   const dynRes = await pool.query(
     "SELECT character_name, items FROM character_dynamic_states WHERE book_id = $1",
     [BOOK_ID]
   );
+  const ownerByDynName = new Map();
+  const descByDynName  = new Map();
   for (const r of dynRes.rows) {
     const items = Array.isArray(r.items) ? r.items
                 : (typeof r.items === "string" ? JSON.parse(r.items) : []);
     for (const it of items) {
       const nm = typeof it === "string" ? it : it?.name;
       if (!nm) continue;
-      if (!ownerByItem.has(nm)) ownerByItem.set(nm, r.character_name);
-      if (!descByItem.has(nm) && it?.description) descByItem.set(nm, it.description);
+      if (!ownerByDynName.has(nm)) ownerByDynName.set(nm, r.character_name);
+      if (!descByDynName.has(nm) && it?.description) descByDynName.set(nm, it.description);
     }
   }
 
-  // 3. LLM 호출용 input 구성
-  const initialNames = new Set(ownerByItem.keys()); // canonical에서 발견된 이름은 initial로 본다 (근사)
-  const llmInput = vocabRes.rows.map(r => ({
-    name: r.name,
-    description: descByItem.get(r.name) ?? null,
-    owner: ownerByItem.get(r.name) ?? null,
-    is_initial: initialNames.has(r.name),
-  }));
+  // 4. 통합 대상 names: vocab 또는 canonical 어느 한 쪽에라도 있는 이름
+  const targetNames = new Set();
+  for (const n of vocabByName.keys()) targetNames.add(n);
+  for (const n of canonByName.keys()) targetNames.add(n);
+  if (!targetNames.size) {
+    console.log(`\n대상 이름 없음. ${ITEM_NAME ? '(item-name 매칭 없음)' : '(vocab/canonical 둘 다 비어있음)'}`);
+    return;
+  }
+  console.log(`\n대상 이름: ${targetNames.size}개 (vocab=${vocabByName.size}, canonical=${[...canonByName.values()].reduce((a, b) => a + b.length, 0)})`);
 
+  // 5. LLM 호출용 input — 각 이름 1개씩 (canonical에 multi-owner면 첫 owner만 prompt에 사용)
+  const llmInput = [...targetNames].map(nm => {
+    const canonList = canonByName.get(nm) ?? [];
+    const firstCanon = canonList[0];
+    const description = firstCanon?.description ?? descByDynName.get(nm) ?? null;
+    const owner = firstCanon?.owner ?? ownerByDynName.get(nm) ?? null;
+    const is_initial = canonList.length > 0;
+    return { name: nm, description, owner, is_initial };
+  });
   console.log(`\nLLM 분류 호출 중 (${llmInput.length}건, batch=30)...`);
   const newCategories = new Map();
-  // 30개씩 batch
   for (let i = 0; i < llmInput.length; i += 30) {
     const chunk = llmInput.slice(i, i + 30);
-    const result = await classifyItemNamesViaLLM({
-      book_id: BOOK_ID,
-      items: chunk,
-    });
+    const result = await classifyItemNamesViaLLM({ book_id: BOOK_ID, items: chunk });
     for (const r of result) newCategories.set(r.name, r.category);
   }
   console.log(`LLM 응답: ${newCategories.size}건 분류됨`);
 
-  // 4. delta 계산
-  const deltas = [];
-  for (const r of vocabRes.rows) {
-    const newCat = newCategories.get(r.name);
+  // 6. delta 계산 — vocab + canonical 양 source 별
+  const deltas = []; // { name, vocabDelta, canonDeltas: [{owner, from, to}] }
+  for (const nm of targetNames) {
+    const newCat = newCategories.get(nm);
     if (!newCat) continue; // LLM 응답 없으면 skip
-    if (newCat === r.category) continue; // 동일하면 skip
-    deltas.push({
-      name: r.name,
-      from: r.category,
-      to:   newCat,
-    });
-  }
 
-  // 5. 출력
-  console.log(`\n${"─".repeat(72)}`);
-  console.log(`RECLASSIFY DELTA (${deltas.length}건)`);
-  console.log("─".repeat(72));
-  if (!deltas.length) {
-    console.log("변경 후보 없음 — 모든 행이 강화된 prompt로도 동일 category 유지.");
-  } else {
-    const w = Math.max(...deltas.map(d => d.name.length), 12);
-    console.log(`${"name".padEnd(w)}  | ${"from".padEnd(8)} → ${"to".padEnd(8)}`);
-    console.log(`${"-".repeat(w)}  | ${"-".repeat(8)} → ${"-".repeat(8)}`);
-    for (const d of deltas) {
-      console.log(`${d.name.padEnd(w)}  | ${d.from.padEnd(8)} → ${d.to.padEnd(8)}`);
+    const v = vocabByName.get(nm);
+    const vocabDelta = v && v.category !== newCat ? { from: v.category, to: newCat } : null;
+
+    const canonList = canonByName.get(nm) ?? [];
+    const canonDeltas = canonList
+      .map(c => ({ owner: c.owner, from: c.current_category ?? "(없음)", to: newCat }))
+      .filter(d => d.from !== d.to);
+
+    if (vocabDelta || canonDeltas.length) {
+      deltas.push({ name: nm, vocabDelta, canonDeltas });
     }
   }
 
-  // 6. apply
+  // 7. 출력
+  console.log(`\n${"─".repeat(72)}`);
+  console.log(`RECLASSIFY DELTA (${deltas.length} item)`);
+  console.log("─".repeat(72));
+  if (!deltas.length) {
+    console.log("변경 후보 없음 — 모든 source가 강화된 prompt 결과와 일치.");
+  } else {
+    for (const d of deltas) {
+      console.log(`\n• ${d.name}`);
+      if (d.vocabDelta) console.log(`    item_vocab:                ${d.vocabDelta.from} → ${d.vocabDelta.to}`);
+      else if (vocabByName.has(d.name)) console.log(`    item_vocab:                (no change)`);
+      else console.log(`    item_vocab:                (vocab 행 없음)`);
+      for (const cd of d.canonDeltas) {
+        console.log(`    canonical (${cd.owner}):  ${cd.from} → ${cd.to}`);
+      }
+      if (!d.canonDeltas.length && canonByName.has(d.name)) {
+        console.log(`    canonical:                 (no change)`);
+      }
+    }
+  }
+
+  // 8. apply
   if (!APPLY) {
     console.log(`\n${"─".repeat(72)}`);
     console.log("DRY-RUN 종료. DB 미수정. 변경 적용하려면 --apply 인자 추가하세요.");
@@ -182,21 +205,49 @@ async function main() {
   }
 
   console.log(`\n${"─".repeat(72)}`);
-  console.log(`APPLY — UPDATE item_vocab × ${deltas.length}건 (transaction)`);
+  console.log(`APPLY — vocab UPDATE + canonical jsonb UPDATE (transaction)`);
   console.log("─".repeat(72));
   const client = await pool.connect();
+  let vocabCount = 0;
+  let canonCount = 0;
   try {
     await client.query("BEGIN");
     for (const d of deltas) {
-      await client.query(
-        `UPDATE item_vocab
-         SET category = $3, badge_label = $3
-         WHERE book_id = $1 AND name = $2`,
-        [BOOK_ID, d.name, d.to]
-      );
+      // vocab UPDATE
+      if (d.vocabDelta) {
+        await client.query(
+          `UPDATE item_vocab
+           SET category = $3, badge_label = $3
+           WHERE book_id = $1 AND name = $2`,
+          [BOOK_ID, d.name, d.vocabDelta.to]
+        );
+        vocabCount++;
+      }
+      // canonical jsonb UPDATE — 각 owner row에 대해
+      for (const cd of d.canonDeltas) {
+        await client.query(
+          `UPDATE canonical_characters
+           SET initial_items = (
+             SELECT COALESCE(jsonb_agg(
+               CASE
+                 WHEN elem->>'name' = $3
+                 THEN jsonb_set(
+                   jsonb_set(elem, '{category}',    to_jsonb($4::text)),
+                              '{badge_label}', to_jsonb($4::text)
+                 )
+                 ELSE elem
+               END
+             ), '[]'::jsonb)
+             FROM jsonb_array_elements(COALESCE(initial_items, '[]'::jsonb)) elem
+           )
+           WHERE book_id = $1 AND name = $2`,
+          [BOOK_ID, cd.owner, d.name, cd.to]
+        );
+        canonCount++;
+      }
     }
     await client.query("COMMIT");
-    console.log(`✓ COMMIT — ${deltas.length}건 갱신 완료.`);
+    console.log(`✓ COMMIT — vocab ${vocabCount}건 + canonical ${canonCount}건 갱신 완료.`);
   } catch (err) {
     await client.query("ROLLBACK").catch(() => {});
     console.error(`✗ ROLLBACK — UPDATE 실패. 변경 사항 없음.`);
