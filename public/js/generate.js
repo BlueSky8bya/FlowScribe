@@ -1044,12 +1044,12 @@ function renderEpisodeEndCharCards(charStates) {
 // POST-1 §S10 reopen — 본문 하단 ep-end-card는 캡처와 동일 presentational renderer 사용.
 // _buildCapStyleCharCardHtml에 verify-호환 wrapper class만 추가로 부여.
 // 항상 펼침, toggle/chevron 없음, 소지품 상세(상태·설명·위치) 기본 노출.
-// reopen-2: fontScale 1.15로 본문 하단 카드 폰트 키움 (캡처보다 약 15% 큼).
+// reopen-3: fontScale 1.3 — 사장 피드백 "글씨 크기 좀 더 키워줘".
 function _buildSceneCharDetailedCardHtml(s) {
   return _buildCapStyleCharCardHtml(s, {
     extraClass: 'scene-char-item ep-end-card',
     dataChar:   true,
-    fontScale:  1.15,
+    fontScale:  1.3,
   });
 }
 
