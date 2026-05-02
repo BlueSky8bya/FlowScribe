@@ -610,7 +610,7 @@ body.mode-tts #output p.tts-current{background:rgba(80,130,200,.12);border-left:
   align-self:flex-end;padding-bottom:.22rem;
 }
 .output-book-title{
-  font-size:1.1rem;color:var(--text3);letter-spacing:.02em;font-weight:500;
+  font-size:1.45rem;color:var(--text3);letter-spacing:.02em;font-weight:500;
   white-space:nowrap;flex-shrink:0;align-self:flex-end;padding-bottom:.22rem;
   margin-left:auto; /* 우측 정렬 — 본문 화 제목과 별개 group */
 }
