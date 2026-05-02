@@ -820,7 +820,6 @@ const _CAP_QLABEL_DESC = {
   '무기':'전투에 사용하는 무기',
   '방어':'방어 및 보호용 장비',
   '의료':'치료 및 의료에 사용하는 도구',
-  '식량':'식량 및 식품류',
   '정보':'정보 저장 및 처리 장치',
   '의식':'의식 및 제례에 사용하는 도구',
   '영적':'영적 존재와 관련된 도구',
@@ -840,7 +839,6 @@ function _capQlabel(name) {
   if (/권총|소총|기관총|산탄총|저격|리볼버|피스톨|총기|도검|칼날|단검|장검|검|창|활|석궁|무기|병기|총|채찍|도끼|망도|나이프|대거|블레이드|도\b/.test(t)) return { label:'무기', color:'#a04060' };
   if (/방패|갑옷|갑주|방탄|헬멧|투구|흉갑|보호복|방어/.test(t)) return { label:'방어', color:'#8060a0' };
   if (/주사기|의약|약품|약제|붕대|치료|치유|해독|진통|수혈|백신|혈청|농축액|수액|포션|엘릭서|의료|영양제|억제/.test(t)) return { label:'의료', color:'#40a060' };
-  if (/영양바|단백질바|에너지바|프로틴바|시리얼바|식량|식품|음식|빵|통조림|건빵|라면|비상식|도시락|영양식|보존식|건조식품|식수|음용수|쌀밥|찌개|스튜|국물|에너지젤/.test(t)) return { label:'식량', color:'#60a060' };
   if (/데이터|메모리|큐브|슬롯|칩|코드|디스크|파일|정보|수첩|서류|지도|사전|기록|문서|책|태블릿|기록기/.test(t)) return { label:'정보', color:'#5060a0' };
   if (/진혼|향로|제기|제사|성수|봉헌|부적|주문서|의례|강신|무속|제물|제단|향불|봉납/.test(t)) return { label:'의식', color:'#9060a0' };
   if (/심령|강령|영매|초혼|귀신|유령|망령|사령|망자|혼령|기령|영계|귀령|혼백/.test(t)) return { label:'영적', color:'#7050a0' };
@@ -907,6 +905,10 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
     const cond       = typeof it === 'object' ? it.condition   : null;
     const desc       = typeof it === 'object' ? it.description : null;
     const hiddenNote = typeof it === 'object' ? it.hidden_note : null;
+    // POST-1 §S10 reopen-4 — server LLM 분류 결과(it.category / it.badge_label) 우선.
+    // 사장 정책: 키워드 if문 추가 금지. 미매칭은 LLM 분류 + vocab 누적으로 처리.
+    const itemBadgeLabel = typeof it === 'object' ? (it.badge_label ?? null) : null;
+    const itemCategory   = typeof it === 'object' ? (it.category   ?? null) : null;
     const _pm = rawName.match(/^(.+?)\s*\(([^)]+)\)\s*$/);
     let displayName = rawName, inferredDesc = null;
     if (_pm && !/^[SABCD]$|^[SABCD][급등]\b/.test(_pm[2].trim()) && /있음|됨|있는|된|숨겨|보관|파손|고장|작동|꺼|켜|잠|열|닫/.test(_pm[2])) {
@@ -915,7 +917,26 @@ function _buildCapStyleCharCardHtml(s, opts = {}) {
     const effectiveDesc = desc || inferredDesc || _capDescFallback(displayName);
     const showGrade = isFantasyGenre && grade;
     const gc2 = showGrade ? (_CAP_GRADE_COLOR[grade] ?? '#888') : null;
-    const ql  = !showGrade ? _capQlabel(displayName) : null;
+    // 카테고리 결정 우선순위:
+    //   1. server item.badge_label / item.category (LLM이 item_desc.ts에서 분류한 결과,
+    //      char_states emit 시 함께 전달되거나 canonical_characters.initial_items에 보존)
+    //   2. _capQlabel(displayName) — 안에 _itemVocab DB lookup + 키워드 fallback 포함
+    //   3. 그래도 없으면 ql=null → 배지 미표시
+    let ql = null;
+    if (!showGrade) {
+      const serverLabel = itemBadgeLabel ?? itemCategory;
+      if (serverLabel && serverLabel !== '기타') {
+        const CAT_COLOR = {
+          무기:'#a04060', 방어구:'#8060a0', 도구:'#607040', 소모품:'#40a060',
+          문서:'#5060a0', 마법:'#9060a0', 통신:'#307080', 전자:'#307080',
+          기기:'#3a6a80', 의복:'#7060a0', 식량:'#60a060', 귀중품:'#c08030',
+          악기:'#9060a0', 탈것:'#5080a0', 기타:'#888',
+        };
+        ql = { label: serverLabel, color: CAT_COLOR[itemCategory] ?? CAT_COLOR[itemBadgeLabel] ?? '#888' };
+      } else {
+        ql = _capQlabel(displayName);
+      }
+    }
     const borderColor = showGrade ? gc2 : (ql?.color ?? 'rgba(128,128,128,.3)');
     return `<div class="cap-item-row" style="border-left:2px solid ${borderColor};padding:2px 0 2px 6px;margin-top:3px;">
       <div style="font-size:.78em;font-weight:600;color:var(--text);display:flex;align-items:center;gap:.3em;">
