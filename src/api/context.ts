@@ -324,10 +324,16 @@ contextRouter.get("/:bookId", async (req: Request, res: Response) => {
     // Redis 우선
     const raw = await redis.get(`context:${bookId}`);
     if (raw) {
-      ctx = JSON.parse(raw);
-      logInfo("api:context:get", "World Bible 캐시 조회 성공", { bookId });
-    } else {
-      // Redis 미스 → books 테이블 폴백
+      try { ctx = JSON.parse(raw); } catch { ctx = null; }
+      if (ctx && Object.keys(ctx).length) {
+        logInfo("api:context:get", "World Bible 캐시 조회 성공", { bookId });
+      } else {
+        // POST-1: Redis에 빈 객체가 캐시된 경우 — DB 폴백으로 fall through
+        ctx = null;
+      }
+    }
+    if (!ctx) {
+      // Redis 미스 또는 빈 캐시 → books 테이블 폴백
       const dbResult = await pool.query(
         `SELECT context FROM books WHERE id = $1`, [bookId]
       );

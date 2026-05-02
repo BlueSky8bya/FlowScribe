@@ -386,7 +386,8 @@ function renderProgressiveRaw(text, done) {
   if (labelEl && displayedEpisode) labelEl.textContent = `${displayedEpisode}화`;
   if (titleEl) titleEl.textContent = title ? title.replace(/^\d+화\s*[-–—]\s*/, "") : "";
   if (bookTitleEl) bookTitleEl.textContent = (typeof activeBookTitle !== "undefined" ? activeBookTitle : "") || "";
-  if (epSepEl)    epSepEl.style.display = bookTitleEl?.textContent ? "" : "none";
+  // POST-1: separator 완전 제거 — 좌(N화 화 제목) / 우(책 제목) 좌우 정렬만 사용
+  if (epSepEl) epSepEl.style.display = "none";
 
   const parts = body.split(/\n\n/);
   if (done || parts.length === 1) {

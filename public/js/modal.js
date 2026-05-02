@@ -75,6 +75,7 @@ function openModal() {
   if (!overlay) return;
   overlay.style.removeProperty("display");
   overlay.removeAttribute("aria-hidden");
+  overlay.removeAttribute("inert");  // POST-1: focus 가능 상태로
   overlay.classList.add("open");
   // 열릴 때마다 현재 episodeCache 기준으로 잠금 상태 재계산
   if (typeof episodeCache !== "undefined" && typeof applySettingsLock === "function") {
@@ -89,8 +90,16 @@ function openModal() {
 function closeModal() {
   const overlay = document.getElementById("modalOverlay");
   if (!overlay) return;
+  // POST-1: aria-hidden warning 해결 — 닫기 전에 overlay 내부 focus를 body로 이동.
+  // aria-hidden="true"인 element 안에 focus가 남으면 브라우저가 a11y warning 출력.
+  // 또한 inert attribute 추가 — focus를 차단하여 a11y 호환 (aria-hidden과 병행 안전).
+  if (overlay.contains(document.activeElement)) {
+    try { document.activeElement.blur?.(); } catch {}
+    try { document.body.focus?.(); } catch {}
+  }
   overlay.classList.remove("open");
   overlay.setAttribute("aria-hidden", "true");
+  overlay.setAttribute("inert", "");
   // display 인라인 스타일이 남아 있으면 강제 제거
   const computed = getComputedStyle(overlay).display;
   if (computed !== "none") {

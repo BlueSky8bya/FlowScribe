@@ -1114,7 +1114,8 @@ function updateOutputHeader() {
   if (displayedEpisode && episodeCache[displayedEpisode]) {
     header.style.display = "flex";
     if (bookTitleEl) bookTitleEl.textContent = activeBookTitle || "";
-    if (epSepEl)    epSepEl.style.display = activeBookTitle ? "" : "none";
+    // POST-1: separator 완전 제거 — 헤더는 좌우 정렬만 (margin-left:auto)
+    if (epSepEl)    epSepEl.style.display = "none";
     if (epLabel)    epLabel.textContent    = `${displayedEpisode}화`;
     if (charCount) {
       const len = episodeCache[displayedEpisode].replace(/\s/g, "").length;

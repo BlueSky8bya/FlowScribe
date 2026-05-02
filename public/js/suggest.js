@@ -58,14 +58,15 @@ async function suggestCharacter(btn) {
         nameInp.value = c.name || "";
         card.querySelector(".char-card-name-preview").textContent = c.name || "이름 미입력";
       }
-      // 유형·성별은 기본값("인간"/"해당없음")이면 AI 추천 적용
-      const existingType   = card.dataset.type   || "인간";
-      const existingGender = card.dataset.gender || "해당없음";
-      if (c.type && (existingType === "인간" || existingType === "기타")) {
+      // POST-1 §7.2/§7.3: 역할·성별은 기본값("기타")일 때만 AI 추천 적용 (옛 default "인간"/"해당없음"도 호환).
+      // AI가 옛 종족 카테고리("인간"/"엘프")를 반환해도 새 TYPES(역할 기반)에 없으면 chip 매칭 안 되어 자연스럽게 무시.
+      const existingType   = card.dataset.type   || "기타";
+      const existingGender = card.dataset.gender || "기타";
+      if (c.type && (existingType === "기타" || existingType === "인간")) {
         const typeChip = card.querySelector(`.type-chips .char-chip[data-val="${c.type}"]`);
         if (typeChip) typeChip.click();
       }
-      if (c.gender && (existingGender === "해당없음" || existingGender === "기타")) {
+      if (c.gender && (existingGender === "기타" || existingGender === "해당없음")) {
         const genderChip = card.querySelector(`.gender-chips .char-chip[data-val="${c.gender}"]`);
         if (genderChip) genderChip.click();
       }
@@ -78,10 +79,14 @@ async function suggestCharacter(btn) {
       }
 
       // 소지품 — 기존 태그를 보존하고 새 항목만 추가 (동명 항목은 추가 금지)
+      // POST-1 §6.5/S14: cross-card dedup — 모든 인물 카드의 기존 소지품 이름까지 포함하여
+      // 같은 책 안에서 다른 인물이 이미 보유한 소지품과 중복되지 않도록 한다.
       if (c.initial_items?.length && typeof applyItemsToCard === "function") {
         const wrap = card.querySelector(".char-items-tag-wrap");
+        // 같은 카드 + 다른 모든 카드의 기존 소지품 이름 수집
+        const allTags = document.querySelectorAll(".char-card .char-item-tag");
         const existingNames = new Set(
-          Array.from(wrap?.querySelectorAll(".char-item-tag") ?? [])
+          Array.from(allTags)
             .map(t => (t.dataset.itemName || "").trim().toLowerCase())
             .filter(Boolean)
         );

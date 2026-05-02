@@ -114,8 +114,9 @@ function makeCharChips(card, groupClass, dataKey, customWrapClass, customInpClas
 function appendCharCard(container, i, p) {
   const card = document.createElement("div");
   card.className = "char-card";
-  card.dataset.type   = p.type   || "인간";
-  card.dataset.gender = p.gender || "해당없음";
+  // POST-1 §7.2/§7.3: default 역할 "기타", 성별 "기타" (옛 default "인간"/"해당없음" → 새 taxonomy)
+  card.dataset.type   = p.type   || "기타";
+  card.dataset.gender = p.gender || "기타";
 
   card.innerHTML = `
     <div class="char-card-accent"></div>
@@ -129,9 +130,9 @@ function appendCharCard(container, i, p) {
           <button class="char-lock-btn" style="flex-shrink:0" onclick="toggleCharLock(this)">확정</button>
         </div>
         <span class="char-card-meta">
-          <span class="char-meta-type">${esc(p.type&&p.type!=="기타"?p.type:(p.typeCustom||"인간"))}</span>
+          <span class="char-meta-type">${esc(p.type&&p.type!=="기타"?p.type:(p.typeCustom||"기타"))}</span>
           <span class="char-meta-sep">·</span>
-          <span class="char-meta-gender">${esc(p.gender&&p.gender!=="기타"?p.gender:(p.genderCustom||"해당없음"))}</span>
+          <span class="char-meta-gender">${esc(p.gender&&p.gender!=="기타"?p.gender:(p.genderCustom||"기타"))}</span>
         </span>
       </div>
       <div class="char-card-body">
@@ -155,17 +156,17 @@ function appendCharCard(container, i, p) {
         <hr class="char-divider">
         <div class="char-section">
           <div class="char-section-cell">
-            <span class="char-chip-field-label">유형</span>
+            <span class="char-chip-field-label">역할</span>
             <div class="char-chip-label" onclick="toggleChipSection(this)">
-              <span class="char-selected-preview">${esc(p.type&&p.type!=="기타"?p.type:(p.typeCustom||"인간"))}</span>
+              <span class="char-selected-preview">${esc(p.type&&p.type!=="기타"?p.type:(p.typeCustom||"기타"))}</span>
               <span class="char-chip-toggle">▼</span>
             </div>
             <div class="char-chip-panel collapsed">
               <div class="char-chips type-chips">
-                ${TYPES.map(t=>`<button class="char-chip${(p.type||"인간")===t?" selected":""}" data-val="${t}">${t}</button>`).join("")}
+                ${TYPES.map(t=>`<button class="char-chip${(p.type||"기타")===t?" selected":""}" data-val="${t}">${t}</button>`).join("")}
               </div>
               <div class="char-custom-wrap type-wrap${p.type==="기타"?" show":""}">
-                <input class="char-custom-inp type-inp${p.type==="기타"&&p.typeCustom?" confirmed":""}" type="text" placeholder="예: 반신, 드래곤" value="${esc(p.typeCustom||"")}" />
+                <input class="char-custom-inp type-inp${p.type==="기타"&&p.typeCustom?" confirmed":""}" type="text" placeholder="예: 멘토, 적대자" value="${esc(p.typeCustom||"")}" />
                 <button class="char-confirm-btn">↵</button>
               </div>
             </div>
@@ -289,10 +290,8 @@ function appendCharCard(container, i, p) {
         <label class="item-ed-label">설명</label>
         <input class="item-ed-desc tag-input-field" type="text" placeholder="간단한 설명 (선택, 직접 입력하면 AI가 채우지 않습니다)" />
       </div>
-      <div class="item-ed-row">
-        <label class="item-ed-label">카테고리</label>
-        <input class="item-ed-cat tag-input-field" type="text" placeholder="무기, 마법, 도구, 의복 등" />
-      </div>
+      <!-- POST-1 §7.1: 카테고리 입력 UI 제거 — AI가 자동 분류. input은 데이터 보존용으로 hidden 유지 (suggest.js가 .item-ed-cat.value를 set/get) -->
+      <input class="item-ed-cat" type="hidden" />
       <div class="item-ed-btns">
         <button class="item-ed-ok btn-xs btn-primary">확인</button>
         <button class="item-ed-cancel btn-xs">취소</button>
@@ -446,9 +445,9 @@ function renderCharCards() {
     saved.push({
       name: c.querySelector(".char-name")?.value || "",
       personality: c.querySelector(".char-personality")?.value || "",
-      type: c.dataset.type || "인간",
+      type: c.dataset.type || "기타",
       typeCustom: c.querySelector(".type-inp")?.value || "",
-      gender: c.dataset.gender || "해당없음",
+      gender: c.dataset.gender || "기타",
       genderCustom: c.querySelector(".gender-inp")?.value || "",
       initialItems: Array.from(c.querySelectorAll(".char-item-tag")).map(t => {
         const nm = (t.dataset.itemName || Array.from(t.childNodes).filter(n => n.nodeType === 3).map(n => n.textContent.trim()).join('')).trim();
@@ -464,7 +463,7 @@ function renderCharCards() {
   });
   container.innerHTML = "";
   for (let i = 0; i < charCount; i++) {
-    appendCharCard(container, i, saved[i] || { type:"인간", gender:"해당없음" });
+    appendCharCard(container, i, saved[i] || { type:"기타", gender:"기타" });
   }
 }
 
@@ -501,7 +500,7 @@ function changeCharCount(d) {
   if (next === charCount) return;
   const container = document.getElementById("charCards");
   if (next > charCount) {
-    for (let i = charCount; i < next; i++) appendCharCard(container, i, {type:"인간",gender:"해당없음"});
+    for (let i = charCount; i < next; i++) appendCharCard(container, i, {type:"기타",gender:"기타"});
   } else {
     for (let i = charCount; i > next; i--) {
       const cards = container.querySelectorAll(".char-card");
