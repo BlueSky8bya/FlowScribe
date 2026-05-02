@@ -14,7 +14,7 @@ import { buildFallbackSummary, generateAndSaveLLMSummary, SUMMARY_FALLBACK_MARKE
 import { runPlannerPipeline } from "../pipeline/index.js";
 import { scheduleBackgroundAudit } from "../training/background_audit.js";
 import { enterGeneration, exitGeneration } from "../lib/generation_guard.js";
-import { generateAndSaveItemDescriptions } from "../services/item_desc.js";
+import { generateAndSaveItemDescriptions, classifyAndSaveItemCategories } from "../services/item_desc.js";
 import { buildRegenDivergenceContract, detectGenerationMode } from "../services/regen_divergence.js";
 import { logInfo, logWarn, logError } from "../lib/logger.js";
 import jwt from "jsonwebtoken";
@@ -833,14 +833,25 @@ generateRouter.get("/char-states", async (req: Request, res: Response) => {
     for (const r of vocabRows.rows) {
       vocabMap[r.name] = { category: r.category, badge_label: r.badge_label };
     }
+    // POST-1 §P1-A — vocab 미등록 아이템을 모아 fire-and-forget 분류 큐잉.
+    // 다음 char-states 호출 시 vocab hit하여 정상 카테고리 부여. 키워드 if문 추가 대신 LLM 분류 누적.
+    const missingForClassify = new Set<string>();
     for (const s of charStates) {
       s.items = (s.items ?? []).map((it: any) => {
         if (!it.name || (it.badge_label && it.category)) return it;
         const v = vocabMap[it.name];
         if (v) return { ...it, category: v.category, badge_label: v.badge_label };
+        // vocab 미등록 → 분류 후보로 모음. 응답에는 _inferItemBadge fallback 그대로 사용.
+        missingForClassify.add(it.name);
         const fb = _inferItemBadge(it.name);
         return { ...it, category: fb.category, badge_label: fb.badge_label };
       });
+    }
+    if (missingForClassify.size > 0) {
+      classifyAndSaveItemCategories({
+        book_id: bookId,
+        item_names: Array.from(missingForClassify),
+      }).catch(() => { /* fire-and-forget — 응답에 영향 없음 */ });
     }
 
     // 최종 description 보장 — LLM 생성 실패 시에도 카테고리 기반 fallback 적용

@@ -282,3 +282,94 @@ export async function generateAndSaveItemDescriptions(data: ItemDescJobData): Pr
     }
   } catch { /* Redis 갱신 실패는 무시 — DB가 source of truth */ }
 }
+
+// POST-1 §P1-A — vocab-only 분류 (description / DB items 미터치).
+// 스토리 진행 중 새로 등장한 dynamic items는 vocab에 안 들어가서 카테고리 배지가
+// "기타" 또는 미표시되는 root cause를 막기 위함.
+//
+// 호출 정책:
+// - char-states 엔드포인트에서 vocab 미등록 dynamic 아이템을 모아 fire-and-forget.
+// - description은 절대 덮지 않음 (사용자 입력 보존 정책 + dynamic items는 stateExtractor 출력).
+// - item_vocab만 누적 — 다음 char-states 호출 시 vocab lookup이 hit해서 정상 카테고리 부여.
+export interface ClassifyOnlyJobData {
+  book_id: string;
+  // 분류 대상 아이템 이름들. 인물/세계관 컨텍스트 없이 이름만으로 분류
+  // (정확도가 generateAndSaveItemDescriptions보다 약간 낮을 수 있으나, fallback 용도로 적절).
+  item_names: string[];
+}
+
+const _CATEGORY_LIST = ["무기", "방어구", "도구", "소모품", "문서", "마법", "통신", "전자", "기기", "의복", "식량", "귀중품", "악기", "탈것", "기타"];
+const _CATEGORY_TO_BADGE: Record<string, string> = Object.fromEntries(_CATEGORY_LIST.map(c => [c, c]));
+
+export async function classifyAndSaveItemCategories(data: ClassifyOnlyJobData): Promise<void> {
+  const { book_id, item_names } = data;
+  const names = Array.from(new Set((item_names || []).filter(n => n && typeof n === "string"))).slice(0, 30);
+  if (!names.length) return;
+
+  // 이미 vocab에 있는 것은 제외 (idempotent)
+  let pending = names;
+  try {
+    const existRes = await pool.query(
+      `SELECT name FROM item_vocab WHERE book_id = $1 AND name = ANY($2::text[])`,
+      [book_id, names]
+    );
+    const exist = new Set(existRes.rows.map(r => r.name));
+    pending = names.filter(n => !exist.has(n));
+  } catch { /* 조회 실패 시 모두 분류 시도 */ }
+  if (!pending.length) return;
+
+  const itemLines = pending.map((n, i) => `${i + 1}. ${n}`).join("\n");
+  const prompt = [
+    `다음 소지품 각각에 대해 카테고리만 분류해주세요.`,
+    `카테고리 옵션: ${_CATEGORY_LIST.join(", ")}`,
+    ``,
+    `반드시 JSON 배열로만 응답: [{"name":"소지품명","category":"카테고리"}]`,
+    `다른 텍스트(설명, 코드블록 마커 등) 금지.`,
+    ``,
+    `[소지품 목록]`,
+    itemLines,
+  ].join("\n");
+
+  let parsed: Array<{ name: string; category: string }> = [];
+  try {
+    const client = getLLMClient();
+    const resp = await client.chat.completions.create({
+      model: getSuggestModel(),
+      messages: [{ role: "user", content: prompt }],
+      temperature: 0.2, // 분류는 결정적
+      max_tokens: 800,
+    });
+    const raw = resp.choices[0]?.message?.content?.trim() ?? "";
+    const m = raw.match(/\[[\s\S]*\]/);
+    if (!m) {
+      logWarn("service:item_desc:classify_only", "LLM 응답 JSON 없음", { book_id, names_n: pending.length, raw: raw.slice(0, 200) });
+      return;
+    }
+    const arr = JSON.parse(m[0]);
+    parsed = (Array.isArray(arr) ? arr : [])
+      .filter(e => e && typeof e === "object" && e.name && e.category)
+      .map(e => ({ name: String(e.name), category: _CATEGORY_TO_BADGE[String(e.category)] ? String(e.category) : "기타" }));
+  } catch (err) {
+    logError("service:item_desc:classify_only", err, { book_id, names_n: pending.length });
+    return;
+  }
+  if (!parsed.length) return;
+
+  // vocab 저장 — ON CONFLICT DO NOTHING (idempotent)
+  try {
+    for (const r of parsed) {
+      const badgeLabel = _CATEGORY_TO_BADGE[r.category] ?? "기타";
+      await pool.query(
+        `INSERT INTO item_vocab (book_id, name, category, badge_label)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (book_id, name) DO NOTHING`,
+        [book_id, r.name, r.category, badgeLabel]
+      );
+    }
+    logInfo("service:item_desc:classify_only", "vocab 누적", {
+      book_id, classified: parsed.length, requested: pending.length,
+    });
+  } catch (err) {
+    logError("service:item_desc:classify_only", err, { context: "vocab_save", book_id });
+  }
+}
