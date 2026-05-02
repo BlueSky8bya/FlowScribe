@@ -190,29 +190,15 @@ P3 cleanup (DeepSeek / dpo gitignore / `_inferItemBadge` 단순화 등) → **PO
 
 ---
 
-## 5. 사장 확인 필요 결정 항목
+## 5. 사장 결정 결과 (2026-05-03 회신)
 
-POST-2 진행 전 다음 4건 결정 부탁드립니다.
-
-### Q1. S4 (청독/묵독/낭독 모드 위치 보존)
-- 현재: 모드 전환 시 현재 단락 위치 유지
-- 결정: 그대로 KEEP인지 / 모드 전환 시 본문 처음으로 이동 정책으로 변경 원하는지
-
-### Q2. S9 (소지품 설명 길이 — 30~40자)
-- 현재: LLM description은 40자 sentence-aware cut 정책. verify는 21/21 PASS.
-- 결정: 실제 카드에서 일부 description이 너무 짧거나 어색하지 않은지 → 회신 후 prompt 미세 조정 결정
-
-### Q3. S12 (세계관 설정 저장 흐름)
-- 현재: button disabled + 메시지 cycle + 성공 시 closeModal. POST-1 §S17 aria-hidden + inert 적용.
-- 결정: 흐름 OK인지 / 추가 polish 필요한지
-
-### Q4. S13 (세계관 설정 뷰어 섹션 표시)
-- 현재: 배경/장르/연출 고정/규칙 섹션 모두 표시 (audit 미회신)
-- 결정: 모든 섹션이 입력값과 함께 정확히 표시되는지 / 일부 누락이 있는지. **회신 필수** — 회신 없이 코드 변경 불가
-
-### Q5. POST-2 verify refresh / 추가 진행 여부
-- 후보 작업: P3-V1 (필수), P3-V2 (선택), P3-V3 (선택)
-- 결정: P3-V1만 진행 / P3-V1+V2 / P3-V1+V2+V3 / 전부 보류
+| 질문 | 결정 |
+|---|---|
+| **Q1 S4 모드 위치 보존** | **KEEP** — 단락 위치 유지 정책 그대로. 본문 처음으로 이동 변경 안 함. |
+| **Q2 S9 소지품 설명 길이** | **KEEP** — 40자 sentence-aware cut + verify 21/21 그대로. prompt/cut 정책 변경 금지. |
+| **Q3 S12 세계관 저장 흐름** | **KEEP** — POST-1에서 modal save/close/aria-hidden/inert/button restore 정리됨. 추가 polish 안 함. |
+| **Q4 S13 세계관 뷰어** | **DEFER (browser 확인 대기)** — 코드 수정 금지, S13 browser checklist 별도 정리. PASS/WARN/FAIL 회신 후 KEEP/reopen 결정. |
+| **Q5 verify 추가** | **V1 + V2 진행, V3 보류** — V1 (session_guard refresh), V2 (capture_title_format 신규), V3 (reading_mode_position) 보류. |
 
 ---
 
