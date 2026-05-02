@@ -29,6 +29,9 @@ const PROVIDERS: Record<LLMProvider, ProviderConfig> = {
     // gemma3:12b: 한국어 요약/분석 정확도 우수 (llama3.1:8b 대비)
     summaryModel: process.env.SUMMARY_MODEL  ?? "gemma3:12b",
   },
+  // POST-4 §C3 — production path 아님. 현재 model_routes.json에서 비활성
+  // (active=openai_renderer, fallback=baseline_local). low-cost / fast route 재도입
+  // 옵션으로 보존. 재활성화 시 별도 route matrix 검증(R5B-4 패턴) 필요.
   deepseek: {
     baseURL: "https://api.deepseek.com/v1",
     apiKey: process.env.DEEPSEEK_API_KEY ?? "",

@@ -162,41 +162,59 @@ arc_summaries 395 / episode_snapshots 405
 
 ---
 
-## 5. 사장 결정 필요 항목
+## 5. 사장 결정 결과 (2026-05-03)
 
-POST-4 진행 전 다음 결정 부탁드립니다.
+| 질문 | 결정 |
+|---|---|
+| **Q1 DeepSeek 잔존 코드** | **옵션 B — 보존 + 주석** — production path 아님 / model_routes.json 비활성 / low-cost·fast route 재도입 옵션. 재활성화 시 별도 route matrix 검증 필요. |
+| **Q2 POST-4 진행 범위** | **옵션 2 — 최소 + 정착도 측정** — C1 (audit detail) + C2 (verify reading mode) + DeepSeek 보존 주석 + vocab coverage 측정 로그 |
 
-### Q1. DeepSeek 잔존 코드 처리 방향
+---
 
-**옵션 A — 완전 삭제 (권고 시 small commit)**
-- src/lib/llm.ts deepseek 설정 block 제거
-- LLMProvider type union에서 "deepseek" 제거 (3 파일)
-- model_router.ts case "deepseek" 분기 제거
-- settings.ts valid validation 축소
-- openai_compatible.ts 주석에서 "DeepSeek" 제거
-- 영향: production 0 (이미 model_routes.json에서 미사용). 향후 재도입 시 코드 다시 추가 필요.
+## 6. vocab 정착도 측정 결과 (2026-05-03)
 
-**옵션 B — 보존 (현재 상태 유지)**
-- 코드 그대로 + 주석에 "보존 사유" 명시 (low-cost/fast route 재도입 옵션)
-- DEEPSEEK_API_KEY 환경변수도 active route 미사용 → 영향 0
+`node scripts/audit_item_vocab.mjs --all --detail` 실행 (active books 25권).
 
-→ A vs B 결정 부탁드립니다.
+**AGGREGATE SUMMARY**:
 
-### Q2. POST-4 진행 범위
+| title | coverage | 기타 | dynMiss | mismatch |
+|---|---:|---:|---:|---:|
+| 바보바보바보 | 100% | 0 | 0 | **1** |
+| 확률을 깨는 용사(확깨용)_TEST | 100% | 1 | 0 | **3** |
+| 확률을 깨는 용사(확깨용)_검증 | 0% | 0 | 0 | 0 |
+| [DPO_A_SF탐정...] 근미래 SF / 탐정 | 0% | 0 | 0 | 0 |
+| 균열의 증인들 | 0% | 0 | 29 | 0 |
+| 폐허의 열쇠 — gemma3:27b+DS | 0% | 0 | 3 | 0 |
+| (나머지 19권) | 0% | 0 | 0~11 | 0 |
 
-**옵션 1 — 최소 (small commits만)**
-- C1 audit detail 옵션
-- C2 V3 verify 신규
-- Q1 결정 결과 반영
+**정착 완료(coverage≥95% + 기타 0 + mismatch 0)**: **0/25권**.
 
-**옵션 2 — 최소 + 정착도 측정 도입**
-- 옵션 1 + audit_item_vocab으로 vocab coverage 책별 측정 → docs 정착도 로그 추가 (D1 단순화 시점 결정용)
+### 발견 사항
 
-**옵션 3 — 보류**
-- POST-4 inventory만 닫고 다음 phase로 (R6.x / R7 본 작업)
-- C1/C2/Q1/D1/D2는 모두 backlog로 이관
+1. **vocab coverage가 매우 낮음**: 25권 중 23권은 vocab 0건. POST-1 §P1-A reopen 시점 도입한 fire-and-forget 분류는 **사용자가 char-states API를 호출한 책에만 vocab 누적** — 옛 테스트 책 / 활성 사용 안 한 책은 vocab 0.
+2. **mismatch 4건 발견** (바보바보바보 1건 + 확깨용_TEST 3건): canonical_characters.initial_items에 박힌 category와 item_vocab category 불일치. **POST-1 §P1-A reopen-3의 vocab > canonical priority 정책으로 client 표시는 정상** (vocab 우선) — production 영향 0. 단 canonical 행은 stale 상태.
+3. **dynamic-only vocab miss**: 일부 책에서 11~29건 (균열의 증인들 29건 등). 옛 책의 스토리 도중 신규 아이템이 fire-and-forget 도입 이전이라 vocab 미누적.
 
-→ 1/2/3 중 결정 부탁드립니다.
+### 키워드 fallback 단순화 결정
+
+**DEFER 유지** — 사장 결정과 일치. 정착 완료 0/25권 = 키워드 fallback 호출 빈도 여전히 높음. 단순화 시 회귀 위험 큼.
+
+향후 단순화 시점 트리거 (제안):
+- 신규 책 비율이 충분히 높아져 active books 정착도 ≥80%/25권일 때 재평가
+- 또는 reclassify_item_vocab.mjs를 책별 일괄 적용해 mismatch 0 + coverage ≥95% 달성 후
+
+---
+
+## 7. POST-4 작업 결과 (코드 변경)
+
+| 파일 | 변경 |
+|---|---|
+| `scripts/audit_item_vocab.mjs` | C1 — `--detail` 옵션 추가. 카테고리별 분포 + vocab vs canonical mismatch + 정착도 평가. summary 모드는 호환 유지 |
+| `scripts/verify_reading_mode_position_preserve.mjs` | C2 신규 — S4 KEEP 정책 정적 contract verify (15 checks). setReadMode anchor capture/restore + 강제 상단 이동 패턴 부재 검증 |
+| `src/lib/llm.ts` | DeepSeek 설정 block 위에 보존 주석 1줄 |
+| `src/services/model_router.ts` | DeepSeek case 위에 보존 주석 1줄 |
+
+`model_routes.json` / active_route / fallback_route / `_capQlabel` / `_inferItemBadge` / DB / public UI **변경 0건**.
 
 ---
 

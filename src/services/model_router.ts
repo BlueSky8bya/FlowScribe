@@ -50,6 +50,8 @@ function buildClient(provider: LLMProvider): LLMProviderClient {
         apiKey: "ollama",
       });
       break;
+    // POST-4 §C3 — production path 아님 (model_routes.json 비활성).
+    // low-cost / fast route 재도입 옵션으로 보존. 재활성화 시 route matrix 검증 필요.
     case "deepseek":
       client = new OpenAICompatibleClient({
         provider_name: "deepseek",
